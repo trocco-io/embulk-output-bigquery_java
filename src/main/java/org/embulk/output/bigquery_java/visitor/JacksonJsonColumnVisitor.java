@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.embulk.output.bigquery_java.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.BigqueryUtil;
 import org.embulk.output.bigquery_java.BigqueryValueConverter;
+import org.embulk.output.bigquery_java.PluginTask;
 import org.embulk.spi.Column;
 import org.embulk.spi.PageReader;
 
@@ -12,11 +13,13 @@ import java.util.List;
 import com.google.common.base.Optional;
 
 public class JacksonJsonColumnVisitor implements BigqueryColumnVisitor {
+    private PluginTask task;
     final PageReader reader;
     private List<BigqueryColumnOption> columnOptions;
     private final ObjectNode node;
 
-    public JacksonJsonColumnVisitor(PageReader reader, List<BigqueryColumnOption> columnOptions) {
+    public JacksonJsonColumnVisitor(PluginTask task, PageReader reader, List<BigqueryColumnOption> columnOptions) {
+        this.task = task;
         this.reader = reader;
         this.columnOptions = columnOptions;
         this.node = BigqueryUtil.getObjectMapper().createObjectNode();
@@ -45,9 +48,9 @@ public class JacksonJsonColumnVisitor implements BigqueryColumnVisitor {
     @Override
     public void stringColumn(Column column) {
         Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
-        if (columnOption.isPresent()){
+        if (columnOption.isPresent() && columnOption.get().getType().isPresent()){
             BigqueryValueConverter.convertAndSet(this.node, column.getName(),
-                    reader.getString(column), columnOption.get());
+                    reader.getString(column), columnOption.get(), this.task);
         }else{
             node.put(column.getName(), reader.getString(column));
         }

@@ -1,5 +1,6 @@
 package org.embulk.output.bigquery_java;
 
+import com.google.common.base.Optional;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.Task;
@@ -21,15 +22,18 @@ public interface BigqueryColumnOption extends Task {
     public String getName();
 
     @Config("type")
-    public String getType();
+    @ConfigDefault("null")
+    public Optional<String> getType();
 
     @Config("mode")
     @ConfigDefault("\"NULLABLE\"")
     public String getMode();
 
+    // TODO: fix me
+    // timestamp_format: timestamp format to convert into/from timestamp (string, default is default_timestamp_format)
     @Config("timestamp_format")
-    @ConfigDefault("\"UTC\"")
-    public String getTimestampFormat();
+    @ConfigDefault("null")
+    public Optional<String> getTimestampFormat();
 
     @Config("timezone")
     @ConfigDefault("\"UTC\"")

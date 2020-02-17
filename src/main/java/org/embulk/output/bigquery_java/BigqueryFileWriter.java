@@ -7,6 +7,7 @@ import java.util.zip.GZIPOutputStream;
 
 // provide function to write record to file
 // jsonl and csv should be handled this class
+
 public class BigqueryFileWriter {
     private PluginTask task;
     private String compression;

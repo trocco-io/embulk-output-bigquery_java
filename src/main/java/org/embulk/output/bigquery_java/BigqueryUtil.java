@@ -6,17 +6,19 @@ import javafx.beans.binding.ObjectExpression;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.List;
+import java.util.stream.Collectors;
+
 import com.google.common.base.Optional;
 
 public class BigqueryUtil {
-    public static Path[] getIntermediateFiles(PluginTask task) throws IOException {
+    public static List<Path> getIntermediateFiles(PluginTask task) throws IOException {
         String glob = String.format("glob:%s*", task.getPathPrefix().get());
 
         FileSystem fs = FileSystems.getDefault();
         PathMatcher matcher = fs.getPathMatcher(glob);
 
         Path startDir = Paths.get(task.getPathPrefix().get());
-        return Files.walk(startDir).filter(matcher::matches).toArray(Path[]::new);
+        return Files.walk(startDir).filter(matcher::matches).collect(Collectors.toList());
     }
 
     public static long getPID() {

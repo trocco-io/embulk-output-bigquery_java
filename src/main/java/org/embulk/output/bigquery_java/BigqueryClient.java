@@ -1,8 +1,6 @@
 package org.embulk.output.bigquery_java;
 
-import com.google.api.services.bigquery.Bigquery;
 import com.google.auth.oauth2.ServiceAccountCredentials;
-import com.google.cloud.RetryOption;
 import com.google.cloud.bigquery.*;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
@@ -18,7 +16,6 @@ import java.io.OutputStream;
 import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 
 import static com.google.cloud.bigquery.JobStatus.State.DONE;
@@ -30,7 +27,6 @@ public class BigqueryClient {
     private PluginTask task;
     private Schema schema;
     private List<BigqueryColumnOption> columnOptions;
-
 
     public BigqueryClient(PluginTask task, Schema schema){
         this.task = task;
@@ -51,13 +47,13 @@ public class BigqueryClient {
                 .getService();
     }
 
-    // def load_in_parallel(paths, table)
-    public void loadInParallel(String[] paths, String table){
-
+    public Table createTableIfNotExist(String table, String dataset){
+        com.google.cloud.bigquery.Schema schema = buildSchema(this.schema,  this.columnOptions);
+        TableDefinition tableDefinition = StandardTableDefinition.of(schema);
+        return bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
     }
 
-    public JobStatistics.LoadStatistics load(String path, String table, JobInfo.WriteDisposition writeDestination){
-        Path loadFile = Paths.get(path);
+    public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination){
         UUID uuid = UUID.randomUUID();
         String jobId = String.format("embulk_load_job_%s", uuid.toString());
 
@@ -88,7 +84,7 @@ public class BigqueryClient {
         TableDataWriteChannel writer = bigquery.writer(JobId.of(jobId), writeChannelConfiguration);
 
         try (OutputStream stream = Channels.newOutputStream(writer)) {
-            Files.copy(Paths.get(path), stream);
+            Files.copy(loadFile, stream);
         } catch (IOException e){
             this.logger.info(e.getMessage());
         }
@@ -98,8 +94,26 @@ public class BigqueryClient {
     }
 
     // def copy(source_table, destination_table, destination_dataset = nil, write_disposition: 'WRITE_TRUNCATE')
-    public void copy(String sourceTable, String destinationTable, String destinationDataset, String writeDestination){
+    public JobStatistics.LoadStatistics copy(String sourceTable, String destinationTable, String destinationDataset, JobInfo.WriteDisposition writeDestination){
+        UUID uuid = UUID.randomUUID();
+        String jobId = String.format("embulk_load_job_%s", uuid.toString());
+        TableId destTableId = TableId.of(destinationDataset, destinationTable);
+        TableId srcTableId = TableId.of(this.dataset, sourceTable);
 
+        CopyJobConfiguration copyJobConfiguration = CopyJobConfiguration.newBuilder(destTableId, srcTableId)
+                .setWriteDisposition(writeDestination)
+                .build();
+
+        Job job = bigquery.create(JobInfo.newBuilder(copyJobConfiguration).setJobId(JobId.of(jobId)).build());
+        return waitLoad(job);
+    }
+
+    public boolean deleteTable(String table){
+        return this.bigquery.delete(TableId.of(this.dataset, table));
+    }
+
+    public boolean deleteTable(String table, String dataset){
+        return this.bigquery.delete(TableId.of(dataset, table));
     }
 
     private JobStatistics.LoadStatistics waitLoad(Job job){
@@ -173,8 +187,8 @@ public class BigqueryClient {
                 if (!colOpt.getMode().isEmpty()) {
                     fieldMode = Field.Mode.valueOf(colOpt.getMode());
                 }
-                if (!colOpt.getType().isEmpty()){
-                    typeName = StandardSQLTypeName.valueOf(colOpt.getType());
+                if (!colOpt.getType().isPresent()){
+                    typeName = StandardSQLTypeName.valueOf(colOpt.getType().get());
                 }
             }
 

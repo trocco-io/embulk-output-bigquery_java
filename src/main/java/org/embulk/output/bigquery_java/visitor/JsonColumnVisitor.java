@@ -58,13 +58,14 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
     public void stringColumn(Column column) {
         Value value;
         Value columnName = ValueFactory.newString(column.getName());
-        Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
+        // Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
 
-        if (columnOption.isPresent()){
-            value = BigqueryValueConverter.convert(reader.getString(column), columnOption.get());
-        }else{
-            value = ValueFactory.newString(reader.getString(column));
-        }
+        // if (columnOption.isPresent()){
+        //     value = BigqueryValueConverter.convert(reader.getString(column), columnOption.get());
+        // }else{
+        //     value = ValueFactory.newString(reader.getString(column));
+        // }
+        value = ValueFactory.newString(reader.getString(column));
 
         builder.put(columnName, value);
     }

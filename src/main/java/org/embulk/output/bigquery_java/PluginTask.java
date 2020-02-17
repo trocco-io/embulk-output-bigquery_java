@@ -100,4 +100,10 @@ public interface PluginTask
     @Config("job_status_max_polling_time")
     @ConfigDefault("3600")
     public long getJobStatusMaxPollingTime();
+
+    @Config("temp_table")
+    @ConfigDefault("null")
+    public Optional<String> getTempTable();
+
+    public void setTempTable(String tempTable);
 }
