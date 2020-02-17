@@ -136,7 +136,7 @@ public class BigqueryClient {
         }
 
         if (completedJob.getStatus().getError() != null){
-            logger.warn(String.format("job_id[%s] elapsed_time %d sec status[%s]");
+            logger.warn(String.format("job_id[%s] elapsed_time %d sec status[%s]"));
             //  Embulk.logger.warn { "embulk-output-bigquery: #{kind} job errors... job_id:[#{job_id}] errors:#{_errors.map(&:to_h)}" }
             logger.warn(String.format("embulk-output-bigquery: job errors... job_id:[%s] errors:%s",
                     completedJob.getJobId(), completedJob.getStatus().getError().getMessage()));
