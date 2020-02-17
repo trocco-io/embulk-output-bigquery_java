@@ -48,7 +48,7 @@ public interface PluginTask
     @ConfigDefault("null")
     public Optional<String> getPathPrefix();
 
-    public void setPathPrefix(String pathPrefix);
+    public void setPathPrefix(Optional<String> pathPrefix);
 
     @Config("default_timezone")
     @ConfigDefault("\"UTC\"")
@@ -63,7 +63,7 @@ public interface PluginTask
     @ConfigDefault("null")
     public Optional<String> getFileExt();
 
-    public void setFileExt(String fileExt);
+    public void setFileExt(Optional<String> fileExt);
 
     @Config("encoding")
     @ConfigDefault("\"UTF-8\"")
@@ -105,5 +105,5 @@ public interface PluginTask
     @ConfigDefault("null")
     public Optional<String> getTempTable();
 
-    public void setTempTable(String tempTable);
+    public void setTempTable(Optional<String> tempTable);
 }

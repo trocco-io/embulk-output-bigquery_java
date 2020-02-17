@@ -1,5 +1,6 @@
 package org.embulk.output.bigquery_java;
 
+import com.google.common.base.Optional;
 import org.msgpack.core.annotations.VisibleForTesting;
 
 import java.io.File;
@@ -28,7 +29,7 @@ public class BigqueryConfigBuilder {
         if (!this.task.getPathPrefix().isPresent()){
             try {
                 File tmpFile = File.createTempFile("embulk_output_bigquery_java", "");
-                this.task.setPathPrefix(tmpFile.getPath());
+                this.task.setPathPrefix(Optional.of(tmpFile.getPath()));
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -39,14 +40,15 @@ public class BigqueryConfigBuilder {
     protected void setFileExt(){
         if (!this.task.getFileExt().isPresent()){
             if (this.task.getSourceFormat().equals("CSV")){
-                this.task.setFileExt(".csv");
+                this.task.setFileExt(Optional.of(".csv"));
             }else{
-                this.task.setFileExt(".jsonl");
+                this.task.setFileExt(Optional.of(".jsonl"));
             }
         }
 
         if (this.task.getCompression().equals("GZIP")){
-            this.task.setFileExt(this.task.getFileExt() + ".gz");
+            String fileExt = this.task.getFileExt().get() + ".gz";
+            this.task.setFileExt(Optional.of(fileExt));
         }
     }
     @VisibleForTesting
@@ -56,7 +58,7 @@ public class BigqueryConfigBuilder {
         if (Arrays.asList(modeForTempTable).contains(this.task.getMode())){
             this.task.getTempTable().or(String.format("LOAD_TEMP_%s_%s",this.uniqueName, this.task.getTable()));
         }else{
-            task.setTempTable(null);
+            task.setTempTable(Optional.of(null));
         }
     }
 }
