@@ -1,12 +1,11 @@
 package org.embulk.output.bigquery_java;
 
-;
+import com.google.common.base.Optional;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.Task;
 
 import java.util.List;
-import java.util.Optional;
 
 public interface PluginTask
         extends Task {
@@ -32,7 +31,7 @@ public interface PluginTask
 
     @Config("location")
     @ConfigDefault("null")
-    public String getLocation();
+    public Optional<String> getLocation();
 
     @Config("column_options")
     @ConfigDefault("null")
@@ -47,7 +46,7 @@ public interface PluginTask
 
     @Config("path_prefix")
     @ConfigDefault("null")
-    public String getPathPrefix();
+    public Optional<String> getPathPrefix();
 
     public void setPathPrefix(String pathPrefix);
 
@@ -62,7 +61,7 @@ public interface PluginTask
     //TODO: make this optional
     @Config("file_ext")
     @ConfigDefault("null")
-    public String getFileExt();
+    public Optional<String> getFileExt();
 
     public void setFileExt(String fileExt);
 
@@ -92,7 +91,7 @@ public interface PluginTask
 
     @Config("template_table")
     @ConfigDefault("null")
-    public String getTemplateTable();
+    public Optional<String> getTemplateTable();
 
     @Config("job_status_polling_interval")
     @ConfigDefault("10")
@@ -101,5 +100,4 @@ public interface PluginTask
     @Config("job_status_max_polling_time")
     @ConfigDefault("3600")
     public long getJobStatusMaxPollingTime();
-
 }

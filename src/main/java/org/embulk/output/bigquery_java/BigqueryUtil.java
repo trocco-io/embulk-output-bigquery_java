@@ -6,16 +6,16 @@ import javafx.beans.binding.ObjectExpression;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.List;
-import java.util.Optional;
+import com.google.common.base.Optional;
 
 public class BigqueryUtil {
     public static Path[] getIntermediateFiles(PluginTask task) throws IOException {
-        String glob = String.format("glob:%s*", task.getPathPrefix());
+        String glob = String.format("glob:%s*", task.getPathPrefix().get());
 
         FileSystem fs = FileSystems.getDefault();
         PathMatcher matcher = fs.getPathMatcher(glob);
 
-        Path startDir = Paths.get(task.getPathPrefix());
+        Path startDir = Paths.get(task.getPathPrefix().get());
         return Files.walk(startDir).filter(matcher::matches).toArray(Path[]::new);
     }
 
@@ -34,8 +34,10 @@ public class BigqueryUtil {
     }
 
     public static Optional<BigqueryColumnOption> findColumnOption(String columnName, List<BigqueryColumnOption> columnOptions) {
-        return columnOptions.stream()
+        BigqueryColumnOption columnOption = columnOptions.stream()
                 .filter(colOpt-> colOpt.getName().equals(columnName))
-                .findFirst();
+                .findFirst().orElse(null);
+
+        return Optional.fromNullable(columnOption);
     }
 }

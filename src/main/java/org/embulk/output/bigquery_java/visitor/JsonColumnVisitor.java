@@ -11,7 +11,7 @@ import org.msgpack.value.ValueFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Optional;
+import com.google.common.base.Optional;;
 
 
 // this file will be removed if JacksonJsonColumnVisitor is faster

@@ -10,6 +10,7 @@ import org.embulk.spi.type.*;
 import org.msgpack.core.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.google.common.base.Optional;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -19,7 +20,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import org.threeten.bp.Duration;
 
 import static com.google.cloud.bigquery.JobStatus.State.DONE;
 
@@ -36,7 +36,7 @@ public class BigqueryClient {
         this.task = task;
         this.schema = schema;
         this.dataset = task.getDataset();
-        this.columnOptions = this.task.getColumnOptions().orElse(Collections.emptyList());
+        this.columnOptions = this.task.getColumnOptions().or(Collections.emptyList());
         try{
             this.bigquery = getClientWithJsonKey(this.task.getJsonKeyfile());
         }catch (IOException e){
@@ -104,12 +104,14 @@ public class BigqueryClient {
 
     private JobStatistics.LoadStatistics waitLoad(Job job){
         Job completedJob;
+        Date now;
         Date started = new Date();
+        long elapsed;
 
         while (true) {
             completedJob = this.bigquery.getJob(job.getJobId(), BigQuery.JobOption.fields(BigQuery.JobField.STATUS));
-            Date now = new Date();
-            long elapsed = (now.getTime() - started.getTime()) / 1000;
+            now = new Date();
+            elapsed = (now.getTime() - started.getTime()) / 1000;
             if (completedJob.getStatus().getState().equals(DONE)) {
                 // logger.info("embulk-output-bigquery: #{kind} job completed... ");
                 logger.info("embulk-output-bigquery: #{kind} job completed... ");
@@ -127,11 +129,10 @@ public class BigqueryClient {
                         completedJob.getJobId(), elapsed, completedJob.getStatus().toString()));
                 try {
                     Thread.sleep(this.task.getJobStatusPollingInterval() * 1000);
-                }catch (InterruptedException e){
+                } catch (InterruptedException e){
                     logger.info(e.getLocalizedMessage());
                     throw new RuntimeException(e);
                 }
-                break;
             }
         }
 
@@ -154,8 +155,8 @@ public class BigqueryClient {
     protected com.google.cloud.bigquery.Schema buildSchema(Schema schema, List<BigqueryColumnOption> columnOptions){
         // TODO: support schema file
 
-        if (!this.task.getTemplateTable().isEmpty()){
-            TableId tableId = TableId.of(this.dataset, this.task.getTemplateTable());
+        if (!this.task.getTemplateTable().isPresent()){
+            TableId tableId = TableId.of(this.dataset, this.task.getTemplateTable().get());
             Table table = this.bigquery.getTable(tableId);
             return table.getDefinition().getSchema();
         }
@@ -169,11 +170,9 @@ public class BigqueryClient {
 
             if (columnOption.isPresent()){
                 BigqueryColumnOption colOpt = columnOption.get();
-
                 if (!colOpt.getMode().isEmpty()) {
                     fieldMode = Field.Mode.valueOf(colOpt.getMode());
                 }
-
                 if (!colOpt.getType().isEmpty()){
                     typeName = StandardSQLTypeName.valueOf(colOpt.getType());
                 }
