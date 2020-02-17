@@ -1,7 +1,5 @@
 package org.embulk.output.bigquery_java;
 
-import org.embulk.spi.Schema;
-
 import java.io.*;
 import java.util.zip.GZIPOutputStream;
 

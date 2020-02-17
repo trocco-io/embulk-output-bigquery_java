@@ -1,7 +1,6 @@
 package org.embulk.output.bigquery_java;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import javafx.beans.binding.ObjectExpression;
 
 import java.io.IOException;
 import java.nio.file.*;

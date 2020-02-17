@@ -5,12 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.embulk.spi.time.Timestamp;
 import org.embulk.spi.time.TimestampFormatter;
 import org.embulk.spi.time.TimestampParser;
-import org.msgpack.value.Value;
-import org.msgpack.value.ValueFactory;
 
-import java.text.SimpleDateFormat;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 
 // provide function to concert value to specific type
 // e.g. string to date
@@ -24,7 +19,6 @@ public class BigqueryValueConverter {
     private static String timezone;
     private static TimestampParser parser;
     private static Timestamp ts;
-    private static Value value;
 
     // public static Value convert(String src, BigqueryColumnOption columnOption){
     //     switch (BigqueryColumnOptionType.valueOf(columnOption.getType())) {
