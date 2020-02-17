@@ -44,7 +44,4 @@ public class BigqueryConfigBuilder {
             this.task.setFileExt(this.task.getFileExt() + ".gz");
         }
     }
-
-    // TODO: set columnOption.Type as Enum
-
 }

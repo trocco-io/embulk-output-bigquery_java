@@ -29,7 +29,7 @@ public class BigqueryFileWriter {
         if (this.os != null) {
             return this.os;
         }
-        // TODO: generate file extension
+        // TODO: pid, thread id format config
         String path = String.format("%s.%d.%d%s",
                 this.task.getPathPrefix(),
                 BigqueryUtil.getPID(),
