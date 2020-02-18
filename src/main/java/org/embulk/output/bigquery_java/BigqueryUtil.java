@@ -6,8 +6,8 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Optional;
 
-import com.google.common.base.Optional;
 
 public class BigqueryUtil {
     public static List<Path> getIntermediateFiles(PluginTask task) throws IOException {
@@ -35,10 +35,8 @@ public class BigqueryUtil {
     }
 
     public static Optional<BigqueryColumnOption> findColumnOption(String columnName, List<BigqueryColumnOption> columnOptions) {
-        BigqueryColumnOption columnOption = columnOptions.stream()
+        return columnOptions.stream()
                 .filter(colOpt-> colOpt.getName().equals(columnName))
-                .findFirst().orElse(null);
-
-        return Optional.fromNullable(columnOption);
+                .findFirst();
     }
 }

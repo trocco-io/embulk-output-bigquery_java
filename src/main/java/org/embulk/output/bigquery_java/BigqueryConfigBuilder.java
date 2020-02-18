@@ -1,12 +1,12 @@
 package org.embulk.output.bigquery_java;
 
-import com.google.common.base.Optional;
 import org.msgpack.core.annotations.VisibleForTesting;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.UUID;
+import java.util.Optional;
 
 public class BigqueryConfigBuilder {
     private PluginTask task;
@@ -58,7 +58,7 @@ public class BigqueryConfigBuilder {
         // TODO: support replace_backup, append
         String[] modeForTempTable = {"replace"};
         if (Arrays.asList(modeForTempTable).contains(this.task.getMode())){
-            String tempTable = this.task.getTempTable().or(String.format("LOAD_TEMP_%s_%s",this.uniqueName, this.task.getTable()));
+            String tempTable = this.task.getTempTable().orElse(String.format("LOAD_TEMP_%s_%s",this.uniqueName, this.task.getTable()));
             this.task.setTempTable(Optional.of(tempTable));
         }else{
             this.task.setTempTable(Optional.of(null));

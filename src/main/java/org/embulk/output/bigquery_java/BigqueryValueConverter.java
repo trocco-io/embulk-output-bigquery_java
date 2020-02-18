@@ -84,7 +84,7 @@ public class BigqueryValueConverter {
                 node.put(name, src);
                 break;
             case TIMESTAMP:
-                pattern = columnOption.getTimestampFormat().or(task.getDefaultTimestampFormat());
+                pattern = columnOption.getTimestampFormat().orElse(task.getDefaultTimestampFormat());
                 timezone = columnOption.getTimezone();
                 parser = TimestampParser.of(pattern, timezone);
                 ts = parser.parse(src);
@@ -92,7 +92,7 @@ public class BigqueryValueConverter {
                 node.put(name, timestampFormat.format(ts));
                 break;
             case DATETIME:
-                pattern = columnOption.getTimestampFormat().or(task.getDefaultTimestampFormat());
+                pattern = columnOption.getTimestampFormat().orElse(task.getDefaultTimestampFormat());
                 timezone = columnOption.getTimezone();
                 parser = TimestampParser.of(pattern, timezone);
                 ts = parser.parse(src);
@@ -100,7 +100,7 @@ public class BigqueryValueConverter {
                 node.put(name, timestampFormat.format(ts));
                 break;
             case DATE:
-                pattern = columnOption.getTimestampFormat().or(task.getDefaultTimestampFormat());
+                pattern = columnOption.getTimestampFormat().orElse(task.getDefaultTimestampFormat());
                 timezone = columnOption.getTimezone();
                 parser = TimestampParser.of(pattern, timezone);
                 ts = parser.parse(src);

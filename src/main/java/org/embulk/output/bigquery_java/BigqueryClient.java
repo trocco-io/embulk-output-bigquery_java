@@ -8,9 +8,9 @@ import org.embulk.spi.type.*;
 import org.msgpack.core.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.Optional;
 
 import java.io.FileInputStream;
+import java.util.Optional;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.channels.Channels;
@@ -32,7 +32,7 @@ public class BigqueryClient {
         this.task = task;
         this.schema = schema;
         this.dataset = task.getDataset();
-        this.columnOptions = this.task.getColumnOptions().or(Collections.emptyList());
+        this.columnOptions = this.task.getColumnOptions().orElse(Collections.emptyList());
         try{
             this.bigquery = getClientWithJsonKey(this.task.getJsonKeyfile());
         }catch (IOException e){

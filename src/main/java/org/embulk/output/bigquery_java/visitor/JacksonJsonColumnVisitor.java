@@ -10,7 +10,7 @@ import org.embulk.spi.PageReader;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import com.google.common.base.Optional;
+import java.util.Optional;
 
 public class JacksonJsonColumnVisitor implements BigqueryColumnVisitor {
     private PluginTask task;

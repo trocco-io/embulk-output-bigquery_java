@@ -1,6 +1,6 @@
 package org.embulk.output.bigquery_java;
 
-import com.google.common.base.Optional;
+import java.util.Optional;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.Task;

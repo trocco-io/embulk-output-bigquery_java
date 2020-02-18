@@ -22,8 +22,6 @@ import org.embulk.spi.TransactionalPageOutput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.swing.text.html.HTMLDocument;
-
 public class BigqueryJavaOutputPlugin
         implements OutputPlugin
 {

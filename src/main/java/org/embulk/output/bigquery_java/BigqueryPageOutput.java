@@ -40,7 +40,7 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
             this.os = writer.outputStream();
             while (pageReader.nextRecord()) {
                 BigqueryColumnVisitor visitor = new JacksonJsonColumnVisitor(this.task,
-                        pageReader, this.task.getColumnOptions().or(Collections.emptyList()));
+                        pageReader, this.task.getColumnOptions().orElse(Collections.emptyList()));
                 pageReader.getSchema().getColumns().forEach(col-> col.visit(visitor));
                 os.write(visitor.getByteArray());
             }

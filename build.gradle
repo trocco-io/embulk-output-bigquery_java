@@ -1,6 +1,7 @@
 plugins {
     id "com.jfrog.bintray" version "1.1"
     id "com.github.jruby-gradle.base" version "1.5.0"
+    id "com.github.johnrengelman.shadow" version "4.0.4"
     id "java"
     id "checkstyle"
 }
@@ -18,23 +19,39 @@ version = "0.1.0"
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
 
+// Relocate Guava packages since it's incompatible with Guava's version from Embulk
+shadowJar {
+    classifier = "shadow"
+    exclude "org/embulk/plugin/**"
+
+    dependencies {
+        include dependency("com.google.guava:guava")
+        include dependency("com.google.cloud:google-cloud-bigquery")
+        include dependency("com.google.http-client:google-http-client")
+    }
+
+    relocate "com.google.common", "embulk.bigquery.com.google.common"
+}
+
+
 dependencies {
-    compile group: 'com.google.guava', name: 'guava', version: '28.2-android'
     compile "org.embulk:embulk-core:0.9.23"
     provided "org.embulk:embulk-core:0.9.23"
 
     compile 'com.fasterxml.jackson.core:jackson-core:2.10.2'
 
     compile 'com.google.cloud:google-cloud-bigquery:+'
-    compile 'com.google.auth:google-auth-library-oauth2-http:0.20.0'
 
     // compile "YOUR_JAR_DEPENDENCY_GROUP:YOUR_JAR_DEPENDENCY_MODULE:YOUR_JAR_DEPENDENCY_VERSION"
     testCompile "junit:junit:4.+"
 }
 
-task classpath(type: Copy, dependsOn: ["jar"]) {
+task classpath(type: Copy, dependsOn: ["jar", "shadowJar"]) {
     doFirst { file("classpath").deleteDir() }
-    from (configurations.runtime - configurations.provided + files(jar.archivePath))
+    from (configurations.runtime - configurations.provided
+            + configurations.shadow
+            - files(shadowJar.getIncludedDependencies())
+            + files(shadowJar.archivePath))
     into "classpath"
 }
 clean { delete "classpath" }
