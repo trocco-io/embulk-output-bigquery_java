@@ -38,17 +38,17 @@ public class BigqueryJobWaiter {
             now = new Date();
             elapsed = (now.getTime() - started.getTime()) / 1000;
             if (jobState.equals(DONE)) {
-                logger.info(String.format("embulk-output-bigquery: %s job completed... ", kind));
-                logger.info(String.format("job_id:%s elapsed_time %d sec status[DONE]", completedJob.getJobId().getJob(), elapsed));
+                logger.info("embulk-output-bigquery: {} job completed... ", kind);
+                logger.info("job_id:{} elapsed_time {} sec status[DONE]", completedJob.getJobId().getJob(), elapsed);
                 break;
             } else if (elapsed > this.task.getJobStatusMaxPollingTime()) {
-                logger.info(String.format("embulk-output-bigquery: %s job checking... ", kind));
-                logger.info(String.format("job_id[%s] elapsed_time %d sec status[TIMEOUT]", completedJob.getJobId().getJob(), elapsed));
+                logger.info("embulk-output-bigquery: {} job checking... ", kind);
+                logger.info("job_id[{}] elapsed_time {} sec status[TIMEOUT]", completedJob.getJobId().getJob(), elapsed);
                 break;
             } else {
-                logger.info(String.format("embulk-output-bigquery: %s job checking... ", kind));
-                logger.info(String.format("job_id[%s] elapsed_time %d sec status[%s]",
-                        completedJob.getJobId().getJob(), elapsed, jobState.toString()));
+                logger.info("embulk-output-bigquery: {} job checking... ", kind);
+                logger.info("job_id[{}] elapsed_time {} sec status[{}]",
+                        completedJob.getJobId().getJob(), elapsed, jobState.toString());
                 try {
                     Thread.sleep(this.task.getJobStatusPollingInterval() * 1000);
                 } catch (InterruptedException e){
@@ -59,15 +59,15 @@ public class BigqueryJobWaiter {
         }
 
         if (completedJob.getStatus().getError() != null){
-            logger.info(String.format("embulk-output-bigquery: job_id[%s] elapsed_time %d sec status[%s]",
-                    completedJob.getJobId().getJob(), elapsed, jobState.toString()));
-            logger.info(String.format("embulk-output-bigquery: %s job errors... job_id:[%s] errors:%s",
-                    kind, completedJob.getJobId().getJob(), completedJob.getStatus().getError().getMessage()));
+            logger.info("embulk-output-bigquery: job_id[{}] elapsed_time {} sec status[{}]",
+                    completedJob.getJobId().getJob(), elapsed, jobState.toString());
+            logger.info("embulk-output-bigquery: {} job errors... job_id:[{}] errors:{}",
+                    kind, completedJob.getJobId().getJob(), completedJob.getStatus().getError().getMessage());
         }
 
         jobStatistics = completedJob.getStatistics();
-        logger.info(String.format("embulk-output-bigquery: %s job response... job_id:[%s] response.statistics:%s",
-                kind, completedJob.getJobId().getJob(), jobStatistics.toString()));
+        logger.info("embulk-output-bigquery: {} job response... job_id:[{}] response.statistics:{}",
+                kind, completedJob.getJobId().getJob(), jobStatistics.toString());
 
         return jobStatistics;
     }

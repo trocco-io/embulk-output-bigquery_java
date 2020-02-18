@@ -63,11 +63,10 @@ public class BigqueryClient {
 
         if (Files.exists(loadFile)) {
             // TODO:  "embulk-output-bigquery: Load job starting... job_id:[#{job_id}] #{path} => #{@project}:#{@dataset}.#{table} in #{@location_for_log}"
-            String msg = String.format( "embulk-output-bigquery: Load job starting... job_id:[%s] %s => %s.%s",
+            logger.info("embulk-output-bigquery: Load job starting... job_id:[{}] {} => {}.{}",
                     jobId, loadFile.toString(), this.dataset, table);
-            logger.info(msg);
         } else {
-            logger.info(String.format("embulk-output-bigquery: Load job starting... %s does not exist, skipped", loadFile.toString()));
+            logger.info("embulk-output-bigquery: Load job starting... {} does not exist, skipped", loadFile.toString());
             // TODO: should throw error?
             return null;
         }
