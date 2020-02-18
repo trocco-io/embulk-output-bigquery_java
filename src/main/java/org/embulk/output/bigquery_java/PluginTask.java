@@ -106,4 +106,9 @@ public interface PluginTask
     public Optional<String> getTempTable();
 
     public void setTempTable(Optional<String> tempTable);
+
+    @Config("delete_from_local_when_job_end")
+    @ConfigDefault("true")
+    public boolean getDeleteFromLocalWhenJobEnd();
+
 }

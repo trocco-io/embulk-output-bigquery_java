@@ -2,6 +2,7 @@ package org.embulk.output.bigquery_java;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.List;
@@ -11,12 +12,23 @@ import java.util.Optional;
 
 public class BigqueryUtil {
     public static List<Path> getIntermediateFiles(PluginTask task) throws IOException {
-        String glob = String.format("glob:%s*", task.getPathPrefix().get());
+        Path startDir;
+        String pathPrefix =  task.getPathPrefix().get();
+        String fileExt = task.getFileExt().get();
+        File pathPrefixFile = new File(pathPrefix);
+        String glob = String.format("glob:%s*%s", pathPrefix, fileExt);
+
+        // TODO: check non existing file case
+        System.out.println(glob);
+        if (pathPrefixFile.isDirectory()){
+            startDir = pathPrefixFile.toPath();
+        }else{
+            startDir = pathPrefixFile.toPath().getParent();
+        }
 
         FileSystem fs = FileSystems.getDefault();
         PathMatcher matcher = fs.getPathMatcher(glob);
-
-        Path startDir = Paths.get(task.getPathPrefix().get());
+        System.out.println(startDir.toString());
         return Files.walk(startDir).filter(matcher::matches).collect(Collectors.toList());
     }
 

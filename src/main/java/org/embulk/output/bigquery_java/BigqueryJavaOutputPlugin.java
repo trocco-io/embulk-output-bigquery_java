@@ -38,9 +38,10 @@ public class BigqueryJavaOutputPlugin
         configBuilder.build();
         BigqueryClient client = new BigqueryClient(task, schema);
 
-
         logger.info("write to files");
         control.run(task.dump());
+
+        // TODO: all file writer have to close here
         logger.info("embulk-output-bigquery: finish to create intermediate files");
 
         client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
@@ -53,6 +54,8 @@ public class BigqueryJavaOutputPlugin
         logger.debug(String.format("embulk-output-bigquery: LOAD IN PARALLEL %s",
                 paths.stream().map(Path::toString).collect(Collectors.joining("\n"))));
 
+        // TOCO: paths is zero raise error
+        System.out.println(paths.size());
         // transfer data to BQ from files
         ExecutorService executor = Executors.newFixedThreadPool(paths.size());
         List<Future<JobStatistics.LoadStatistics>> statisticFutures;
@@ -75,6 +78,25 @@ public class BigqueryJavaOutputPlugin
             client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
             client.deleteTable(task.getTempTable().get());
         }
+
+        //           begin
+        //            if task['temp_table'] # append or replace or replace_backup
+        //              bigquery.delete_table(task['temp_table'])
+        //            end
+        //          ensure
+        //            if task['delete_from_local_when_job_end']
+        //              paths.each do |path|
+        //                Embulk.logger.info { "embulk-output-bigquery: delete #{path}" }
+        //                File.unlink(path) rescue nil
+        //              end
+        //            else
+        //              paths.each do |path|
+        //                if File.exist?(path)
+        //                  Embulk.logger.info { "embulk-output-bigquery: keep #{path}" }
+        //                end
+        //              end
+        //            end
+        //
 
         return Exec.newConfigDiff();
     }

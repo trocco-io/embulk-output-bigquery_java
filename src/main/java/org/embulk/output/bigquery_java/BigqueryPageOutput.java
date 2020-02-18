@@ -9,6 +9,7 @@ import org.embulk.spi.*;
 import java.io.OutputStream;
 import java.util.Collections;
 
+import org.jruby.RubyProcess;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,6 +59,7 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
     @Override
     public void close()
     {
+        // TODO: DONOT close here
         if (os != null){
             try {
                 os.flush();

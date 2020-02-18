@@ -29,8 +29,6 @@ public class BigqueryConfigBuilder {
         if (!this.task.getPathPrefix().isPresent()){
             try {
                 File tmpFile = File.createTempFile("embulk_output_bigquery_java", "");
-                System.out.println("=============================");
-                System.out.println(tmpFile.getPath());
                 this.task.setPathPrefix(Optional.of(tmpFile.getPath()));
             } catch (IOException e) {
                 throw new RuntimeException(e);

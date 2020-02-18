@@ -19,6 +19,7 @@ public class BigqueryFileWriter {
     public OutputStream open(String path) throws IOException {
         this.os = new FileOutputStream(path, true);
         if (this.compression.equals("GZIP")){
+            System.out.println("Gziped file");
             this.os = new GZIPOutputStream(this.os);
         }
         return this.os;
