@@ -39,18 +39,18 @@ public class BigqueryJavaOutputPlugin
         PluginTask task = config.loadConfig(PluginTask.class);
         task = new BigqueryConfigBuilder(task).build();
         BigqueryClient client = new BigqueryClient(task, schema);
+        client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
 
         control.run(task.dump());
 
         // TODO: all file writer have to close here
         logger.info("embulk-output-bigquery: finish to create intermediate files");
 
-        client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
-
         try {
             paths = BigqueryUtil.getIntermediateFiles(task);
         } catch (Exception e){
             logger.info(e.getMessage());
+            throw new RuntimeException(e);
         }
         if (paths.isEmpty()){
             logger.info("embulk-output-bigquery: Nothing for transfer");
