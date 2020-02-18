@@ -3,6 +3,7 @@ package org.embulk.output.bigquery_java;
 
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.Schema;
 
 import java.nio.file.Path;

@@ -1,15 +1,14 @@
 package org.embulk.output.bigquery_java;
 
 import org.embulk.config.TaskReport;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.visitor.JacksonJsonColumnVisitor;
-import org.embulk.output.bigquery_java.visitor.JsonColumnVisitor;
 import org.embulk.output.bigquery_java.visitor.BigqueryColumnVisitor;
 import org.embulk.spi.*;
 
 import java.io.OutputStream;
 import java.util.Collections;
 
-import org.jruby.RubyProcess;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

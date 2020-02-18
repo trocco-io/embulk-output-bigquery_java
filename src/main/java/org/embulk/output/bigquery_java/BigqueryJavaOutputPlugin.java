@@ -14,6 +14,8 @@ import org.embulk.config.ConfigDiff;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.TaskReport;
 import org.embulk.config.TaskSource;
+import org.embulk.output.bigquery_java.config.BigqueryConfigBuilder;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.Exec;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.spi.Schema;
@@ -55,7 +57,6 @@ public class BigqueryJavaOutputPlugin
                 paths.stream().map(Path::toString).collect(Collectors.joining("\n"))));
 
         // TOCO: paths is zero raise error
-        System.out.println(paths.size());
         // transfer data to BQ from files
         ExecutorService executor = Executors.newFixedThreadPool(paths.size());
         List<Future<JobStatistics.LoadStatistics>> statisticFutures;

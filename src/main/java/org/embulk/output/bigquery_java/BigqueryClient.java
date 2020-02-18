@@ -2,6 +2,8 @@ package org.embulk.output.bigquery_java;
 
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.bigquery.*;
+import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
 import org.embulk.spi.type.*;
@@ -17,8 +19,6 @@ import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-
-import static com.google.cloud.bigquery.JobStatus.State.DONE;
 
 public class BigqueryClient {
     private final Logger logger = LoggerFactory.getLogger(BigqueryClient.class);
@@ -47,6 +47,10 @@ public class BigqueryClient {
                 .getService();
     }
 
+    public Job getJob(JobId jobId){
+        return this.bigquery.getJob(jobId);
+    }
+
     public Table createTableIfNotExist(String table, String dataset){
         com.google.cloud.bigquery.Schema schema = buildSchema(this.schema,  this.columnOptions);
         TableDefinition tableDefinition = StandardTableDefinition.of(schema);
@@ -68,12 +72,8 @@ public class BigqueryClient {
             return null;
         }
 
-
         TableId tableId = TableId.of(this.dataset, table);
         WriteChannelConfiguration writeChannelConfiguration =
-                // Encoding ??
-                // allow_quoted_newlines ??
-                // jobreference ??
                 WriteChannelConfiguration.newBuilder(tableId)
                         .setFormatOptions(FormatOptions.json())
                         .setWriteDisposition(writeDestination)
@@ -90,11 +90,10 @@ public class BigqueryClient {
         }
 
         Job job = writer.getJob();
-        return waitLoad(job);
+        return (JobStatistics.LoadStatistics) waitForLoad(job);
     }
 
-    // def copy(source_table, destination_table, destination_dataset = nil, write_disposition: 'WRITE_TRUNCATE')
-    public JobStatistics.LoadStatistics copy(String sourceTable, String destinationTable, String destinationDataset, JobInfo.WriteDisposition writeDestination){
+    public JobStatistics.CopyStatistics copy(String sourceTable, String destinationTable, String destinationDataset, JobInfo.WriteDisposition writeDestination){
         UUID uuid = UUID.randomUUID();
         String jobId = String.format("embulk_load_job_%s", uuid.toString());
         TableId destTableId = TableId.of(destinationDataset, destinationTable);
@@ -105,7 +104,7 @@ public class BigqueryClient {
                 .build();
 
         Job job = bigquery.create(JobInfo.newBuilder(copyJobConfiguration).setJobId(JobId.of(jobId)).build());
-        return waitLoad(job);
+        return (JobStatistics.CopyStatistics) waitForCopy(job);
     }
 
     public boolean deleteTable(String table){
@@ -116,54 +115,12 @@ public class BigqueryClient {
         return this.bigquery.delete(TableId.of(dataset, table));
     }
 
-    private JobStatistics.LoadStatistics waitLoad(Job job){
-        Job completedJob;
-        Date now;
-        Date started = new Date();
-        long elapsed;
+    private JobStatistics waitForLoad(Job job){
+        return new BigqueryJobWaiter(this.task, this, job).waitFor("load");
+    }
 
-        while (true) {
-            completedJob = this.bigquery.getJob(job.getJobId(), BigQuery.JobOption.fields(BigQuery.JobField.STATUS));
-            now = new Date();
-            elapsed = (now.getTime() - started.getTime()) / 1000;
-            if (completedJob.getStatus().getState().equals(DONE)) {
-                // logger.info("embulk-output-bigquery: #{kind} job completed... ");
-                logger.info("embulk-output-bigquery: #{kind} job completed... ");
-                logger.info(String.format("job_id:%s elapsed_time %d sec status[DONE]", completedJob.getJobId(), elapsed));
-                break;
-            } else if (elapsed > this.task.getJobStatusMaxPollingTime()) {
-                // logger.info("embulk-output-bigquery: #{kind} job checking... ");
-                logger.warn("embulk-output-bigquery: job checking... ");
-                logger.warn(String.format("job_id[%s] elapsed_time %d sec status[TIMEOUT]", completedJob.getJobId(), elapsed));
-                break;
-            } else {
-                // logger.info("embulk-output-bigquery: #{kind} job checking... ");
-                logger.info("embulk-output-bigquery: job checking... ");
-                logger.info(String.format("job_id[%s] elapsed_time %d sec status[%s]",
-                        completedJob.getJobId(), elapsed, completedJob.getStatus().toString()));
-                try {
-                    Thread.sleep(this.task.getJobStatusPollingInterval() * 1000);
-                } catch (InterruptedException e){
-                    logger.info(e.getLocalizedMessage());
-                    throw new RuntimeException(e);
-                }
-            }
-        }
-
-        if (completedJob.getStatus().getError() != null){
-            logger.info(String.format("job_id[%s] elapsed_time %d sec status[%s]",
-                    completedJob.getJobId(), elapsed, completedJob.getStatus().getState().toString()));
-            //  Embulk.logger.warn { "embulk-output-bigquery: #{kind} job errors... job_id:[#{job_id}] errors:#{_errors.map(&:to_h)}" }
-            logger.info(String.format("embulk-output-bigquery: job errors... job_id:[%s] errors:%s",
-                    completedJob.getJobId(), completedJob.getStatus().getError().getMessage()));
-
-        }
-
-        // TODO: "embulk-output-bigquery: #{kind} job response... job_id:[#{job_id}] response.statistics:#{_response.statistics.to_h}" }
-        logger.info(String.format("embulk-output-bigquery: job response... job_id:[%s] response.statistics:%s",
-                completedJob.getJobId().toString(), completedJob.getStatus().toString()), completedJob.getStatistics().toString());
-
-        return completedJob.getStatistics();
+    private JobStatistics waitForCopy(Job job){
+        return new BigqueryJobWaiter(this.task, this, job).waitFor("copy");
     }
 
     @VisibleForTesting

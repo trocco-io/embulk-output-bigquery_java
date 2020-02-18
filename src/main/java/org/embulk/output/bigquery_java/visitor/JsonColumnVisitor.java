@@ -1,9 +1,7 @@
 package org.embulk.output.bigquery_java.visitor;
 
 
-import org.embulk.output.bigquery_java.BigqueryColumnOption;
-import org.embulk.output.bigquery_java.BigqueryUtil;
-import org.embulk.output.bigquery_java.BigqueryValueConverter;
+import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.spi.Column;
 import org.embulk.spi.PageReader;
 import org.msgpack.value.Value;

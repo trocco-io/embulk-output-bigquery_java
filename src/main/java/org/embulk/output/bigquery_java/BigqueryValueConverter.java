@@ -2,6 +2,9 @@ package org.embulk.output.bigquery_java;
 
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.time.Timestamp;
 import org.embulk.spi.time.TimestampFormatter;
 import org.embulk.spi.time.TimestampParser;

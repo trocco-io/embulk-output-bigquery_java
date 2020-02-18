@@ -1,6 +1,8 @@
 package org.embulk.output.bigquery_java;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.PluginTask;
 
 import java.io.File;
 import java.io.IOException;
@@ -18,8 +20,6 @@ public class BigqueryUtil {
         File pathPrefixFile = new File(pathPrefix);
         String glob = String.format("glob:%s*%s", pathPrefix, fileExt);
 
-        // TODO: check non existing file case
-        System.out.println(glob);
         if (pathPrefixFile.isDirectory()){
             startDir = pathPrefixFile.toPath();
         }else{
@@ -28,7 +28,6 @@ public class BigqueryUtil {
 
         FileSystem fs = FileSystems.getDefault();
         PathMatcher matcher = fs.getPathMatcher(glob);
-        System.out.println(startDir.toString());
         return Files.walk(startDir).filter(matcher::matches).collect(Collectors.toList());
     }
 

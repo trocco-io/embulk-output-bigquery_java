@@ -1,5 +1,7 @@
 package org.embulk.output.bigquery_java;
 
+import org.embulk.output.bigquery_java.config.PluginTask;
+
 import java.io.*;
 import java.util.zip.GZIPOutputStream;
 
