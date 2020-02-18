@@ -30,10 +30,10 @@ public class BigqueryFileWriter {
         }
         // TODO: pid, thread id format config
         String path = String.format("%s.%d.%d%s",
-                this.task.getPathPrefix(),
+                this.task.getPathPrefix().get(),
                 BigqueryUtil.getPID(),
                 Thread.currentThread().getId(),
-                this.task.getFileExt());
+                this.task.getFileExt().get());
         return open(path);
     }
 }

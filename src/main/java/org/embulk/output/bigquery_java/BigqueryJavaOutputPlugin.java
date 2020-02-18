@@ -38,15 +38,14 @@ public class BigqueryJavaOutputPlugin
         PluginTask task = config.loadConfig(PluginTask.class);
         BigqueryConfigBuilder configBuilder = new BigqueryConfigBuilder(task);
         configBuilder.build();
-
-        System.out.println(task.getTemplateTable().or("NOT SET!!!!!!!!!!!!!!!!"));
         BigqueryClient client = new BigqueryClient(task, schema);
 
-        client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
 
         logger.info("write to files");
         control.run(task.dump());
         logger.info("embulk-output-bigquery: finish to create intermediate files");
+
+        client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
 
         try {
             paths = BigqueryUtil.getIntermediateFiles(task);

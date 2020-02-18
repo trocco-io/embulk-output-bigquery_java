@@ -29,6 +29,8 @@ public class BigqueryConfigBuilder {
         if (!this.task.getPathPrefix().isPresent()){
             try {
                 File tmpFile = File.createTempFile("embulk_output_bigquery_java", "");
+                System.out.println("=============================");
+                System.out.println(tmpFile.getPath());
                 this.task.setPathPrefix(Optional.of(tmpFile.getPath()));
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -56,9 +58,10 @@ public class BigqueryConfigBuilder {
         // TODO: support replace_backup, append
         String[] modeForTempTable = {"replace"};
         if (Arrays.asList(modeForTempTable).contains(this.task.getMode())){
-            this.task.getTempTable().or(String.format("LOAD_TEMP_%s_%s",this.uniqueName, this.task.getTable()));
+            String tempTable = this.task.getTempTable().or(String.format("LOAD_TEMP_%s_%s",this.uniqueName, this.task.getTable()));
+            this.task.setTempTable(Optional.of(tempTable));
         }else{
-            task.setTempTable(Optional.of(null));
+            this.task.setTempTable(Optional.of(null));
         }
     }
 }

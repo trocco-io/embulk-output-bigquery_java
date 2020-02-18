@@ -169,7 +169,7 @@ public class BigqueryClient {
     protected com.google.cloud.bigquery.Schema buildSchema(Schema schema, List<BigqueryColumnOption> columnOptions){
         // TODO: support schema file
 
-        if (!this.task.getTemplateTable().isPresent()){
+        if (this.task.getTemplateTable().isPresent()){
             TableId tableId = TableId.of(this.dataset, this.task.getTemplateTable().get());
             Table table = this.bigquery.getTable(tableId);
             return table.getDefinition().getSchema();
