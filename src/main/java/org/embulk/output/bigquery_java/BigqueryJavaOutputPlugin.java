@@ -1,5 +1,6 @@
 package org.embulk.output.bigquery_java;
 
+import java.io.File;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,11 +37,9 @@ public class BigqueryJavaOutputPlugin
             OutputPlugin.Control control)
     {
         PluginTask task = config.loadConfig(PluginTask.class);
-        BigqueryConfigBuilder configBuilder = new BigqueryConfigBuilder(task);
-        configBuilder.build();
+        task = new BigqueryConfigBuilder(task).build();
         BigqueryClient client = new BigqueryClient(task, schema);
 
-        logger.info("write to files");
         control.run(task.dump());
 
         // TODO: all file writer have to close here
@@ -53,18 +52,23 @@ public class BigqueryJavaOutputPlugin
         } catch (Exception e){
             logger.info(e.getMessage());
         }
-        logger.debug(String.format("embulk-output-bigquery: LOAD IN PARALLEL %s",
-                paths.stream().map(Path::toString).collect(Collectors.joining("\n"))));
+        if (paths.isEmpty()){
+            logger.info("embulk-output-bigquery: Nothing for transfer");
+            return Exec.newConfigDiff();
+        }
 
-        // TOCO: paths is zero raise error
+        logger.debug("embulk-output-bigquery: LOAD IN PARALLEL {}",
+                paths.stream().map(Path::toString).collect(Collectors.joining("\n")));
+
         // transfer data to BQ from files
         ExecutorService executor = Executors.newFixedThreadPool(paths.size());
-        List<Future<JobStatistics.LoadStatistics>> statisticFutures;
+        List<Future<JobStatistics.LoadStatistics>> statisticFutures = new ArrayList<>();
         List<JobStatistics.LoadStatistics> statistics = new ArrayList<>();
 
-        statisticFutures = paths.stream()
-                .map(path -> executor.submit(new BigqueryJobRunner(task, schema, path)))
-                .collect(Collectors.toList());
+        for (Path path: paths){
+            Future<JobStatistics.LoadStatistics> loadStatisticsFuture = executor.submit(new BigqueryJobRunner(task, schema, path));
+            statisticFutures.add(loadStatisticsFuture);
+        }
 
         for (Future<JobStatistics.LoadStatistics> statisticFuture : statisticFutures) {
             try {
@@ -80,24 +84,16 @@ public class BigqueryJavaOutputPlugin
             client.deleteTable(task.getTempTable().get());
         }
 
-        //           begin
-        //            if task['temp_table'] # append or replace or replace_backup
-        //              bigquery.delete_table(task['temp_table'])
-        //            end
-        //          ensure
-        //            if task['delete_from_local_when_job_end']
-        //              paths.each do |path|
-        //                Embulk.logger.info { "embulk-output-bigquery: delete #{path}" }
-        //                File.unlink(path) rescue nil
-        //              end
-        //            else
-        //              paths.each do |path|
-        //                if File.exist?(path)
-        //                  Embulk.logger.info { "embulk-output-bigquery: keep #{path}" }
-        //                end
-        //              end
-        //            end
-        //
+        if (task.getDeleteFromLocalWhenJobEnd()){
+            paths.forEach(p -> new File(p.toString()).delete());
+        }else{
+            paths.forEach(p->{
+                File intermediateFile = new File(p.toString());
+                if (intermediateFile.exists()){
+                    logger.info("embulk-output-bigquery: keep {}", p.toString());
+                }
+            });
+        }
 
         return Exec.newConfigDiff();
     }
