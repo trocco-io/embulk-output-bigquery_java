@@ -2,8 +2,8 @@ package org.embulk.output.bigquery_java;
 
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.bigquery.*;
-import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
-import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.task.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.task.PluginTask;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
 import org.embulk.spi.type.*;

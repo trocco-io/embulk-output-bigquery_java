@@ -1,10 +1,10 @@
 package org.embulk.output.bigquery_java.visitor;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.task.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.BigqueryUtil;
 import org.embulk.output.bigquery_java.BigqueryValueConverter;
-import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.task.PluginTask;
 import org.embulk.spi.Column;
 import org.embulk.spi.PageReader;
 

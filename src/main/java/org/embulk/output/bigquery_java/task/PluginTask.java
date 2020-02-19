@@ -1,10 +1,9 @@
-package org.embulk.output.bigquery_java.config;
+package org.embulk.output.bigquery_java.task;
 
 import java.util.Optional;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.Task;
-import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 
 import java.util.List;
 

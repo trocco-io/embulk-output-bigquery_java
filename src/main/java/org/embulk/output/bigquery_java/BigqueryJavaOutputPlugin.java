@@ -15,8 +15,8 @@ import org.embulk.config.ConfigDiff;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.TaskReport;
 import org.embulk.config.TaskSource;
-import org.embulk.output.bigquery_java.config.BigqueryConfigBuilder;
-import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.task.BigqueryConfigBuilder;
+import org.embulk.output.bigquery_java.task.PluginTask;
 import org.embulk.spi.Exec;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.spi.Schema;
@@ -37,7 +37,7 @@ public class BigqueryJavaOutputPlugin
             OutputPlugin.Control control)
     {
         PluginTask task = config.loadConfig(PluginTask.class);
-        task = new BigqueryConfigBuilder(task).build();
+        BigqueryConfigBuilder.build(task);
         BigqueryClient client = new BigqueryClient(task, schema);
         client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
 
