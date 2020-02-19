@@ -1,87 +1,96 @@
 package org.embulk.output.bigquery_java.visitor;
 
-
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.BigqueryUtil;
+import org.embulk.output.bigquery_java.BigqueryValueConverter;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.Column;
 import org.embulk.spi.PageReader;
-import org.msgpack.value.Value;
-import org.msgpack.value.ValueFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 
-
-// this file will be removed if JacksonJsonColumnVisitor is faster
-// just leave here for benchmarking
 public class JsonColumnVisitor implements BigqueryColumnVisitor {
+    private PluginTask task;
     final PageReader reader;
     private List<BigqueryColumnOption> columnOptions;
-    private final ValueFactory.MapBuilder builder;
+    private final ObjectNode node;
 
-    public JsonColumnVisitor(PageReader reader, List<BigqueryColumnOption> columnOptions) {
+    public JsonColumnVisitor(PluginTask task, PageReader reader, List<BigqueryColumnOption> columnOptions) {
+        this.task = task;
         this.reader = reader;
         this.columnOptions = columnOptions;
-        this.builder = new ValueFactory.MapBuilder();
+        this.node = BigqueryUtil.getObjectMapper().createObjectNode();
     }
 
     public byte[] getByteArray() {
-        Value value = builder.build();
-        String json = value.toJson() + "\n";
+        String json = node.toString() + "\n";
         return json.getBytes(StandardCharsets.UTF_8);
     }
 
     @Override
     public void booleanColumn(Column column) {
-        Value columnName = ValueFactory.newString(column.getName());
-        Value value = ValueFactory.newBoolean(reader.getBoolean(column));
-        builder.put(columnName, value);
+        if (reader.isNull(column)) {
+            node.putNull(column.getName());
+        }else{
+            node.put(column.getName(), reader.getBoolean(column));
+        }
     }
 
     @Override
     public void longColumn(Column column) {
-        Value columnName = ValueFactory.newString(column.getName());
-        Value value = ValueFactory.newInteger(reader.getLong(column));
-        builder.put(columnName, value);
+        if (reader.isNull(column)){
+            node.putNull(column.getName());
+        }else{
+            node.put(column.getName(), reader.getLong(column));
+        }
     }
 
     @Override
     public void doubleColumn(Column column) {
-        Value columnName = ValueFactory.newString(column.getName());
-        Value value = ValueFactory.newFloat(reader.getDouble(column));
-        builder.put(columnName, value);
+        if (reader.isNull(column)){
+            node.putNull(column.getName());
+        }else {
+            node.put(column.getName(), reader.getDouble(column));
+        }
     }
 
     @Override
     public void stringColumn(Column column) {
-        Value value;
-        Value columnName = ValueFactory.newString(column.getName());
-        // Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
-
-        // if (columnOption.isPresent()){
-        //     value = BigqueryValueConverter.convert(reader.getString(column), columnOption.get());
-        // }else{
-        //     value = ValueFactory.newString(reader.getString(column));
-        // }
-        value = ValueFactory.newString(reader.getString(column));
-
-        builder.put(columnName, value);
+        if (reader.isNull(column)){
+            node.putNull(column.getName());
+        }else {
+            Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
+            if (columnOption.isPresent() && columnOption.get().getType().isPresent()) {
+                BigqueryValueConverter.convertAndSet(this.node, column.getName(),
+                        reader.getString(column), columnOption.get(), this.task);
+            } else {
+                node.put(column.getName(), reader.getString(column));
+            }
+        }
     }
 
     @Override
     public void timestampColumn(Column column) {
-        Value columnName = ValueFactory.newString(column.getName());
-        Value value = ValueFactory.newString("");
+        if (reader.isNull(column)){
+            node.putNull(column.getName());
+        }else {
+            node.put(column.getName(), reader.getString(column));
+        }
 
         // TODO:
         // TimestampFormatter formatter = timestampFormatters[column.getIndex()];
         // Value value = ValueFactory.newString(formatter.format(reader.getTimestamp(column)));
-        builder.put(columnName, value);
     }
 
     @Override
     public void jsonColumn(Column column) {
-        Value columnName = ValueFactory.newString(column.getName());
-        Value value = reader.getJson(column);
-        builder.put(columnName, value);
+        if (reader.isNull(column)){
+            node.putNull(column.getName());
+        }else {
+            node.put(column.getName(), reader.getString(column));
+        }
     }
 }

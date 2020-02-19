@@ -2,7 +2,7 @@ package org.embulk.output.bigquery_java;
 
 import org.embulk.config.TaskReport;
 import org.embulk.output.bigquery_java.config.PluginTask;
-import org.embulk.output.bigquery_java.visitor.JacksonJsonColumnVisitor;
+import org.embulk.output.bigquery_java.visitor.JsonColumnVisitor;
 import org.embulk.output.bigquery_java.visitor.BigqueryColumnVisitor;
 import org.embulk.spi.*;
 
@@ -39,7 +39,7 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
         try {
             this.os = writer.outputStream();
             while (pageReader.nextRecord()) {
-                BigqueryColumnVisitor visitor = new JacksonJsonColumnVisitor(this.task,
+                BigqueryColumnVisitor visitor = new JsonColumnVisitor(this.task,
                         pageReader, this.task.getColumnOptions().orElse(Collections.emptyList()));
                 pageReader.getSchema().getColumns().forEach(col-> col.visit(visitor));
                 os.write(visitor.getByteArray());
