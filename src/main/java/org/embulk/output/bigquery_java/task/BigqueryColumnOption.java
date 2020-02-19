@@ -29,8 +29,7 @@ public interface BigqueryColumnOption extends Task {
     @ConfigDefault("\"NULLABLE\"")
     public String getMode();
 
-    // TODO: fix me
-    // timestamp_format: timestamp format to convert into/from timestamp (string, default is default_timestamp_format)
+    // TODO: Task builder should set value
     @Config("timestamp_format")
     @ConfigDefault("null")
     public Optional<String> getTimestampFormat();

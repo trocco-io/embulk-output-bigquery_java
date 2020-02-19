@@ -144,7 +144,7 @@ public class BigqueryClient {
                 if (!colOpt.getMode().isEmpty()) {
                     fieldMode = Field.Mode.valueOf(colOpt.getMode());
                 }
-                if (!colOpt.getType().isPresent()){
+                if (colOpt.getType().isPresent()){
                     typeName = StandardSQLTypeName.valueOf(colOpt.getType().get());
                 }
             }
