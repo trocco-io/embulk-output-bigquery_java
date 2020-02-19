@@ -115,11 +115,11 @@ public class BigqueryClient {
     }
 
     private JobStatistics waitForLoad(Job job){
-        return new BigqueryJobWaiter(this.task, this, job).waitFor("load");
+        return new BigqueryJobWaiter(this.task, this, job).waitFor("Load");
     }
 
     private JobStatistics waitForCopy(Job job){
-        return new BigqueryJobWaiter(this.task, this, job).waitFor("copy");
+        return new BigqueryJobWaiter(this.task, this, job).waitFor("Copy");
     }
 
     @VisibleForTesting
