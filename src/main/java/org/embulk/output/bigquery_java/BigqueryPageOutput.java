@@ -1,7 +1,7 @@
 package org.embulk.output.bigquery_java;
 
 import org.embulk.config.TaskReport;
-import org.embulk.output.bigquery_java.task.PluginTask;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.visitor.JacksonJsonColumnVisitor;
 import org.embulk.output.bigquery_java.visitor.BigqueryColumnVisitor;
 import org.embulk.spi.*;

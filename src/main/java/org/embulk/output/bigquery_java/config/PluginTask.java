@@ -1,4 +1,4 @@
-package org.embulk.output.bigquery_java.task;
+package org.embulk.output.bigquery_java.config;
 
 import java.util.Optional;
 import org.embulk.config.Config;

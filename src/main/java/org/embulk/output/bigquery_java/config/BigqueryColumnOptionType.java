@@ -1,4 +1,4 @@
-package org.embulk.output.bigquery_java.task;
+package org.embulk.output.bigquery_java.config;
 
 public enum BigqueryColumnOptionType {
     BOOLEAN,

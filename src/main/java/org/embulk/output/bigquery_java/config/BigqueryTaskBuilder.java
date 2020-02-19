@@ -1,6 +1,6 @@
-package org.embulk.output.bigquery_java.task;
+package org.embulk.output.bigquery_java.config;
 
-import org.msgpack.core.annotations.VisibleForTesting;
+import com.google.common.annotations.VisibleForTesting;
 
 import java.io.File;
 import java.io.IOException;

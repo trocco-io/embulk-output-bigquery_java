@@ -2,12 +2,12 @@ package org.embulk.output.bigquery_java;
 
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.bigquery.*;
-import org.embulk.output.bigquery_java.task.BigqueryColumnOption;
-import org.embulk.output.bigquery_java.task.PluginTask;
+import com.google.common.annotations.VisibleForTesting;
+import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
 import org.embulk.spi.type.*;
-import org.msgpack.core.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,8 +1,8 @@
 package org.embulk.output.bigquery_java;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.embulk.output.bigquery_java.task.BigqueryColumnOption;
-import org.embulk.output.bigquery_java.task.PluginTask;
+import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.PluginTask;
 
 import java.io.File;
 import java.io.IOException;

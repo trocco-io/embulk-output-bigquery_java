@@ -3,7 +3,7 @@ package org.embulk.output.bigquery_java;
 import com.google.cloud.bigquery.Job;
 import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.JobStatus;
-import org.embulk.output.bigquery_java.task.PluginTask;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
