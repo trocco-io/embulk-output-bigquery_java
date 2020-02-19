@@ -14,7 +14,7 @@ configurations {
     provided
 }
 
-version = "0.1.0"
+version = "0.0.1"
 
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
@@ -26,7 +26,7 @@ shadowJar {
 
     dependencies {
         include dependency("com.google.guava:guava")
-        include dependency("com.google.cloud:google-cloud-bigquery")
+     //   include dependency("com.google.cloud:google-cloud-bigquery")
         include dependency("com.google.http-client:google-http-client")
     }
 
@@ -39,8 +39,7 @@ dependencies {
     provided "org.embulk:embulk-core:0.9.23"
 
     compile 'com.fasterxml.jackson.core:jackson-core:2.10.2'
-
-    compile 'com.google.cloud:google-cloud-bigquery:+'
+    compile 'com.google.cloud:google-cloud-bigquery:1.106.0'
 
     // compile "YOUR_JAR_DEPENDENCY_GROUP:YOUR_JAR_DEPENDENCY_MODULE:YOUR_JAR_DEPENDENCY_VERSION"
     testCompile "junit:junit:4.+"
@@ -106,7 +105,7 @@ Gem::Specification.new do |spec|
   spec.description   = %[Dumps records to Bigquery Java.]
   spec.email         = ["ugw.gi.world@gmail.com"]
   spec.licenses      = ["MIT"]
-  # TODO set this: spec.homepage      = "https://github.com/ugw.gi.world/embulk-output-bigquery_java"
+  spec.homepage      = "https://github.com/trocco-io/embulk-output-bigquery_java"
 
   spec.files         = `git ls-files`.split("\n") + Dir["classpath/*.jar"]
   spec.test_files    = spec.files.grep(%r"^(test|spec)/")
