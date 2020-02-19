@@ -32,33 +32,53 @@ public class JacksonJsonColumnVisitor implements BigqueryColumnVisitor {
 
     @Override
     public void booleanColumn(Column column) {
-        node.put(column.getName(), reader.getBoolean(column));
+        if (reader.isNull(column)) {
+            node.putNull(column.getName());
+        }else{
+            node.put(column.getName(), reader.getBoolean(column));
+        }
     }
 
     @Override
     public void longColumn(Column column) {
-        node.put(column.getName(), reader.getLong(column));
+        if (reader.isNull(column)){
+            node.putNull(column.getName());
+        }else{
+            node.put(column.getName(), reader.getLong(column));
+        }
     }
 
     @Override
     public void doubleColumn(Column column) {
-        node.put(column.getName(), reader.getDouble(column));
+        if (reader.isNull(column)){
+            node.putNull(column.getName());
+        }else {
+            node.put(column.getName(), reader.getDouble(column));
+        }
     }
 
     @Override
     public void stringColumn(Column column) {
-        Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
-        if (columnOption.isPresent() && columnOption.get().getType().isPresent()){
-            BigqueryValueConverter.convertAndSet(this.node, column.getName(),
-                    reader.getString(column), columnOption.get(), this.task);
-        }else{
-            node.put(column.getName(), reader.getString(column));
+        if (reader.isNull(column)){
+            node.putNull(column.getName());
+        }else {
+            Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
+            if (columnOption.isPresent() && columnOption.get().getType().isPresent()) {
+                BigqueryValueConverter.convertAndSet(this.node, column.getName(),
+                        reader.getString(column), columnOption.get(), this.task);
+            } else {
+                node.put(column.getName(), reader.getString(column));
+            }
         }
     }
 
     @Override
     public void timestampColumn(Column column) {
-        node.put(column.getName(), reader.getString(column));
+        if (reader.isNull(column)){
+            node.putNull(column.getName());
+        }else {
+            node.put(column.getName(), reader.getString(column));
+        }
 
         // TODO:
         // TimestampFormatter formatter = timestampFormatters[column.getIndex()];
@@ -67,6 +87,10 @@ public class JacksonJsonColumnVisitor implements BigqueryColumnVisitor {
 
     @Override
     public void jsonColumn(Column column) {
-        node.put(column.getName(), reader.getString(column));
+        if (reader.isNull(column)){
+            node.putNull(column.getName());
+        }else {
+            node.put(column.getName(), reader.getString(column));
+        }
     }
 }

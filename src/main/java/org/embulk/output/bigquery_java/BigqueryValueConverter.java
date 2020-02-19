@@ -23,54 +23,6 @@ public class BigqueryValueConverter {
     private static TimestampParser parser;
     private static Timestamp ts;
 
-    // public static Value convert(String src, BigqueryColumnOption columnOption){
-    //     switch (BigqueryColumnOptionType.valueOf(columnOption.getType())) {
-    //         case BOOLEAN:
-    //             value = ValueFactory.newBoolean(Boolean.parseBoolean(src));
-    //             break;
-    //         case INTEGER:
-    //             value = ValueFactory.newInteger(Integer.parseInt(src));
-    //             break;
-    //         case FLOAT:
-    //             value = ValueFactory.newFloat(Float.parseFloat(src));
-    //             break;
-    //         case STRING:
-    //             value = ValueFactory.newString(src);
-    //             break;
-    //         case TIMESTAMP:
-    //             pattern = columnOption.getTimestampFormat();
-    //             timezone = columnOption.getTimezone();
-    //             parser = TimestampParser.of(pattern, timezone);
-    //             ts = parser.parse(src);
-    //             timestampFormat = TimestampFormatter.of("\t%Y-%m-%d %H:%M:%S.%6N",timezone);
-    //             value = ValueFactory.newString(timestampFormat.format(ts));
-    //             break;
-    //         case DATETIME:
-    //             pattern = columnOption.getTimestampFormat();
-    //             timezone = columnOption.getTimezone();
-    //             parser = TimestampParser.of(pattern, timezone);
-    //             ts = parser.parse(src);
-    //             timestampFormat = TimestampFormatter.of("\t%Y-%m-%d %H:%M:%S.%6N",timezone);
-    //             value = ValueFactory.newString(timestampFormat.format(ts));
-    //             break;
-    //         case DATE:
-    //             pattern = columnOption.getTimestampFormat();
-    //             timezone = columnOption.getTimezone();
-    //             parser = TimestampParser.of(pattern, timezone);
-    //             ts = parser.parse(src);
-    //             timestampFormat = TimestampFormatter.of("%Y-%m-%d",timezone);
-    //             value = ValueFactory.newString(timestampFormat.format(ts));
-    //             break;
-    //         case RECORD:
-    //             // TODO:
-    //             value = ValueFactory.newString(src);
-    //             break;
-    //         default:
-    //             throw new RuntimeException("Invalid data convert for String");
-    //     }
-    //     return value;
-    // }
-
     // TODO: refactor later
     public static void convertAndSet(ObjectNode node, String name, String src, BigqueryColumnOption columnOption, PluginTask task){
         switch (BigqueryColumnOptionType.valueOf(columnOption.getType().get())) {
@@ -118,31 +70,4 @@ public class BigqueryValueConverter {
                 throw new RuntimeException("Invalid data convert for String");
         }
     }
-
-    // public static Value convert(long src, BigqueryColumnOption columnOption){
-    //     String srcStr = String.valueOf(src);
-    //     switch (BigqueryColumnOptionType.valueOf(columnOption.getType())) {
-    //         case BOOLEAN:
-    //             value = ValueFactory.newBoolean(Boolean.parseBoolean(srcStr));
-    //             break;
-    //         case INTEGER:
-    //             value = ValueFactory.newInteger(Integer.parseInt(srcStr));
-    //             break;
-    //         case FLOAT:
-    //             value = ValueFactory.newFloat(Float.parseFloat(srcStr));
-    //             break;
-    //         case STRING:
-    //             value = ValueFactory.newString(srcStr);
-    //             break;
-    //         case TIMESTAMP:
-    //             pattern = columnOption.getTimestampFormat().get();
-    //             timezone = columnOption.getTimezone();
-    //             ts = Timestamp.ofEpochMilli(src);
-    //             value = ValueFactory.newString(timestampFormat.format(ts));
-    //             break;
-    //         default:
-    //             throw new RuntimeException("Invalid data convert for long");
-    //     }
-    //     return value;
-    // }
 }
