@@ -8,7 +8,7 @@ import java.util.Arrays;
 import java.util.UUID;
 import java.util.Optional;
 
-public class BigqueryConfigBuilder {
+public class BigqueryTaskBuilder {
     private static final String uniqueName = UUID.randomUUID().toString().replace("-", "_");
 
     public static PluginTask build(PluginTask task){
