@@ -79,7 +79,13 @@ public class BigqueryJavaOutputPlugin
                 throw new RuntimeException(e);
             }
         }
-        getTransactionReport(statistics);
+        getTransactionReport(task, client, statistics, this.writers.values());
+        //             if task['abort_on_error'] && !task['is_skip_job_result_check']
+        //              if transaction_report['num_input_rows'] != transaction_report['num_output_rows']
+        //                raise Error, "ABORT: `num_input_rows (#{transaction_report['num_input_rows']})` and " \
+        //                  "`num_output_rows (#{transaction_report['num_output_rows']})` does not match"
+        //              end
+        //            end
 
         if (task.getTempTable().isPresent()){
             client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
@@ -119,9 +125,26 @@ public class BigqueryJavaOutputPlugin
     public TransactionalPageOutput open(TaskSource taskSource, Schema schema, int taskIndex)
     {
         PluginTask task = taskSource.loadTask(PluginTask.class);
-        return new BigqueryPageOutput(task, schema);
+        return new BigqueryPageOutput(task, schema, this.writers);
     }
 
+
+    protected BigqueryTransactionReport getTransactionReport(PluginTask task,
+                                                             BigqueryClient client,
+                                                             List<JobStatistics.LoadStatistics> statistics, Collection<BigqueryFileWriter> writers) {
+        long inputRows = writers.stream().map(BigqueryFileWriter::getCount).reduce(0L, Long::sum);
+        if (task.getIsSkipJobResultCheck()){
+            return new BigqueryTransactionReport(inputRows);
+        }
+
+        long responseRows = statistics.stream().map(JobStatistics.LoadStatistics::getOutputRows).reduce(0L, Long::sum);
+        BigInteger outputRows;
+        if (task.getTempTable().isPresent()){
+            outputRows = client.getTable(task.getTempTable().get()).getNumRows();
+        }else{
+            outputRows = BigInteger.valueOf(responseRows);
+        }
+        BigInteger rejectedRows = BigInteger.valueOf(inputRows).subtract(outputRows);
 
         long badRecord = statistics.stream().map(JobStatistics.LoadStatistics::getBadRecords).reduce(0L, Long::sum);
 
