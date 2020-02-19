@@ -111,4 +111,12 @@ public interface PluginTask
     @ConfigDefault("true")
     public boolean getDeleteFromLocalWhenJobEnd();
 
+    @Config("is_skip_job_result_check")
+    @ConfigDefault("false")
+    public boolean getIsSkipJobResultCheck();
+
+    @Config("abort_on_error")
+    @ConfigDefault("false")
+    public boolean getAbortOnError();
+
 }

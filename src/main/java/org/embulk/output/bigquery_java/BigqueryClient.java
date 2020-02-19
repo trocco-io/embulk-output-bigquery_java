@@ -51,6 +51,14 @@ public class BigqueryClient {
         return this.bigquery.getJob(jobId);
     }
 
+    public Table getTable(String name){
+        return getTable(TableId.of(this.dataset, name));
+    }
+
+    public Table getTable(TableId tableId){
+        return this.bigquery.getTable(tableId);
+    }
+
     public Table createTableIfNotExist(String table, String dataset){
         com.google.cloud.bigquery.Schema schema = buildSchema(this.schema,  this.columnOptions);
         TableDefinition tableDefinition = StandardTableDefinition.of(schema);

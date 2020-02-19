@@ -1,9 +1,10 @@
 package org.embulk.output.bigquery_java;
 
 import java.io.File;
+import java.math.BigInteger;
 import java.nio.file.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -30,6 +31,7 @@ public class BigqueryJavaOutputPlugin
 {
     private final Logger logger = LoggerFactory.getLogger(BigqueryJavaOutputPlugin.class);
     private List<Path> paths;
+    private HashMap<Long, BigqueryFileWriter> writers = new HashMap<>();
 
     @Override
     public ConfigDiff transaction(ConfigSource config,
@@ -43,7 +45,7 @@ public class BigqueryJavaOutputPlugin
 
         control.run(task.dump());
 
-        // TODO: all file writer have to close here
+        this.writers.values().forEach(BigqueryFileWriter::close);
         logger.info("embulk-output-bigquery: finish to create intermediate files");
 
         try {
@@ -121,12 +123,9 @@ public class BigqueryJavaOutputPlugin
     }
 
 
-    private BigqueryTransactionReport getTransactionReport(List<JobStatistics.LoadStatistics> statistics) {
-        //
-        long badRecord = statistics.stream().map(JobStatistics.LoadStatistics::getBadRecords).reduce(Long::sum).orElse(0L);
-        long outputRow = statistics.stream().map(JobStatistics.LoadStatistics::getOutputRows).reduce(Long::sum).orElse(0L);
+        long badRecord = statistics.stream().map(JobStatistics.LoadStatistics::getBadRecords).reduce(0L, Long::sum);
 
         // TODO:
-        return new BigqueryTransactionReport(0L, 0L, outputRow, 0L);
+        return new BigqueryTransactionReport(inputRows, responseRows, outputRows, rejectedRows);
     }
 }

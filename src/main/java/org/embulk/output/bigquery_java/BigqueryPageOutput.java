@@ -8,6 +8,7 @@ import org.embulk.spi.*;
 
 import java.io.OutputStream;
 import java.util.Collections;
+import java.util.HashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,16 +26,19 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
     private final Schema schema;
     private PluginTask task;
     private OutputStream os;
+    private HashMap<Long, BigqueryFileWriter> writers;
 
-    public BigqueryPageOutput(PluginTask task, Schema schema) {
+    public BigqueryPageOutput(PluginTask task, Schema schema, HashMap<Long, BigqueryFileWriter> writers) {
         this.task = task;
         this.schema = schema;
         this.pageReader = new PageReader(schema);
+        this.writers = writers;
     }
 
     @Override
     public void add(Page page) {
         pageReader.setPage(page);
+        BigqueryThreadLocalFileWriter.setFileWriter(this.task);
         BigqueryFileWriter writer = new BigqueryFileWriter(this.task);
         try {
             this.os = writer.outputStream();
@@ -42,7 +46,7 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
                 BigqueryColumnVisitor visitor = new JsonColumnVisitor(this.task,
                         pageReader, this.task.getColumnOptions().orElse(Collections.emptyList()));
                 pageReader.getSchema().getColumns().forEach(col-> col.visit(visitor));
-                os.write(visitor.getByteArray());
+                BigqueryThreadLocalFileWriter.write(visitor.getByteArray());
             }
         } catch (Exception e) {
             logger.info(e.getMessage());
@@ -58,19 +62,11 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
     @Override
     public void close()
     {
-        // TODO: DONOT close here
-        if (os != null){
-            try {
-                os.flush();
-                os.close();
-            }catch (Exception e){
-                logger.info(e.getMessage());
-            }
-        }
         if (pageReader != null) {
             pageReader.close();
             pageReader = null;
         }
+        writers.put(Thread.currentThread().getId(), BigqueryThreadLocalFileWriter.getFileWriter());
     }
 
     @Override
