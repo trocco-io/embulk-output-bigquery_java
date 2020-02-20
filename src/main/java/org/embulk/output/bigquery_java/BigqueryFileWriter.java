@@ -35,11 +35,12 @@ public class BigqueryFileWriter {
     }
 
     public OutputStream open(String path) throws IOException {
-        this.os = new FileOutputStream(path, true);
+        this.os = new FileOutputStream(path);
         if (this.compression.equals("GZIP")){
             this.os = new GZIPOutputStream(this.os);
         }
-        this.os = new BufferedOutputStream(this.os);
+        // embulk default page size
+        this.os = new BufferedOutputStream(this.os, 1024 * 32);
 
         return this.os;
     }

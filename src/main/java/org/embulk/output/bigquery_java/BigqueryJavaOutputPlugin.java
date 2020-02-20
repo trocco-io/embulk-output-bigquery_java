@@ -31,7 +31,7 @@ public class BigqueryJavaOutputPlugin
 {
     private final Logger logger = LoggerFactory.getLogger(BigqueryJavaOutputPlugin.class);
     private List<Path> paths;
-    private HashMap<Long, BigqueryFileWriter> writers = new HashMap<>();
+    private final ConcurrentHashMap<Long, BigqueryFileWriter> writers = BigqueryUtil.getFileWriters();
 
     @Override
     public ConfigDiff transaction(ConfigSource config,
@@ -44,7 +44,6 @@ public class BigqueryJavaOutputPlugin
         client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
 
         control.run(task.dump());
-
         this.writers.values().forEach(BigqueryFileWriter::close);
         logger.info("embulk-output-bigquery: finish to create intermediate files");
 
@@ -79,7 +78,9 @@ public class BigqueryJavaOutputPlugin
                 throw new RuntimeException(e);
             }
         }
-        getTransactionReport(task, client, statistics, this.writers.values());
+        BigqueryTransactionReport report = getTransactionReport(task, client, statistics, this.writers.values());
+        logger.info(report.toString());
+        // TODO:
         //             if task['abort_on_error'] && !task['is_skip_job_result_check']
         //              if transaction_report['num_input_rows'] != transaction_report['num_output_rows']
         //                raise Error, "ABORT: `num_input_rows (#{transaction_report['num_input_rows']})` and " \
@@ -93,7 +94,7 @@ public class BigqueryJavaOutputPlugin
         }
 
         if (task.getDeleteFromLocalWhenJobEnd()){
-            paths.forEach(p -> new File(p.toString()).delete());
+            paths.forEach(p -> p.toFile().delete());
         }else{
             paths.forEach(p->{
                 File intermediateFile = new File(p.toString());
@@ -125,7 +126,7 @@ public class BigqueryJavaOutputPlugin
     public TransactionalPageOutput open(TaskSource taskSource, Schema schema, int taskIndex)
     {
         PluginTask task = taskSource.loadTask(PluginTask.class);
-        return new BigqueryPageOutput(task, schema, this.writers);
+        return new BigqueryPageOutput(task, schema);
     }
 
 

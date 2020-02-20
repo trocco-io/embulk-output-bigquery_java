@@ -8,6 +8,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.Optional;
 
@@ -43,6 +44,14 @@ public class BigqueryUtil {
 
     public static class ObjectMapperInstanceHolder {
         private static final ObjectMapper INSTANCE = new ObjectMapper();
+    }
+
+    public static ConcurrentHashMap<Long, BigqueryFileWriter> getFileWriters(){
+        return FileWriterHolder.INSTANCE;
+    }
+
+    public static class FileWriterHolder {
+        private static final ConcurrentHashMap<Long, BigqueryFileWriter> INSTANCE = new ConcurrentHashMap<>();
     }
 
     public static Optional<BigqueryColumnOption> findColumnOption(String columnName, List<BigqueryColumnOption> columnOptions) {
