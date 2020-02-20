@@ -14,7 +14,7 @@ configurations {
     provided
 }
 
-version = "0.0.3"
+version = "0.0.4"
 
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
@@ -26,7 +26,6 @@ shadowJar {
 
     dependencies {
         include dependency("com.google.guava:guava")
-     //   include dependency("com.google.cloud:google-cloud-bigquery")
         include dependency("com.google.http-client:google-http-client")
     }
 

@@ -11,10 +11,8 @@ import org.embulk.spi.type.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.FileInputStream;
+import java.io.*;
 import java.util.Optional;
-import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,6 +47,14 @@ public class BigqueryClient {
 
     public Job getJob(JobId jobId){
         return this.bigquery.getJob(jobId);
+    }
+
+    public Table getTable(String name){
+        return getTable(TableId.of(this.dataset, name));
+    }
+
+    public Table getTable(TableId tableId){
+        return this.bigquery.getTable(tableId);
     }
 
     public Table createTableIfNotExist(String table, String dataset){
@@ -115,11 +121,11 @@ public class BigqueryClient {
     }
 
     private JobStatistics waitForLoad(Job job){
-        return new BigqueryJobWaiter(this.task, this, job).waitFor("load");
+        return new BigqueryJobWaiter(this.task, this, job).waitFor("Load");
     }
 
     private JobStatistics waitForCopy(Job job){
-        return new BigqueryJobWaiter(this.task, this, job).waitFor("copy");
+        return new BigqueryJobWaiter(this.task, this, job).waitFor("Copy");
     }
 
     @VisibleForTesting

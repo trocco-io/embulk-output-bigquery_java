@@ -1,16 +1,32 @@
 package org.embulk.output.bigquery_java;
 
+import java.math.BigInteger;
+
 public class BigqueryTransactionReport {
     private long numInputRows;
     private long numResponseRows;
-    private long numOutputRows;
-    private long numRejectedRows;
+    private BigInteger numOutputRows;
+    private BigInteger numRejectedRows;
 
-    public BigqueryTransactionReport(long numInputRows, long numResponseRows, long numOutputRows, long numRejectedRows) {
+    @Override
+    public String toString() {
+        return "BigqueryTransactionReport{" +
+                "numInputRows=" + numInputRows +
+                ", numResponseRows=" + numResponseRows +
+                ", numOutputRows=" + numOutputRows +
+                ", numRejectedRows=" + numRejectedRows +
+                '}';
+    }
+
+    public BigqueryTransactionReport(long numInputRows, long numResponseRows, BigInteger numOutputRows, BigInteger numRejectedRows) {
         this.numInputRows = numInputRows;
         this.numResponseRows = numResponseRows;
         this.numOutputRows = numOutputRows;
         this.numRejectedRows = numRejectedRows;
+    }
+
+    public BigqueryTransactionReport(long numInputRows){
+        this.numInputRows = numInputRows;
     }
 
     public long getNumInputRows() {
@@ -21,11 +37,11 @@ public class BigqueryTransactionReport {
         return numResponseRows;
     }
 
-    public long getNumOutputRows() {
+    public BigInteger getNumOutputRows() {
         return numOutputRows;
     }
 
-    public long getNumRejectedRows() {
+    public BigInteger getNumRejectedRows() {
         return numRejectedRows;
     }
 }

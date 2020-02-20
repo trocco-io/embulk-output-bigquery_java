@@ -1,9 +1,10 @@
 package org.embulk.output.bigquery_java;
 
 import java.io.File;
+import java.math.BigInteger;
 import java.nio.file.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -30,6 +31,7 @@ public class BigqueryJavaOutputPlugin
 {
     private final Logger logger = LoggerFactory.getLogger(BigqueryJavaOutputPlugin.class);
     private List<Path> paths;
+    private final ConcurrentHashMap<Long, BigqueryFileWriter> writers = BigqueryUtil.getFileWriters();
 
     @Override
     public ConfigDiff transaction(ConfigSource config,
@@ -42,8 +44,7 @@ public class BigqueryJavaOutputPlugin
         client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
 
         control.run(task.dump());
-
-        // TODO: all file writer have to close here
+        this.writers.values().forEach(BigqueryFileWriter::close);
         logger.info("embulk-output-bigquery: finish to create intermediate files");
 
         try {
@@ -77,7 +78,15 @@ public class BigqueryJavaOutputPlugin
                 throw new RuntimeException(e);
             }
         }
-        getTransactionReport(statistics);
+        BigqueryTransactionReport report = getTransactionReport(task, client, statistics, this.writers.values());
+        logger.info(report.toString());
+        // TODO:
+        //             if task['abort_on_error'] && !task['is_skip_job_result_check']
+        //              if transaction_report['num_input_rows'] != transaction_report['num_output_rows']
+        //                raise Error, "ABORT: `num_input_rows (#{transaction_report['num_input_rows']})` and " \
+        //                  "`num_output_rows (#{transaction_report['num_output_rows']})` does not match"
+        //              end
+        //            end
 
         if (task.getTempTable().isPresent()){
             client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
@@ -85,7 +94,7 @@ public class BigqueryJavaOutputPlugin
         }
 
         if (task.getDeleteFromLocalWhenJobEnd()){
-            paths.forEach(p -> new File(p.toString()).delete());
+            paths.forEach(p -> p.toFile().delete());
         }else{
             paths.forEach(p->{
                 File intermediateFile = new File(p.toString());
@@ -121,12 +130,26 @@ public class BigqueryJavaOutputPlugin
     }
 
 
-    private BigqueryTransactionReport getTransactionReport(List<JobStatistics.LoadStatistics> statistics) {
-        //
-        long badRecord = statistics.stream().map(JobStatistics.LoadStatistics::getBadRecords).reduce(Long::sum).orElse(0L);
-        long outputRow = statistics.stream().map(JobStatistics.LoadStatistics::getOutputRows).reduce(Long::sum).orElse(0L);
+    protected BigqueryTransactionReport getTransactionReport(PluginTask task,
+                                                             BigqueryClient client,
+                                                             List<JobStatistics.LoadStatistics> statistics, Collection<BigqueryFileWriter> writers) {
+        long inputRows = writers.stream().map(BigqueryFileWriter::getCount).reduce(0L, Long::sum);
+        if (task.getIsSkipJobResultCheck()){
+            return new BigqueryTransactionReport(inputRows);
+        }
+
+        long responseRows = statistics.stream().map(JobStatistics.LoadStatistics::getOutputRows).reduce(0L, Long::sum);
+        BigInteger outputRows;
+        if (task.getTempTable().isPresent()){
+            outputRows = client.getTable(task.getTempTable().get()).getNumRows();
+        }else{
+            outputRows = BigInteger.valueOf(responseRows);
+        }
+        BigInteger rejectedRows = BigInteger.valueOf(inputRows).subtract(outputRows);
+
+        long badRecord = statistics.stream().map(JobStatistics.LoadStatistics::getBadRecords).reduce(0L, Long::sum);
 
         // TODO:
-        return new BigqueryTransactionReport(0L, 0L, outputRow, 0L);
+        return new BigqueryTransactionReport(inputRows, responseRows, outputRows, rejectedRows);
     }
 }
