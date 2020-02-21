@@ -1,12 +1,12 @@
 package org.embulk.output.bigquery_java.config;
 
-import com.google.common.annotations.VisibleForTesting;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.Optional;
+
+import com.google.common.annotations.VisibleForTesting;
 
 public class BigqueryTaskBuilder {
     private static final String uniqueName = UUID.randomUUID().toString().replace("-", "_");

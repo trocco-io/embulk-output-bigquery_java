@@ -1,13 +1,16 @@
 package org.embulk.output.bigquery_java;
 
+import java.util.Date;
+
+import org.embulk.output.bigquery_java.config.PluginTask;
+
 import com.google.cloud.bigquery.Job;
 import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.JobStatus;
-import org.embulk.output.bigquery_java.config.PluginTask;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Date;
 
 import static com.google.cloud.bigquery.JobStatus.State.DONE;
 

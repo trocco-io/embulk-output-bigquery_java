@@ -1,11 +1,12 @@
 package org.embulk.output.bigquery_java.config;
 
+import java.util.List;
 import java.util.Optional;
+
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.Task;
 
-import java.util.List;
 
 public interface PluginTask
         extends Task {

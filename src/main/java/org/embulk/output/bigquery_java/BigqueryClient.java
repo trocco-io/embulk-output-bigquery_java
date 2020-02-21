@@ -1,22 +1,51 @@
 package org.embulk.output.bigquery_java;
 
-import com.google.auth.oauth2.ServiceAccountCredentials;
-import com.google.cloud.bigquery.*;
-import com.google.common.annotations.VisibleForTesting;
-import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
-import org.embulk.output.bigquery_java.config.PluginTask;
-import org.embulk.spi.Column;
-import org.embulk.spi.Schema;
-import org.embulk.spi.type.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.*;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.UUID;
+
+import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.spi.Column;
+import org.embulk.spi.Schema;
+import org.embulk.spi.type.BooleanType;
+import org.embulk.spi.type.DoubleType;
+import org.embulk.spi.type.JsonType;
+import org.embulk.spi.type.LongType;
+import org.embulk.spi.type.StringType;
+import org.embulk.spi.type.TimestampType;
+import org.embulk.spi.type.Type;
+
+import com.google.auth.oauth2.ServiceAccountCredentials;
+import com.google.cloud.bigquery.BigQuery;
+import com.google.cloud.bigquery.BigQueryOptions;
+import com.google.cloud.bigquery.CopyJobConfiguration;
+import com.google.cloud.bigquery.Field;
+import com.google.cloud.bigquery.FormatOptions;
+import com.google.cloud.bigquery.Job;
+import com.google.cloud.bigquery.JobId;
+import com.google.cloud.bigquery.JobInfo;
+import com.google.cloud.bigquery.JobStatistics;
+import com.google.cloud.bigquery.StandardSQLTypeName;
+import com.google.cloud.bigquery.StandardTableDefinition;
+import com.google.cloud.bigquery.Table;
+import com.google.cloud.bigquery.TableDataWriteChannel;
+import com.google.cloud.bigquery.TableDefinition;
+import com.google.cloud.bigquery.TableId;
+import com.google.cloud.bigquery.TableInfo;
+import com.google.cloud.bigquery.WriteChannelConfiguration;
+import com.google.common.annotations.VisibleForTesting;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class BigqueryClient {
     private final Logger logger = LoggerFactory.getLogger(BigqueryClient.class);

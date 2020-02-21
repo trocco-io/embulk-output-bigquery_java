@@ -1,12 +1,16 @@
 package org.embulk.output.bigquery_java;
 
+import java.util.Collections;
+
 import org.embulk.config.TaskReport;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.visitor.JsonColumnVisitor;
 import org.embulk.output.bigquery_java.visitor.BigqueryColumnVisitor;
-import org.embulk.spi.*;
-
-import java.util.Collections;
+import org.embulk.spi.Exec;
+import org.embulk.spi.Page;
+import org.embulk.spi.PageReader;
+import org.embulk.spi.Schema;
+import org.embulk.spi.TransactionalPageOutput;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +36,7 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
             while (pageReader.nextRecord()) {
                 BigqueryColumnVisitor visitor = new JsonColumnVisitor(this.task,
                         pageReader, this.task.getColumnOptions().orElse(Collections.emptyList()));
-                pageReader.getSchema().getColumns().forEach(col-> col.visit(visitor));
+                pageReader.getSchema().getColumns().forEach(col -> col.visit(visitor));
                 BigqueryThreadLocalFileWriter.write(visitor.getByteArray());
             }
         } catch (Exception e) {
@@ -41,14 +45,12 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
     }
 
     @Override
-    public void finish()
-    {
+    public void finish() {
         close();
     }
 
     @Override
-    public void close()
-    {
+    public void close() {
         if (pageReader != null) {
             pageReader.close();
             pageReader = null;
@@ -60,8 +62,7 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
     }
 
     @Override
-    public TaskReport commit()
-    {
+    public TaskReport commit() {
         return Exec.newTaskReport();
     }
 }

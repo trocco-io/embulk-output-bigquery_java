@@ -1,7 +1,5 @@
 package org.embulk.output.bigquery_java;
 
-
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -9,9 +7,8 @@ import org.embulk.spi.time.Timestamp;
 import org.embulk.spi.time.TimestampFormatter;
 import org.embulk.spi.time.TimestampParser;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
-// provide function to concert value to specific type
-// e.g. string to date
 public class BigqueryValueConverter {
     // default datetime format %Y-%m-%d %H:%M:%S.%6N
     // default timestamp format %Y-%m-%d %H:%M:%S.%6N

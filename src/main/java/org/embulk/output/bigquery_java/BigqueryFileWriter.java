@@ -1,16 +1,15 @@
 package org.embulk.output.bigquery_java;
 
-import com.google.api.services.bigquery.Bigquery;
-import org.embulk.output.bigquery_java.config.PluginTask;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.*;
-import java.util.zip.DeflaterOutputStream;
+import java.io.BufferedOutputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.zip.GZIPOutputStream;
 
-// provide function to write record to file
-// jsonl and csv should be handled this class
+import org.embulk.output.bigquery_java.config.PluginTask;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class BigqueryFileWriter {
     private final Logger logger = LoggerFactory.getLogger(BigqueryFileWriter.class);

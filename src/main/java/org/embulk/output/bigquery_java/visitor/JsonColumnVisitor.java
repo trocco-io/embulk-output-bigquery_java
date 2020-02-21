@@ -1,6 +1,9 @@
 package org.embulk.output.bigquery_java.visitor;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Optional;
+
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.BigqueryUtil;
 import org.embulk.output.bigquery_java.BigqueryValueConverter;
@@ -8,9 +11,7 @@ import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.Column;
 import org.embulk.spi.PageReader;
 
-import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.Optional;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 public class JsonColumnVisitor implements BigqueryColumnVisitor {
     private PluginTask task;

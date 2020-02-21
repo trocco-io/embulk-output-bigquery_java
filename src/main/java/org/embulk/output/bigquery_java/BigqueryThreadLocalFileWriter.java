@@ -1,8 +1,9 @@
 package org.embulk.output.bigquery_java;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.embulk.output.bigquery_java.config.PluginTask;
 
-import java.util.concurrent.ConcurrentHashMap;
 
 public class BigqueryThreadLocalFileWriter {
     private static ThreadLocal<BigqueryFileWriter> tl = ThreadLocal.withInitial(BigqueryFileWriter::new);

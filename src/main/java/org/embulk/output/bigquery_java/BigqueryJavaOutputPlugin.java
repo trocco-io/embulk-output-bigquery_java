@@ -2,8 +2,10 @@ package org.embulk.output.bigquery_java;
 
 import java.io.File;
 import java.math.BigInteger;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
