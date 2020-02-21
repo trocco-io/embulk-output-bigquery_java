@@ -1,17 +1,22 @@
 package org.embulk.output.bigquery_java;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
-import org.embulk.output.bigquery_java.config.PluginTask;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.Optional;
 
+import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.PluginTask;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class BigqueryUtil {
     public static List<Path> getIntermediateFiles(PluginTask task) throws IOException {

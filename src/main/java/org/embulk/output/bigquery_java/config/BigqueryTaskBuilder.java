@@ -1,12 +1,12 @@
 package org.embulk.output.bigquery_java.config;
 
-import com.google.common.annotations.VisibleForTesting;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.Optional;
+
+import com.google.common.annotations.VisibleForTesting;
 
 public class BigqueryTaskBuilder {
     private static final String uniqueName = UUID.randomUUID().toString().replace("-", "_");
@@ -15,6 +15,7 @@ public class BigqueryTaskBuilder {
         setPathPrefix(task);
         setFileExt(task);
         setTempTable(task);
+        setAbortOnError(task);
         return task;
     }
 
@@ -54,6 +55,13 @@ public class BigqueryTaskBuilder {
             task.setTempTable(Optional.of(tempTable));
         }else{
             task.setTempTable(Optional.of(null));
+        }
+    }
+
+    @VisibleForTesting
+    protected static void setAbortOnError(PluginTask task){
+        if (!task.getAbortOnError().isPresent()){
+            task.setAbortOnError(Optional.of(task.getMaxBadRecords() == 0));
         }
     }
 }
