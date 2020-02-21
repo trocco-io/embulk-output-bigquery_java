@@ -116,7 +116,9 @@ public interface PluginTask
     public boolean getIsSkipJobResultCheck();
 
     @Config("abort_on_error")
-    @ConfigDefault("false")
-    public boolean getAbortOnError();
+    @ConfigDefault("null")
+    public Optional<Boolean> getAbortOnError();
+
+    public  void setAbortOnError(Optional<Boolean> abortOnError);
 
 }

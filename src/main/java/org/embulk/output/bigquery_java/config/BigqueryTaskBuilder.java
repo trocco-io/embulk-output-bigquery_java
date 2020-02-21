@@ -15,6 +15,7 @@ public class BigqueryTaskBuilder {
         setPathPrefix(task);
         setFileExt(task);
         setTempTable(task);
+        setAbortOnError(task);
         return task;
     }
 
@@ -54,6 +55,13 @@ public class BigqueryTaskBuilder {
             task.setTempTable(Optional.of(tempTable));
         }else{
             task.setTempTable(Optional.of(null));
+        }
+    }
+
+    @VisibleForTesting
+    protected static void setAbortOnError(PluginTask task){
+        if (!task.getAbortOnError().isPresent()){
+            task.setAbortOnError(Optional.of(task.getMaxBadRecords() == 0));
         }
     }
 }

@@ -3,8 +3,8 @@ package org.embulk.output.bigquery_java;
 import java.math.BigInteger;
 
 public class BigqueryTransactionReport {
-    private long numInputRows;
-    private long numResponseRows;
+    private BigInteger numInputRows;
+    private BigInteger numResponseRows;
     private BigInteger numOutputRows;
     private BigInteger numRejectedRows;
 
@@ -18,22 +18,22 @@ public class BigqueryTransactionReport {
                 '}';
     }
 
-    public BigqueryTransactionReport(long numInputRows, long numResponseRows, BigInteger numOutputRows, BigInteger numRejectedRows) {
+    public BigqueryTransactionReport(BigInteger numInputRows, BigInteger numResponseRows, BigInteger numOutputRows, BigInteger numRejectedRows) {
         this.numInputRows = numInputRows;
         this.numResponseRows = numResponseRows;
         this.numOutputRows = numOutputRows;
         this.numRejectedRows = numRejectedRows;
     }
 
-    public BigqueryTransactionReport(long numInputRows){
+    public BigqueryTransactionReport(BigInteger numInputRows){
         this.numInputRows = numInputRows;
     }
 
-    public long getNumInputRows() {
+    public BigInteger getNumInputRows() {
         return numInputRows;
     }
 
-    public long getNumResponseRows() {
+    public BigInteger getNumResponseRows() {
         return numResponseRows;
     }
 

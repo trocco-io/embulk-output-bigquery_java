@@ -79,14 +79,13 @@ public class BigqueryJavaOutputPlugin
             }
         }
         BigqueryTransactionReport report = getTransactionReport(task, client, statistics, this.writers.values());
-        logger.info(report.toString());
-        // TODO:
-        //             if task['abort_on_error'] && !task['is_skip_job_result_check']
-        //              if transaction_report['num_input_rows'] != transaction_report['num_output_rows']
-        //                raise Error, "ABORT: `num_input_rows (#{transaction_report['num_input_rows']})` and " \
-        //                  "`num_output_rows (#{transaction_report['num_output_rows']})` does not match"
-        //              end
-        //            end
+        if (task.getAbortOnError().get() && !task.getIsSkipJobResultCheck()){
+            if (report.getNumInputRows().compareTo(report.getNumOutputRows()) == 0){
+                String msg = String.format("ABORT: `num_input_rows (%d)` and `num_output_rows (%d)` does not match",
+                        report.getNumInputRows(), report.getNumOutputRows());
+                throw new RuntimeException(msg);
+            }
+        }
 
         if (task.getTempTable().isPresent()){
             client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
@@ -135,7 +134,7 @@ public class BigqueryJavaOutputPlugin
                                                              List<JobStatistics.LoadStatistics> statistics, Collection<BigqueryFileWriter> writers) {
         long inputRows = writers.stream().map(BigqueryFileWriter::getCount).reduce(0L, Long::sum);
         if (task.getIsSkipJobResultCheck()){
-            return new BigqueryTransactionReport(inputRows);
+            return new BigqueryTransactionReport(BigInteger.valueOf(inputRows));
         }
 
         long responseRows = statistics.stream().map(JobStatistics.LoadStatistics::getOutputRows).reduce(0L, Long::sum);
@@ -147,9 +146,10 @@ public class BigqueryJavaOutputPlugin
         }
         BigInteger rejectedRows = BigInteger.valueOf(inputRows).subtract(outputRows);
 
-        long badRecord = statistics.stream().map(JobStatistics.LoadStatistics::getBadRecords).reduce(0L, Long::sum);
-
-        // TODO:
-        return new BigqueryTransactionReport(inputRows, responseRows, outputRows, rejectedRows);
+        return new BigqueryTransactionReport(
+                BigInteger.valueOf(inputRows),
+                BigInteger.valueOf(responseRows),
+                outputRows,
+                rejectedRows);
     }
 }
