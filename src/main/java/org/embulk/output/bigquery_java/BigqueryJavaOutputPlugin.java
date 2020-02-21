@@ -82,7 +82,7 @@ public class BigqueryJavaOutputPlugin
         }
         BigqueryTransactionReport report = getTransactionReport(task, client, statistics, this.writers.values());
         if (task.getAbortOnError().get() && !task.getIsSkipJobResultCheck()){
-            if (report.getNumInputRows().compareTo(report.getNumOutputRows()) == 0){
+            if (report.getNumInputRows().compareTo(report.getNumOutputRows()) != 0){
                 String msg = String.format("ABORT: `num_input_rows (%d)` and `num_output_rows (%d)` does not match",
                         report.getNumInputRows(), report.getNumOutputRows());
                 throw new RuntimeException(msg);

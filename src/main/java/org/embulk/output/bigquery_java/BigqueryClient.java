@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
+import com.google.cloud.bigquery.LegacySQLTypeName;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.Column;
@@ -55,14 +56,14 @@ public class BigqueryClient {
     private Schema schema;
     private List<BigqueryColumnOption> columnOptions;
 
-    public BigqueryClient(PluginTask task, Schema schema){
+    public BigqueryClient(PluginTask task, Schema schema) {
         this.task = task;
         this.schema = schema;
         this.dataset = task.getDataset();
         this.columnOptions = this.task.getColumnOptions().orElse(Collections.emptyList());
-        try{
+        try {
             this.bigquery = getClientWithJsonKey(this.task.getJsonKeyfile());
-        }catch (IOException e){
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
@@ -74,25 +75,25 @@ public class BigqueryClient {
                 .getService();
     }
 
-    public Job getJob(JobId jobId){
+    public Job getJob(JobId jobId) {
         return this.bigquery.getJob(jobId);
     }
 
-    public Table getTable(String name){
+    public Table getTable(String name) {
         return getTable(TableId.of(this.dataset, name));
     }
 
-    public Table getTable(TableId tableId){
+    public Table getTable(TableId tableId) {
         return this.bigquery.getTable(tableId);
     }
 
-    public Table createTableIfNotExist(String table, String dataset){
-        com.google.cloud.bigquery.Schema schema = buildSchema(this.schema,  this.columnOptions);
+    public Table createTableIfNotExist(String table, String dataset) {
+        com.google.cloud.bigquery.Schema schema = buildSchema(this.schema, this.columnOptions);
         TableDefinition tableDefinition = StandardTableDefinition.of(schema);
         return bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
     }
 
-    public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination){
+    public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination) {
         UUID uuid = UUID.randomUUID();
         String jobId = String.format("embulk_load_job_%s", uuid.toString());
 
@@ -119,7 +120,7 @@ public class BigqueryClient {
 
         try (OutputStream stream = Channels.newOutputStream(writer)) {
             Files.copy(loadFile, stream);
-        } catch (IOException e){
+        } catch (IOException e) {
             this.logger.info(e.getMessage());
         }
 
@@ -127,7 +128,7 @@ public class BigqueryClient {
         return (JobStatistics.LoadStatistics) waitForLoad(job);
     }
 
-    public JobStatistics.CopyStatistics copy(String sourceTable, String destinationTable, String destinationDataset, JobInfo.WriteDisposition writeDestination){
+    public JobStatistics.CopyStatistics copy(String sourceTable, String destinationTable, String destinationDataset, JobInfo.WriteDisposition writeDestination) {
         UUID uuid = UUID.randomUUID();
         String jobId = String.format("embulk_load_job_%s", uuid.toString());
         TableId destTableId = TableId.of(destinationDataset, destinationTable);
@@ -141,52 +142,63 @@ public class BigqueryClient {
         return (JobStatistics.CopyStatistics) waitForCopy(job);
     }
 
-    public boolean deleteTable(String table){
+    public boolean deleteTable(String table) {
         return this.bigquery.delete(TableId.of(this.dataset, table));
     }
 
-    public boolean deleteTable(String table, String dataset){
+    public boolean deleteTable(String table, String dataset) {
         return this.bigquery.delete(TableId.of(dataset, table));
     }
 
-    private JobStatistics waitForLoad(Job job){
+    private JobStatistics waitForLoad(Job job) {
         return new BigqueryJobWaiter(this.task, this, job).waitFor("Load");
     }
 
-    private JobStatistics waitForCopy(Job job){
+    private JobStatistics waitForCopy(Job job) {
         return new BigqueryJobWaiter(this.task, this, job).waitFor("Copy");
     }
 
     @VisibleForTesting
-    protected com.google.cloud.bigquery.Schema buildSchema(Schema schema, List<BigqueryColumnOption> columnOptions){
+    protected com.google.cloud.bigquery.Schema buildSchema(Schema schema, List<BigqueryColumnOption> columnOptions) {
         // TODO: support schema file
 
-        if (this.task.getTemplateTable().isPresent()){
+        if (this.task.getTemplateTable().isPresent()) {
             TableId tableId = TableId.of(this.dataset, this.task.getTemplateTable().get());
             Table table = this.bigquery.getTable(tableId);
             return table.getDefinition().getSchema();
         }
 
-        List<Field> fields =  new ArrayList<>();
+        List<Field> fields = new ArrayList<>();
 
-        for (Column col : schema.getColumns()){
-            StandardSQLTypeName typeName = getStandardSQLTypeNameByEmbulkType(col.getType());
+        for (Column col : schema.getColumns()) {
+            Field field;
+            StandardSQLTypeName sqlTypeName = getStandardSQLTypeNameByEmbulkType(col.getType());
+            LegacySQLTypeName legacySQLTypeName = getLegacySQLTypeNameByEmbulkType(col.getType());
             Field.Mode fieldMode = Field.Mode.NULLABLE;
-            Optional<BigqueryColumnOption> columnOption =  BigqueryUtil.findColumnOption(col.getName(), columnOptions);
+            Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(col.getName(), columnOptions);
 
-            if (columnOption.isPresent()){
+            if (columnOption.isPresent()) {
                 BigqueryColumnOption colOpt = columnOption.get();
                 if (!colOpt.getMode().isEmpty()) {
                     fieldMode = Field.Mode.valueOf(colOpt.getMode());
                 }
-                if (colOpt.getType().isPresent()){
-                    typeName = StandardSQLTypeName.valueOf(colOpt.getType().get());
+                if (colOpt.getType().isPresent()) {
+                    if (this.task.getEnableStandardSQL()) {
+                        sqlTypeName = StandardSQLTypeName.valueOf(colOpt.getType().get());
+                    } else {
+                        legacySQLTypeName = LegacySQLTypeName.valueOf(colOpt.getType().get());
+                    }
                 }
             }
 
+            if (task.getEnableStandardSQL()){
+                field = Field.of(col.getName(), sqlTypeName);
+            }else{
+                field = Field.of(col.getName(), legacySQLTypeName);
+            }
+
             //  TODO:: support field for JSON type
-            Field field = Field.of(col.getName(), typeName)
-                    .toBuilder()
+            field = field.toBuilder()
                     .setMode(fieldMode)
                     .build();
             fields.add(field);
@@ -195,7 +207,7 @@ public class BigqueryClient {
     }
 
     @VisibleForTesting
-    protected StandardSQLTypeName getStandardSQLTypeNameByEmbulkType(Type type){
+    protected StandardSQLTypeName getStandardSQLTypeNameByEmbulkType(Type type) {
         if (type instanceof BooleanType) {
             return StandardSQLTypeName.BOOL;
         } else if (type instanceof LongType) {
@@ -211,5 +223,25 @@ public class BigqueryClient {
         } else {
             throw new RuntimeException("never reach here");
         }
+    }
+
+    @VisibleForTesting
+    protected LegacySQLTypeName getLegacySQLTypeNameByEmbulkType(Type type) {
+        if (type instanceof BooleanType) {
+            return LegacySQLTypeName.BOOLEAN;
+        } else if (type instanceof LongType) {
+            return LegacySQLTypeName.INTEGER;
+        } else if (type instanceof DoubleType) {
+            return LegacySQLTypeName.FLOAT;
+        } else if (type instanceof StringType) {
+            return LegacySQLTypeName.STRING;
+        } else if (type instanceof TimestampType) {
+            return LegacySQLTypeName.TIMESTAMP;
+        } else if (type instanceof JsonType) {
+            return LegacySQLTypeName.STRING;
+        } else {
+            throw new RuntimeException("never reach here");
+        }
+
     }
 }
