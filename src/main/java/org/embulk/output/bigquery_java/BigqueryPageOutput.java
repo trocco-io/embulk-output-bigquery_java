@@ -1,6 +1,7 @@
 package org.embulk.output.bigquery_java;
 
 import java.util.Collections;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.embulk.config.TaskReport;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -21,6 +22,8 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
     private PageReader pageReader;
     private final Schema schema;
     private PluginTask task;
+    private ConcurrentHashMap<Long, BigqueryFileWriter> writers;
+    private BigqueryFileWriter fileWriter;
 
     public BigqueryPageOutput(PluginTask task, Schema schema) {
         this.task = task;
@@ -31,13 +34,13 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
     @Override
     public void add(Page page) {
         pageReader.setPage(page);
-        BigqueryThreadLocalFileWriter.setFileWriter(this.task);
+        fileWriter = getFileWriter(this.task);
         try {
             while (pageReader.nextRecord()) {
                 BigqueryColumnVisitor visitor = new JsonColumnVisitor(this.task,
                         pageReader, this.task.getColumnOptions().orElse(Collections.emptyList()));
                 pageReader.getSchema().getColumns().forEach(col -> col.visit(visitor));
-                BigqueryThreadLocalFileWriter.write(visitor.getByteArray());
+                fileWriter.write(visitor.getByteArray());
             }
         } catch (Exception e) {
             logger.info(e.getMessage());
@@ -64,5 +67,11 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
     @Override
     public TaskReport commit() {
         return Exec.newTaskReport();
+    }
+
+    private BigqueryFileWriter getFileWriter(PluginTask task){
+        Long key = Thread.currentThread().getId();
+        writers = BigqueryUtil.getFileWriters();
+        return writers.computeIfAbsent(key, (k)-> new BigqueryFileWriter(task));
     }
 }
