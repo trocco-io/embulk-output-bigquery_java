@@ -8,7 +8,8 @@ import org.embulk.output.bigquery_java.config.PluginTask;
 // because thread id is used to determine filename.
 // FIXME
 // ThreadLocal should remove before exit due to the memory leak however
-// Embulk is always up and down therefore we might ignore memory.
+// Embulk is always up and down therefore we might ignore memory. Holding object in
+// local thread belongs singleton as well.
 public class BigqueryThreadLocalFileWriter {
     private static ThreadLocal<BigqueryFileWriter> tl = ThreadLocal.withInitial(BigqueryFileWriter::new);
     private static final HashMap<Long, BigqueryFileWriter> writers = BigqueryUtil.getFileWriters();
