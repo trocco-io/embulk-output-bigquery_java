@@ -1,5 +1,6 @@
 package org.embulk.output.bigquery_java;
 
+import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -11,14 +12,22 @@ public class BigqueryThreadLocalFileWriter {
 
     public static void setFileWriter(PluginTask task){
         BigqueryFileWriter writer = tl.get();
-        writer.setTask(task);
-        writer.setCompression(task.getCompression());
+        long key = Thread.currentThread().getId();
         writers = BigqueryUtil.getFileWriters();
-        writers.put(Thread.currentThread().getId(), writer);
-        tl.set(writer);
+        if (!writers.containsKey(key)){
+            writer.setTask(task);
+            writer.setCompression(task.getCompression());
+            writers.put(key, writer);
+            tl.set(writer);
+        }
     }
 
     public static void write(byte[] bytes){
         tl.get().write(bytes);
     }
+
+    public static void remove(){
+        tl.remove();
+    }
+
 }
