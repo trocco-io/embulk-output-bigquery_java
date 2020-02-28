@@ -5,8 +5,8 @@ import java.math.BigInteger;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -33,7 +33,7 @@ public class BigqueryJavaOutputPlugin
 {
     private final Logger logger = LoggerFactory.getLogger(BigqueryJavaOutputPlugin.class);
     private List<Path> paths;
-    private final ConcurrentHashMap<Long, BigqueryFileWriter> writers = BigqueryUtil.getFileWriters();
+    private final HashMap<Long, BigqueryFileWriter> writers = BigqueryUtil.getFileWriters();
 
     @Override
     public ConfigDiff transaction(ConfigSource config,

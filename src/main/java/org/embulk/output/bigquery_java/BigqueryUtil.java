@@ -8,8 +8,8 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
+import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.Optional;
 
@@ -51,12 +51,12 @@ public class BigqueryUtil {
         private static final ObjectMapper INSTANCE = new ObjectMapper();
     }
 
-    public static ConcurrentHashMap<Long, BigqueryFileWriter> getFileWriters(){
+    public static HashMap<Long, BigqueryFileWriter> getFileWriters(){
         return FileWriterHolder.INSTANCE;
     }
 
     public static class FileWriterHolder {
-        private static final ConcurrentHashMap<Long, BigqueryFileWriter> INSTANCE = new ConcurrentHashMap<>();
+        private static final HashMap<Long, BigqueryFileWriter> INSTANCE = new HashMap<>();
     }
 
     public static Optional<BigqueryColumnOption> findColumnOption(String columnName, List<BigqueryColumnOption> columnOptions) {

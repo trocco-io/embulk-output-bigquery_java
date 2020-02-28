@@ -1,19 +1,21 @@
 package org.embulk.output.bigquery_java;
 
 import java.util.HashMap;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.embulk.output.bigquery_java.config.PluginTask;
 
-
+// This class should be called in TransactionalPageOutput.add
+// because thread id is used to determine filename.
+// FIXME
+// ThreadLocal should remove before exit due to the memory leak however
+// Embulk is always up and down therefore we might ignore memory.
 public class BigqueryThreadLocalFileWriter {
     private static ThreadLocal<BigqueryFileWriter> tl = ThreadLocal.withInitial(BigqueryFileWriter::new);
-    private static ConcurrentHashMap<Long, BigqueryFileWriter> writers;
+    private static final HashMap<Long, BigqueryFileWriter> writers = BigqueryUtil.getFileWriters();
 
     public static void setFileWriter(PluginTask task){
         BigqueryFileWriter writer = tl.get();
         long key = Thread.currentThread().getId();
-        writers = BigqueryUtil.getFileWriters();
         if (!writers.containsKey(key)){
             writer.setTask(task);
             writer.setCompression(task.getCompression());
@@ -29,5 +31,4 @@ public class BigqueryThreadLocalFileWriter {
     public static void remove(){
         tl.remove();
     }
-
 }
