@@ -125,4 +125,8 @@ public interface PluginTask
     @Config("enable_standard_sql")
     @ConfigDefault("false")
     public boolean getEnableStandardSQL();
+
+    @Config("retries")
+    @ConfigDefault("5")
+    public int getRetries();
 }
