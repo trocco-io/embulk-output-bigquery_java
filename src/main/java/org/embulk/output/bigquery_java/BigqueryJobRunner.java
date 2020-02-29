@@ -26,12 +26,16 @@ public class BigqueryJobRunner implements Callable<JobStatistics.LoadStatistics>
         return task.getRetries();
     }
 
-    @Override
-    public JobStatistics.LoadStatistics call(){
+    private JobStatistics.LoadStatistics execute() throws RuntimeException {
         client = new BigqueryClient(this.task, this.schema);
 
         return client.load(this.path,
                 this.task.getTempTable().get(),
                 JobInfo.WriteDisposition.WRITE_APPEND);
+    }
+
+    @Override
+    public JobStatistics.LoadStatistics call() throws Exception {
+        return executeWithRetry(0, this::execute);
     }
 }
