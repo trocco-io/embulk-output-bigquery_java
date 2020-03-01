@@ -1,5 +1,8 @@
 package org.embulk.output.bigquery_java;
 
+import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
+import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
+import org.embulk.output.bigquery_java.exception.BigqueryRateLimitExceededException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,8 +27,9 @@ public interface BigqueryRetryable<T> {
         try {
             return func.get();
         } catch (Exception e){
-            logger.info("Retrying... {} times", count);
+            // BigqueryBackendException| BigqueryInternalException| BigqueryRateLimitExceededException
             Thread.sleep(BIGQUERY_TABLE_OPERATION_INTERVAL * 1000);
+            logger.info("Retrying... {} times", count);
             return executeWithRetry(count + 1, func);
         }
     }
