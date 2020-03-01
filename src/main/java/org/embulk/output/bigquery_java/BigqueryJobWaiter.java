@@ -4,6 +4,7 @@ import java.util.Date;
 
 import org.embulk.output.bigquery_java.config.PluginTask;
 
+import com.google.cloud.bigquery.BigQueryError;
 import com.google.cloud.bigquery.Job;
 import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.JobStatus;
@@ -62,10 +63,10 @@ public class BigqueryJobWaiter {
         }
 
         if (completedJob.getStatus().getError() != null){
-            logger.info("embulk-output-bigquery: job_id[{}] elapsed_time {} sec status[{}]",
-                    completedJob.getJobId().getJob(), elapsed, jobState.toString());
+            BigQueryError bigQueryError = completedJob.getStatus().getError();
             logger.info("embulk-output-bigquery: {} job errors... job_id:[{}] errors:{}",
-                    kind, completedJob.getJobId().getJob(), completedJob.getStatus().getError().getMessage());
+                    kind, completedJob.getJobId().getJob(), bigQueryError.getMessage());
+            throw new RuntimeException(bigQueryError.getMessage());
         }
 
         jobStatistics = completedJob.getStatistics();
