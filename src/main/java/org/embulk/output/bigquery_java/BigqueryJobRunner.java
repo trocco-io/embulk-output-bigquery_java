@@ -9,7 +9,7 @@ import org.embulk.spi.Schema;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
-public class BigqueryJobRunner implements Callable<JobStatistics.LoadStatistics>, BigqueryRetryable<JobStatistics.LoadStatistics> {
+public class BigqueryJobRunner implements Callable<JobStatistics.LoadStatistics> {
     private BigqueryClient client;
     private Path path;
     private PluginTask task;
@@ -19,11 +19,6 @@ public class BigqueryJobRunner implements Callable<JobStatistics.LoadStatistics>
         this.task = task;
         this.path = path;
         this.schema = schema;
-    }
-
-    @Override
-    public int getMaxTries() {
-        return task.getRetries();
     }
 
     @Override
