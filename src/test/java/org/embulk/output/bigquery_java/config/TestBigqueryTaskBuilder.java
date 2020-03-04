@@ -1,18 +1,17 @@
-package org.embulk.output.bigquery_java;
+package org.embulk.output.bigquery_java.config;
 
 import org.embulk.EmbulkTestRuntime;
 import org.embulk.config.ConfigSource;
-import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.test.TestingEmbulk;
 import org.junit.Rule;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
-public class TestBigqueryJavaOutputPlugin {
+public class TestBigqueryTaskBuilder {
+
     private ConfigSource config;
     private static final String BASIC_RESOURCE_PATH = "java/org/embulk/output/bigquery_java/";
 
@@ -29,20 +28,25 @@ public class TestBigqueryJavaOutputPlugin {
             .build();
 
     @Test
-    public void testDefaultConfigValues() {
+    public void setAbortOnError_DefaultMaxBadRecord_True() {
+        config = loadYamlResource(embulk, "base.yml");
+        PluginTask task = config.loadConfig(PluginTask.class);
+        BigqueryTaskBuilder.setAbortOnError(task);
+
+        assertEquals(0, task.getMaxBadRecords());
+        assertEquals(true, task.getAbortOnError().get());
+    }
+
+    // TODO jsonl without compression, csv with/out compression
+    @Test
+    public void setFileExt_JSONL_GZIP_JSONL_GZ() {
         config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
 
-        assertEquals("replace", task.getMode());
-        assertEquals(5, task.getRetries());
-        assertEquals(0, task.getMaxBadRecords());
-        assertEquals("dataset", task.getDataset());
-        assertEquals("table", task.getTable());
-        assertEquals("service_account", task.getAuthMethod());
-        assertEquals("UTC", task.getDefaultTimezone());
-        assertEquals("UTF-8", task.getEncoding());
-        assertTrue(task.getDeleteFromLocalWhenJobEnd());
-        assertFalse(task.getAutoCreateDataset());
-        assertTrue(task.getAutoCreateTable());
+        BigqueryTaskBuilder.setFileExt(task);
+        assertEquals("NEWLINE_DELIMITED_JSON", task.getSourceFormat());
+        assertEquals("GZIP", task.getCompression());
+        assertEquals(".jsonl.gz", task.getFileExt().get());
+
     }
 }
