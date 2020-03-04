@@ -63,17 +63,17 @@ public class BigqueryJavaOutputPlugin
 
         // transfer data to BQ from files
         ExecutorService executor = Executors.newFixedThreadPool(paths.size());
-        List<Future<JobStatistics.LoadStatistics>> statisticFutures = new ArrayList<>();
+        List<Future<JobStatistics>> jobStatisticFutures = new ArrayList<>();
         List<JobStatistics.LoadStatistics> statistics = new ArrayList<>();
 
         for (Path path : paths) {
-            Future<JobStatistics.LoadStatistics> loadStatisticsFuture = executor.submit(new BigqueryJobRunner(task, schema, path));
-            statisticFutures.add(loadStatisticsFuture);
+            Future<JobStatistics> jobStatisticsFuture = executor.submit(new BigqueryJobRunner(task, schema, path));
+            jobStatisticFutures.add(jobStatisticsFuture);
         }
 
-        for (Future<JobStatistics.LoadStatistics> statisticFuture : statisticFutures) {
+        for (Future<JobStatistics> jobStatisticFuture : jobStatisticFutures) {
             try {
-                statistics.add(statisticFuture.get());
+                statistics.add((JobStatistics.LoadStatistics) jobStatisticFuture.get());
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
