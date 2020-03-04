@@ -21,14 +21,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class BigqueryUtil {
     public static List<Path> getIntermediateFiles(PluginTask task) throws IOException {
         Path startDir;
-        String pathPrefix =  task.getPathPrefix().get();
+        String pathPrefix = task.getPathPrefix().get();
         String fileExt = task.getFileExt().get();
         File pathPrefixFile = new File(pathPrefix);
         String glob = String.format("glob:%s*%s", pathPrefix, fileExt);
 
-        if (pathPrefixFile.isDirectory()){
+        if (pathPrefixFile.isDirectory()) {
             startDir = pathPrefixFile.toPath();
-        }else{
+        } else {
             startDir = pathPrefixFile.toPath().getParent();
         }
 
@@ -43,7 +43,7 @@ public class BigqueryUtil {
         return Long.parseLong(processName.split("@")[0]);
     }
 
-    public static ObjectMapper getObjectMapper(){
+    public static ObjectMapper getObjectMapper() {
         return ObjectMapperInstanceHolder.INSTANCE;
     }
 
@@ -51,7 +51,7 @@ public class BigqueryUtil {
         private static final ObjectMapper INSTANCE = new ObjectMapper();
     }
 
-    public static ConcurrentHashMap<Long, BigqueryFileWriter> getFileWriters(){
+    public static ConcurrentHashMap<Long, BigqueryFileWriter> getFileWriters() {
         return FileWriterHolder.INSTANCE;
     }
 
@@ -61,7 +61,7 @@ public class BigqueryUtil {
 
     public static Optional<BigqueryColumnOption> findColumnOption(String columnName, List<BigqueryColumnOption> columnOptions) {
         return columnOptions.stream()
-                .filter(colOpt-> colOpt.getName().equals(columnName))
+                .filter(colOpt -> colOpt.getName().equals(columnName))
                 .findFirst();
     }
 }

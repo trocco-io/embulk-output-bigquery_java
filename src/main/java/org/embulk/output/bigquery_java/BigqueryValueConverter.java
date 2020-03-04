@@ -21,7 +21,7 @@ public class BigqueryValueConverter {
     private static Timestamp ts;
 
     // TODO: refactor later
-    public static void convertAndSet(ObjectNode node, String name, String src, BigqueryColumnOption columnOption, PluginTask task){
+    public static void convertAndSet(ObjectNode node, String name, String src, BigqueryColumnOption columnOption, PluginTask task) {
         switch (BigqueryColumnOptionType.valueOf(columnOption.getType().get())) {
             case BOOLEAN:
                 node.put(name, Boolean.parseBoolean(src));
@@ -40,7 +40,7 @@ public class BigqueryValueConverter {
                 timezone = columnOption.getTimezone();
                 parser = TimestampParser.of(pattern, timezone);
                 ts = parser.parse(src);
-                timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N",timezone);
+                timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N", timezone);
                 node.put(name, timestampFormat.format(ts));
                 break;
             case DATETIME:
@@ -48,7 +48,7 @@ public class BigqueryValueConverter {
                 timezone = columnOption.getTimezone();
                 parser = TimestampParser.of(pattern, timezone);
                 ts = parser.parse(src);
-                timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N",timezone);
+                timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N", timezone);
                 node.put(name, timestampFormat.format(ts));
                 break;
             case DATE:
@@ -56,7 +56,7 @@ public class BigqueryValueConverter {
                 timezone = columnOption.getTimezone();
                 parser = TimestampParser.of(pattern, timezone);
                 ts = parser.parse(src);
-                timestampFormat = TimestampFormatter.of("%Y-%m-%d",timezone);
+                timestampFormat = TimestampFormatter.of("%Y-%m-%d", timezone);
                 node.put(name, timestampFormat.format(ts));
                 break;
             case RECORD:

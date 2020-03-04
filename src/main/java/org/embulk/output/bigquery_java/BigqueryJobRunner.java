@@ -15,7 +15,7 @@ public class BigqueryJobRunner implements Callable<JobStatistics.LoadStatistics>
     private PluginTask task;
     private Schema schema;
 
-    public BigqueryJobRunner(PluginTask task, Schema schema, Path path){
+    public BigqueryJobRunner(PluginTask task, Schema schema, Path path) {
         this.task = task;
         this.path = path;
         this.schema = schema;

@@ -27,6 +27,7 @@ import org.embulk.spi.type.StringType;
 import org.embulk.spi.type.TimestampType;
 import org.embulk.spi.type.Type;
 import org.embulk.spi.util.RetryExecutor;
+
 import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 import com.google.auth.oauth2.ServiceAccountCredentials;
@@ -157,7 +158,7 @@ public class BigqueryClient {
                         public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
                                 throws RetryExecutor.RetryGiveupException {
                             String message = String.format("embulk-output-bigquery: Load job failed. Retrying %d/%d after %d seconds. Message: %s",
-                                    retryCount, retryLimit, retryWait/1000, exception.getMessage());
+                                    retryCount, retryLimit, retryWait / 1000, exception.getMessage());
                             if (retryCount % retries == 0) {
                                 logger.warn(message, exception);
                             } else {
@@ -218,7 +219,7 @@ public class BigqueryClient {
                         public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
                                 throws RetryExecutor.RetryGiveupException {
                             String message = String.format("embulk-output-bigquery: Copy job failed. Retrying %d/%d after %d seconds. Message: %s",
-                                    retryCount, retryLimit, retryWait/1000, exception.getMessage());
+                                    retryCount, retryLimit, retryWait / 1000, exception.getMessage());
                             if (retryCount % retries == 0) {
                                 logger.warn(message, exception);
                             } else {
@@ -249,7 +250,7 @@ public class BigqueryClient {
         return this.bigquery.delete(TableId.of(dataset, table));
     }
 
-    private JobStatistics waitForLoad(Job job) throws BigqueryException{
+    private JobStatistics waitForLoad(Job job) throws BigqueryException {
         return new BigqueryJobWaiter(this.task, this, job).waitFor("Load");
     }
 
@@ -290,9 +291,9 @@ public class BigqueryClient {
                 }
             }
 
-            if (task.getEnableStandardSQL()){
+            if (task.getEnableStandardSQL()) {
                 field = Field.of(col.getName(), sqlTypeName);
-            }else{
+            } else {
                 field = Field.of(col.getName(), legacySQLTypeName);
             }
 

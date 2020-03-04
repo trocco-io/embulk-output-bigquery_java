@@ -20,7 +20,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 
-
 import static com.google.cloud.bigquery.JobStatus.State.DONE;
 
 public class BigqueryJobWaiter {
@@ -35,13 +34,13 @@ public class BigqueryJobWaiter {
     private BigqueryClient client;
     private JobStatistics jobStatistics;
 
-    public BigqueryJobWaiter(PluginTask task, BigqueryClient client, Job job){
+    public BigqueryJobWaiter(PluginTask task, BigqueryClient client, Job job) {
         this.task = task;
         this.client = client;
         this.job = job;
     }
 
-    public JobStatistics waitFor(String kind) throws BigqueryException, RuntimeException {
+    public JobStatistics waitFor(String kind) throws RuntimeException {
         this.started = new Date();
 
         while (true) {
@@ -56,21 +55,21 @@ public class BigqueryJobWaiter {
             } else if (elapsed > this.task.getJobStatusMaxPollingTime()) {
                 logger.info("embulk-output-bigquery: {} job checking... ", kind);
                 logger.info("job_id[{}] elapsed_time {} sec status[TIMEOUT]", completedJob.getJobId().getJob(), elapsed);
-                throw new BigqueryJobTimeoutException(String.format("Time out job_id[%s] elapsed_time %d",completedJob.getJobId().getJob(), elapsed));
+                throw new BigqueryJobTimeoutException(String.format("Time out job_id[%s] elapsed_time %d", completedJob.getJobId().getJob(), elapsed));
             } else {
                 logger.info("embulk-output-bigquery: {} job checking... ", kind);
                 logger.info("job_id[{}] elapsed_time {} sec status[{}]",
                         completedJob.getJobId().getJob(), elapsed, jobState.toString());
                 try {
                     Thread.sleep(this.task.getJobStatusPollingInterval() * 1000);
-                } catch (InterruptedException e){
+                } catch (InterruptedException e) {
                     logger.info(e.getMessage());
                 }
             }
         }
 
 
-        if (completedJob.getStatus().getError() != null){
+        if (completedJob.getStatus().getError() != null) {
             String msg = String.format("failed during waiting a %s job get_job(%s, errors: %s)",
                     kind, completedJob.getJobId().getJob(), bigqueryErrorToString(completedJob));
 
@@ -78,13 +77,13 @@ public class BigqueryJobWaiter {
                     .stream()
                     .map(BigQueryError::getReason)
                     .collect(Collectors.toList());
-            if (bigqueryErrors.contains("backendError")){
+            if (bigqueryErrors.contains("backendError")) {
                 throw new BigqueryBackendException(msg);
-            }else if (bigqueryErrors.contains("internalError")){
+            } else if (bigqueryErrors.contains("internalError")) {
                 throw new BigqueryInternalException(msg);
-            }else if (bigqueryErrors.contains("rateLimitExceeded")) {
+            } else if (bigqueryErrors.contains("rateLimitExceeded")) {
                 throw new BigqueryRateLimitExceededException(msg);
-            }else{
+            } else {
                 logger.error("embulk-output-bigquery: {}", msg);
                 throw new BigqueryException(msg);
             }
@@ -103,7 +102,7 @@ public class BigqueryJobWaiter {
     }
 
 
-    private String bigqueryErrorToString(Job job){
+    private String bigqueryErrorToString(Job job) {
         return job.getStatus().getExecutionErrors().stream()
                 .map(BigQueryError::toString)
                 .collect(Collectors.joining(", "));
