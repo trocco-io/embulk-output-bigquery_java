@@ -120,7 +120,7 @@ public interface PluginTask
     @ConfigDefault("null")
     public Optional<Boolean> getAbortOnError();
 
-    public  void setAbortOnError(Optional<Boolean> abortOnError);
+    public void setAbortOnError(Optional<Boolean> abortOnError);
 
     @Config("enable_standard_sql")
     @ConfigDefault("false")

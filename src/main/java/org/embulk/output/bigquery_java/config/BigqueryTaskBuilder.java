@@ -11,7 +11,7 @@ import com.google.common.annotations.VisibleForTesting;
 public class BigqueryTaskBuilder {
     private static final String uniqueName = UUID.randomUUID().toString().replace("-", "_");
 
-    public static PluginTask build(PluginTask task){
+    public static PluginTask build(PluginTask task) {
         setPathPrefix(task);
         setFileExt(task);
         setTempTable(task);
@@ -20,8 +20,8 @@ public class BigqueryTaskBuilder {
     }
 
     @VisibleForTesting
-    protected static void setPathPrefix(PluginTask task){
-        if (!task.getPathPrefix().isPresent()){
+    protected static void setPathPrefix(PluginTask task) {
+        if (!task.getPathPrefix().isPresent()) {
             try {
                 File tmpFile = File.createTempFile("embulk_output_bigquery_java", "");
                 task.setPathPrefix(Optional.of(tmpFile.getPath()));
@@ -32,35 +32,36 @@ public class BigqueryTaskBuilder {
     }
 
     @VisibleForTesting
-    protected static void setFileExt(PluginTask task){
-        if (!task.getFileExt().isPresent()){
-            if (task.getSourceFormat().equals("CSV")){
+    protected static void setFileExt(PluginTask task) {
+        if (!task.getFileExt().isPresent()) {
+            if (task.getSourceFormat().equals("CSV")) {
                 task.setFileExt(Optional.of(".csv"));
-            }else{
+            } else {
                 task.setFileExt(Optional.of(".jsonl"));
             }
         }
 
-        if (task.getCompression().equals("GZIP")){
+        if (task.getCompression().equals("GZIP")) {
             String fileExt = task.getFileExt().get() + ".gz";
             task.setFileExt(Optional.of(fileExt));
         }
     }
+
     @VisibleForTesting
-    protected static void setTempTable(PluginTask task){
+    protected static void setTempTable(PluginTask task) {
         // TODO: support replace_backup, append
         String[] modeForTempTable = {"replace"};
-        if (Arrays.asList(modeForTempTable).contains(task.getMode())){
+        if (Arrays.asList(modeForTempTable).contains(task.getMode())) {
             String tempTable = task.getTempTable().orElse(String.format("LOAD_TEMP_%s_%s", uniqueName, task.getTable()));
             task.setTempTable(Optional.of(tempTable));
-        }else{
+        } else {
             task.setTempTable(Optional.of(null));
         }
     }
 
     @VisibleForTesting
-    protected static void setAbortOnError(PluginTask task){
-        if (!task.getAbortOnError().isPresent()){
+    protected static void setAbortOnError(PluginTask task) {
+        if (!task.getAbortOnError().isPresent()) {
             task.setAbortOnError(Optional.of(task.getMaxBadRecords() == 0));
         }
     }

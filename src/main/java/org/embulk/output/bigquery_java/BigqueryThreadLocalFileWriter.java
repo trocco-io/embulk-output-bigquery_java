@@ -9,7 +9,7 @@ public class BigqueryThreadLocalFileWriter {
     private static ThreadLocal<BigqueryFileWriter> tl = ThreadLocal.withInitial(BigqueryFileWriter::new);
     private static ConcurrentHashMap<Long, BigqueryFileWriter> writers;
 
-    public static void setFileWriter(PluginTask task){
+    public static void setFileWriter(PluginTask task) {
         BigqueryFileWriter writer = tl.get();
         writer.setTask(task);
         writer.setCompression(task.getCompression());
@@ -18,7 +18,7 @@ public class BigqueryThreadLocalFileWriter {
         tl.set(writer);
     }
 
-    public static void write(byte[] bytes){
+    public static void write(byte[] bytes) {
         tl.get().write(bytes);
     }
 }

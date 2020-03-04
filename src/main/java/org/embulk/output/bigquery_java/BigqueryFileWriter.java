@@ -18,12 +18,13 @@ public class BigqueryFileWriter {
     private OutputStream os;
     private long count = 0;
 
-    public BigqueryFileWriter(PluginTask task){
+    public BigqueryFileWriter(PluginTask task) {
         this.task = task;
         this.compression = this.task.getCompression();
     }
 
-    public BigqueryFileWriter(){}
+    public BigqueryFileWriter() {
+    }
 
     public void setTask(PluginTask task) {
         this.task = task;
@@ -35,7 +36,7 @@ public class BigqueryFileWriter {
 
     public OutputStream open(String path) throws IOException {
         this.os = new FileOutputStream(path);
-        if (this.compression.equals("GZIP")){
+        if (this.compression.equals("GZIP")) {
             this.os = new GZIPOutputStream(this.os);
         }
         // embulk default page size
@@ -57,7 +58,7 @@ public class BigqueryFileWriter {
         return open(path);
     }
 
-    public void write(byte[] bytes){
+    public void write(byte[] bytes) {
         try {
             outputStream().write(bytes);
             this.count++;
@@ -66,11 +67,11 @@ public class BigqueryFileWriter {
         }
     }
 
-    public long getCount(){
+    public long getCount() {
         return this.count;
     }
 
-    public void close(){
+    public void close() {
         try {
             this.outputStream().flush();
             this.outputStream().close();

@@ -35,34 +35,34 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
     public void booleanColumn(Column column) {
         if (reader.isNull(column)) {
             node.putNull(column.getName());
-        }else{
+        } else {
             node.put(column.getName(), reader.getBoolean(column));
         }
     }
 
     @Override
     public void longColumn(Column column) {
-        if (reader.isNull(column)){
+        if (reader.isNull(column)) {
             node.putNull(column.getName());
-        }else{
+        } else {
             node.put(column.getName(), reader.getLong(column));
         }
     }
 
     @Override
     public void doubleColumn(Column column) {
-        if (reader.isNull(column)){
+        if (reader.isNull(column)) {
             node.putNull(column.getName());
-        }else {
+        } else {
             node.put(column.getName(), reader.getDouble(column));
         }
     }
 
     @Override
     public void stringColumn(Column column) {
-        if (reader.isNull(column)){
+        if (reader.isNull(column)) {
             node.putNull(column.getName());
-        }else {
+        } else {
             Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
             if (columnOption.isPresent() && columnOption.get().getType().isPresent()) {
                 BigqueryValueConverter.convertAndSet(this.node, column.getName(),
@@ -75,9 +75,9 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
 
     @Override
     public void timestampColumn(Column column) {
-        if (reader.isNull(column)){
+        if (reader.isNull(column)) {
             node.putNull(column.getName());
-        }else {
+        } else {
             node.put(column.getName(), reader.getString(column));
         }
 
@@ -88,9 +88,9 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
 
     @Override
     public void jsonColumn(Column column) {
-        if (reader.isNull(column)){
+        if (reader.isNull(column)) {
             node.putNull(column.getName());
-        }else {
+        } else {
             node.put(column.getName(), reader.getString(column));
         }
     }

@@ -25,7 +25,7 @@ public class BigqueryTransactionReport {
         this.numRejectedRows = numRejectedRows;
     }
 
-    public BigqueryTransactionReport(BigInteger numInputRows){
+    public BigqueryTransactionReport(BigInteger numInputRows) {
         this.numInputRows = numInputRows;
     }
 
