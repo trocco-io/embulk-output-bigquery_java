@@ -156,7 +156,6 @@ public class BigqueryClient {
                         public boolean isRetryableException(Exception exception) {
                             return exception instanceof BigqueryBackendException
                                     || exception instanceof BigqueryRateLimitExceededException
-                                    || exception instanceof BigqueryJobTimeoutException
                                     || exception instanceof BigqueryInternalException;
                         }
 
@@ -219,7 +218,6 @@ public class BigqueryClient {
                         public boolean isRetryableException(Exception exception) {
                             return exception instanceof BigqueryBackendException
                                     || exception instanceof BigqueryRateLimitExceededException
-                                    || exception instanceof BigqueryJobTimeoutException
                                     || exception instanceof BigqueryInternalException;
                         }
 
