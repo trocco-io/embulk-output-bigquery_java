@@ -21,7 +21,8 @@ public class BigqueryJobRunner implements Callable<JobStatistics.LoadStatistics>
         this.schema = schema;
     }
 
-    public JobStatistics.LoadStatistics call(){
+    @Override
+    public JobStatistics.LoadStatistics call() throws Exception {
         client = new BigqueryClient(this.task, this.schema);
 
         return client.load(this.path,

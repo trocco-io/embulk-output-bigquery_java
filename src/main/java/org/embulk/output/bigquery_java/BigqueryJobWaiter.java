@@ -1,15 +1,24 @@
 package org.embulk.output.bigquery_java;
 
 import java.util.Date;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import org.embulk.output.bigquery_java.config.PluginTask;
 
+import com.google.cloud.bigquery.BigQueryError;
 import com.google.cloud.bigquery.Job;
 import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.JobStatus;
 
+import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
+import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
+import org.embulk.output.bigquery_java.exception.BigqueryJobTimeoutException;
+import org.embulk.output.bigquery_java.exception.BigqueryRateLimitExceededException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 
 import static com.google.cloud.bigquery.JobStatus.State.DONE;
@@ -32,7 +41,7 @@ public class BigqueryJobWaiter {
         this.job = job;
     }
 
-    public JobStatistics waitFor(String kind){
+    public JobStatistics waitFor(String kind) throws BigqueryException, RuntimeException {
         this.started = new Date();
 
         while (true) {
@@ -47,7 +56,7 @@ public class BigqueryJobWaiter {
             } else if (elapsed > this.task.getJobStatusMaxPollingTime()) {
                 logger.info("embulk-output-bigquery: {} job checking... ", kind);
                 logger.info("job_id[{}] elapsed_time {} sec status[TIMEOUT]", completedJob.getJobId().getJob(), elapsed);
-                break;
+                throw new BigqueryJobTimeoutException(String.format("Time out job_id[%s] elapsed_time %d",completedJob.getJobId().getJob(), elapsed));
             } else {
                 logger.info("embulk-output-bigquery: {} job checking... ", kind);
                 logger.info("job_id[{}] elapsed_time {} sec status[{}]",
@@ -55,17 +64,35 @@ public class BigqueryJobWaiter {
                 try {
                     Thread.sleep(this.task.getJobStatusPollingInterval() * 1000);
                 } catch (InterruptedException e){
-                    logger.info(e.getLocalizedMessage());
-                    throw new RuntimeException(e);
+                    logger.info(e.getMessage());
                 }
             }
         }
 
+
         if (completedJob.getStatus().getError() != null){
-            logger.info("embulk-output-bigquery: job_id[{}] elapsed_time {} sec status[{}]",
-                    completedJob.getJobId().getJob(), elapsed, jobState.toString());
-            logger.info("embulk-output-bigquery: {} job errors... job_id:[{}] errors:{}",
-                    kind, completedJob.getJobId().getJob(), completedJob.getStatus().getError().getMessage());
+            String msg = String.format("failed during waiting a %s job get_job(%s, errors: %s)",
+                    kind, completedJob.getJobId().getJob(), bigqueryErrorToString(completedJob));
+
+            List<String> bigqueryErrors = completedJob.getStatus().getExecutionErrors()
+                    .stream()
+                    .map(BigQueryError::getReason)
+                    .collect(Collectors.toList());
+            if (bigqueryErrors.contains("backendError")){
+                throw new BigqueryBackendException(msg);
+            }else if (bigqueryErrors.contains("internalError")){
+                throw new BigqueryInternalException(msg);
+            }else if (bigqueryErrors.contains("rateLimitExceeded")) {
+                throw new BigqueryRateLimitExceededException(msg);
+            }else{
+                logger.error("embulk-output-bigquery: {}", msg);
+                throw new BigqueryException(msg);
+            }
+        }
+
+        if (completedJob.getStatus().getExecutionErrors() != null) {
+            logger.warn("embulk-output-bigquery: {} job errors... job_id:[{}] errors:{}",
+                    kind, completedJob.getJobId().getJob(), bigqueryErrorToString(completedJob));
         }
 
         jobStatistics = completedJob.getStatistics();
@@ -73,5 +100,12 @@ public class BigqueryJobWaiter {
                 kind, completedJob.getJobId().getJob(), jobStatistics.toString());
 
         return jobStatistics;
+    }
+
+
+    private String bigqueryErrorToString(Job job){
+        return job.getStatus().getExecutionErrors().stream()
+                .map(BigQueryError::toString)
+                .collect(Collectors.joining(", "));
     }
 }

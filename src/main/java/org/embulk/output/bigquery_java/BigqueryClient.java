@@ -13,8 +13,10 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 import com.google.cloud.bigquery.LegacySQLTypeName;
+import com.google.common.base.Throwables;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
 import org.embulk.spi.type.BooleanType;
@@ -24,6 +26,8 @@ import org.embulk.spi.type.LongType;
 import org.embulk.spi.type.StringType;
 import org.embulk.spi.type.TimestampType;
 import org.embulk.spi.type.Type;
+import org.embulk.spi.util.RetryExecutor;
+import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.bigquery.BigQuery;
@@ -47,6 +51,7 @@ import com.google.common.annotations.VisibleForTesting;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 public class BigqueryClient {
     private final Logger logger = LoggerFactory.getLogger(BigqueryClient.class);
@@ -93,53 +98,147 @@ public class BigqueryClient {
         return bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
     }
 
-    public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination) {
-        UUID uuid = UUID.randomUUID();
-        String jobId = String.format("embulk_load_job_%s", uuid.toString());
+    public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination) throws BigqueryException {
+        String dataset = this.dataset;
+        int retries = this.task.getRetries();
+        PluginTask task = this.task;
+        Schema schema = this.schema;
+        List<BigqueryColumnOption> columnOptions = this.columnOptions;
 
-        if (Files.exists(loadFile)) {
-            // TODO:  "embulk-output-bigquery: Load job starting... job_id:[#{job_id}] #{path} => #{@project}:#{@dataset}.#{table} in #{@location_for_log}"
-            logger.info("embulk-output-bigquery: Load job starting... job_id:[{}] {} => {}.{}",
-                    jobId, loadFile.toString(), this.dataset, table);
-        } else {
-            logger.info("embulk-output-bigquery: Load job starting... {} does not exist, skipped", loadFile.toString());
-            // TODO: should throw error?
-            return null;
+        try {
+            return retryExecutor()
+                    .withRetryLimit(retries)
+                    .withInitialRetryWait(2 * 1000)
+                    .withMaxRetryWait(10 * 1000)
+                    .runInterruptible(new RetryExecutor.Retryable<JobStatistics.LoadStatistics>() {
+                        @Override
+                        public JobStatistics.LoadStatistics call() {
+                            UUID uuid = UUID.randomUUID();
+                            String jobId = String.format("embulk_load_job_%s", uuid.toString());
+
+                            if (Files.exists(loadFile)) {
+                                // TODO:  "embulk-output-bigquery: Load job starting... job_id:[#{job_id}] #{path} => #{@project}:#{@dataset}.#{table} in #{@location_for_log}"
+                                logger.info("embulk-output-bigquery: Load job starting... job_id:[{}] {} => {}.{}",
+                                        jobId, loadFile.toString(), dataset, table);
+                            } else {
+                                logger.info("embulk-output-bigquery: Load job starting... {} does not exist, skipped", loadFile.toString());
+                                // TODO: should throw error?
+                                return null;
+                            }
+
+                            TableId tableId = TableId.of(dataset, table);
+                            WriteChannelConfiguration writeChannelConfiguration =
+                                    WriteChannelConfiguration.newBuilder(tableId)
+                                            .setFormatOptions(FormatOptions.json())
+                                            .setWriteDisposition(writeDestination)
+                                            .setMaxBadRecords(task.getMaxBadRecords())
+                                            .setIgnoreUnknownValues(task.getIgnoreUnknownValues())
+                                            .setSchema(buildSchema(schema, columnOptions))
+                                            .build();
+                            TableDataWriteChannel writer = bigquery.writer(JobId.of(jobId), writeChannelConfiguration);
+
+                            try (OutputStream stream = Channels.newOutputStream(writer)) {
+                                Files.copy(loadFile, stream);
+                            } catch (IOException e) {
+                                logger.info(e.getMessage());
+                            }
+
+                            Job job = writer.getJob();
+                            return (JobStatistics.LoadStatistics) waitForLoad(job);
+                        }
+
+                        @Override
+                        public boolean isRetryableException(Exception exception) {
+                            // TODO
+                            return true;
+                        }
+
+                        @Override
+                        public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
+                                throws RetryExecutor.RetryGiveupException {
+                            String message = String.format("embulk-output-bigquery: Load job failed. Retrying %d/%d after %d seconds. Message: %s",
+                                    retryCount, retryLimit, retryWait/1000, exception.getMessage());
+                            if (retryCount % retries == 0) {
+                                logger.warn(message, exception);
+                            } else {
+                                logger.warn(message);
+                            }
+                        }
+
+                        @Override
+                        public void onGiveup(Exception firstException, Exception lastException) throws RetryExecutor.RetryGiveupException {
+                            logger.error("embulk-output-bigquery: Give up retrying for Load job");
+                        }
+                    });
+
+        } catch (RetryExecutor.RetryGiveupException ex) {
+            Throwables.throwIfInstanceOf(ex.getCause(), BigqueryException.class);
+            // TODO:
+            throw new RuntimeException(ex);
+        } catch (InterruptedException ex) {
+            throw new BigqueryException("interrupted");
         }
-
-        TableId tableId = TableId.of(this.dataset, table);
-        WriteChannelConfiguration writeChannelConfiguration =
-                WriteChannelConfiguration.newBuilder(tableId)
-                        .setFormatOptions(FormatOptions.json())
-                        .setWriteDisposition(writeDestination)
-                        .setMaxBadRecords(this.task.getMaxBadRecords())
-                        .setIgnoreUnknownValues(this.task.getIgnoreUnknownValues())
-                        .setSchema(buildSchema(this.schema, this.columnOptions))
-                        .build();
-        TableDataWriteChannel writer = bigquery.writer(JobId.of(jobId), writeChannelConfiguration);
-
-        try (OutputStream stream = Channels.newOutputStream(writer)) {
-            Files.copy(loadFile, stream);
-        } catch (IOException e) {
-            this.logger.info(e.getMessage());
-        }
-
-        Job job = writer.getJob();
-        return (JobStatistics.LoadStatistics) waitForLoad(job);
     }
 
-    public JobStatistics.CopyStatistics copy(String sourceTable, String destinationTable, String destinationDataset, JobInfo.WriteDisposition writeDestination) {
-        UUID uuid = UUID.randomUUID();
-        String jobId = String.format("embulk_load_job_%s", uuid.toString());
-        TableId destTableId = TableId.of(destinationDataset, destinationTable);
-        TableId srcTableId = TableId.of(this.dataset, sourceTable);
+    public JobStatistics.CopyStatistics copy(String sourceTable,
+                                             String destinationTable,
+                                             String destinationDataset,
+                                             JobInfo.WriteDisposition writeDestination) throws BigqueryException {
+        String dataset = this.dataset;
+        int retries = this.task.getRetries();
 
-        CopyJobConfiguration copyJobConfiguration = CopyJobConfiguration.newBuilder(destTableId, srcTableId)
-                .setWriteDisposition(writeDestination)
-                .build();
+        try {
+            return retryExecutor()
+                    .withRetryLimit(retries)
+                    .withInitialRetryWait(2 * 1000)
+                    .withMaxRetryWait(10 * 1000)
+                    .runInterruptible(new RetryExecutor.Retryable<JobStatistics.CopyStatistics>() {
+                        @Override
+                        public JobStatistics.CopyStatistics call() {
+                            UUID uuid = UUID.randomUUID();
+                            String jobId = String.format("embulk_load_job_%s", uuid.toString());
+                            TableId destTableId = TableId.of(destinationDataset, destinationTable);
+                            TableId srcTableId = TableId.of(dataset, sourceTable);
 
-        Job job = bigquery.create(JobInfo.newBuilder(copyJobConfiguration).setJobId(JobId.of(jobId)).build());
-        return (JobStatistics.CopyStatistics) waitForCopy(job);
+                            CopyJobConfiguration copyJobConfiguration = CopyJobConfiguration.newBuilder(destTableId, srcTableId)
+                                    .setWriteDisposition(writeDestination)
+                                    .build();
+
+                            Job job = bigquery.create(JobInfo.newBuilder(copyJobConfiguration).setJobId(JobId.of(jobId)).build());
+                            return (JobStatistics.CopyStatistics) waitForCopy(job);
+                        }
+
+                        @Override
+                        public boolean isRetryableException(Exception exception) {
+                            // TODO
+                            return true;
+                        }
+
+                        @Override
+                        public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
+                                throws RetryExecutor.RetryGiveupException {
+                            String message = String.format("embulk-output-bigquery: Copy job failed. Retrying %d/%d after %d seconds. Message: %s",
+                                    retryCount, retryLimit, retryWait/1000, exception.getMessage());
+                            if (retryCount % retries == 0) {
+                                logger.warn(message, exception);
+                            } else {
+                                logger.warn(message);
+                            }
+                        }
+
+                        @Override
+                        public void onGiveup(Exception firstException, Exception lastException) throws RetryExecutor.RetryGiveupException {
+                            logger.error("embulk-output-bigquery: Give up retrying for Copy job");
+                        }
+                    });
+
+        } catch (RetryExecutor.RetryGiveupException ex) {
+            Throwables.throwIfInstanceOf(ex.getCause(), BigqueryException.class);
+            // TODO:
+            throw new RuntimeException(ex);
+        } catch (InterruptedException ex) {
+            throw new BigqueryException("interrupted");
+        }
     }
 
     public boolean deleteTable(String table) {
@@ -150,11 +249,11 @@ public class BigqueryClient {
         return this.bigquery.delete(TableId.of(dataset, table));
     }
 
-    private JobStatistics waitForLoad(Job job) {
+    private JobStatistics waitForLoad(Job job) throws BigqueryException{
         return new BigqueryJobWaiter(this.task, this, job).waitFor("Load");
     }
 
-    private JobStatistics waitForCopy(Job job) {
+    private JobStatistics waitForCopy(Job job) throws BigqueryException {
         return new BigqueryJobWaiter(this.task, this, job).waitFor("Copy");
     }
 
