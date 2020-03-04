@@ -15,6 +15,7 @@ import java.util.UUID;
 import com.google.cloud.bigquery.LegacySQLTypeName;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
 import org.embulk.spi.type.BooleanType;
@@ -93,7 +94,7 @@ public class BigqueryClient {
         return bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
     }
 
-    public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination) {
+    public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination) throws BigqueryException {
         UUID uuid = UUID.randomUUID();
         String jobId = String.format("embulk_load_job_%s", uuid.toString());
 
@@ -128,7 +129,10 @@ public class BigqueryClient {
         return (JobStatistics.LoadStatistics) waitForLoad(job);
     }
 
-    public JobStatistics.CopyStatistics copy(String sourceTable, String destinationTable, String destinationDataset, JobInfo.WriteDisposition writeDestination) {
+    public JobStatistics.CopyStatistics copy(String sourceTable,
+                                             String destinationTable,
+                                             String destinationDataset,
+                                             JobInfo.WriteDisposition writeDestination) throws BigqueryException {
         UUID uuid = UUID.randomUUID();
         String jobId = String.format("embulk_load_job_%s", uuid.toString());
         TableId destTableId = TableId.of(destinationDataset, destinationTable);
@@ -150,11 +154,11 @@ public class BigqueryClient {
         return this.bigquery.delete(TableId.of(dataset, table));
     }
 
-    private JobStatistics waitForLoad(Job job) {
+    private JobStatistics waitForLoad(Job job) throws BigqueryException{
         return new BigqueryJobWaiter(this.task, this, job).waitFor("Load");
     }
 
-    private JobStatistics waitForCopy(Job job) {
+    private JobStatistics waitForCopy(Job job) throws BigqueryException {
         return new BigqueryJobWaiter(this.task, this, job).waitFor("Copy");
     }
 

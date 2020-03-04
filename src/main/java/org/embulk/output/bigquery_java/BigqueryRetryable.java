@@ -26,8 +26,7 @@ public interface BigqueryRetryable<T> {
         }
         try {
             return func.get();
-        } catch (Exception e){
-            // BigqueryBackendException| BigqueryInternalException| BigqueryRateLimitExceededException
+        } catch (BigqueryBackendException| BigqueryInternalException| BigqueryRateLimitExceededException e){
             Thread.sleep(BIGQUERY_TABLE_OPERATION_INTERVAL * 1000);
             logger.info("Retrying... {} times", count);
             return executeWithRetry(count + 1, func);
