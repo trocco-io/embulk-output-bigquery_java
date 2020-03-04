@@ -68,7 +68,17 @@ public class BigqueryJobWaiter {
             }
         }
 
-
+        /*
+         * JobStatus.getError()
+         * Returns the final error result of the job. If present, indicates that the job has completed and
+         * was unsuccessful.
+         *
+         * JobStatus.getExecutionErrors()
+         * Returns all errors encountered during the running of the job. Errors here do not necessarily
+         * mean that the job has completed or was unsuccessful.
+         *
+         * https://cloud.google.com/bigquery/troubleshooting-errors
+         */
         if (completedJob.getStatus().getError() != null) {
             String msg = String.format("failed during waiting a %s job get_job(%s, errors: %s)",
                     kind, completedJob.getJobId().getJob(), bigqueryErrorToString(completedJob));

@@ -110,6 +110,8 @@ public class BigqueryClient {
         List<BigqueryColumnOption> columnOptions = this.columnOptions;
 
         try {
+            // https://cloud.google.com/bigquery/quotas#standard_tables
+            // Maximum rate of table metadata update operations — 5 operations every 10 seconds per table
             return retryExecutor()
                     .withRetryLimit(retries)
                     .withInitialRetryWait(2 * 1000)

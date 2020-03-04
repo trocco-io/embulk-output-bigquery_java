@@ -1,28 +1,31 @@
-# Bigquery Java output plugin for Embulk
+# embulk-output-bigquery_java
 
-TODO: Write short description here and build.gradle file.
+[Embulk](https://github.com/embulk/embulk/) output plugin to load/insert data into [Google BigQuery](https://cloud.google.com/bigquery/) using [direct insert](https://cloud.google.com/bigquery/loading-data-into-bigquery#loaddatapostrequest)
 
 ## Overview
 
+This plugin is targeting Java version of [embulk-output-bigquery](https://github.com/embulk/embulk-output-bigquery). Most of features are not implemented right row. You should use jruby version for stable transfer.
+
+load data into Google BigQuery as batch jobs for big amount of data
+https://developers.google.com/bigquery/loading-data-into-bigquery
+
 * **Plugin type**: output
-* **Load all or nothing**: no
 * **Resume supported**: no
-* **Cleanup supported**: yes
+* **Cleanup supported**: no
+* **Dynamic table creating**: yes
+
+### NOT IMPLEMENTED
+* insert data over streaming inserts
+  * for continuous real-time insertions
+  * Please use other product, like [fluent-plugin-bigquery](https://github.com/kaizenplatform/fluent-plugin-bigquery)
+  * https://developers.google.com/bigquery/streaming-data-into-bigquery#usecases
+
+Current version of this plugin supports Google API with Service Account Authentication, but does not support
+OAuth flow for installed applications.
 
 ## Configuration
 
-- **option1**: description (integer, required)
-- **option2**: description (string, default: `"myvalue"`)
-- **option3**: description (string, default: `null`)
-
-## Example
-
-```yaml
-out:
-  type: bigquery_java
-  option1: example1
-  option2: example2
-```
+Under construction
 
 
 ## Build
