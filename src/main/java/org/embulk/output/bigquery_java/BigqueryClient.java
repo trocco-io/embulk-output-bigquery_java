@@ -19,7 +19,6 @@ import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
-import org.embulk.output.bigquery_java.exception.BigqueryJobTimeoutException;
 import org.embulk.output.bigquery_java.exception.BigqueryRateLimitExceededException;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
