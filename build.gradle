@@ -1,11 +1,11 @@
 plugins {
     id "com.jfrog.bintray" version "1.1"
-    id "com.github.jruby-gradle.base" version "1.5.0"
     id "com.github.johnrengelman.shadow" version "4.0.4"
     id "java"
     id "checkstyle"
+    id "maven-publish"
+    id "org.embulk.embulk-plugins" version "0.3.0"
 }
-import com.github.jrubygradle.JRubyExec
 repositories {
     mavenCentral()
     jcenter()
@@ -14,7 +14,12 @@ configurations {
     provided
 }
 
-version = "0.0.7"
+group = "io.trocco"
+version = "0.0.8"
+// version = "0.0.8-SNAPSHOT"
+description = "Bigquery output for embulk"
+
+// version = "0.0.7"
 
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
@@ -34,8 +39,7 @@ shadowJar {
 
 
 dependencies {
-    compile "org.embulk:embulk-core:0.9.23"
-    provided "org.embulk:embulk-core:0.9.23"
+    compile "org.embulk:embulk-core:0.9.17"
 
     compile 'com.fasterxml.jackson.core:jackson-core:2.10.2'
     compile 'com.google.cloud:google-cloud-bigquery:1.106.0'
@@ -47,6 +51,27 @@ dependencies {
     testCompile 'org.embulk:embulk-test:0.9.23'
     testCompile "org.mockito:mockito-core:1.+"
     testCompile "org.embulk:embulk-core:0.9.23:tests"
+    testCompile "org.embulk:embulk-deps-buffer:0.9.23"
+    testCompile "org.embulk:embulk-deps-config:0.9.23"
+}
+
+embulkPlugin {
+    mainClass = "org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin"
+    category = "output"
+    type = "bigquery_java"
+}
+
+publishing {
+    publications {
+        embulkPluginMaven(MavenPublication) {  // Publish it with "publishEmbulkPluginMavenPublicationToMavenRepository".
+            from components.java  // Must be "components.java". The dependency modification works only for it.
+        }
+    }
+    repositories {
+        maven {
+            url = "${project.buildDir}/mavenPublishLocal"
+        }
+    }
 }
 
 task classpath(type: Copy, dependsOn: ["jar", "shadowJar"]) {
@@ -76,50 +101,16 @@ task checkstyle(type: Checkstyle) {
     source = sourceSets.main.allJava + sourceSets.test.allJava
 }
 
-task gem(type: JRubyExec, dependsOn: ["gemspec", "classpath"]) {
-    jrubyArgs "-S"
-    script "gem"
-    scriptArgs "build", "${project.name}.gemspec"
-    doLast { ant.move(file: "${project.name}-${project.version}.gem", todir: "pkg") }
+gem {
+    from("LICENSE")  // Optional -- if you need other files in the gem.
+    authors = [ "giwa" ]
+    email = [ "ugw.gi.world@gmail.com" ]
+    // "description" of the gem is copied from "description" of your Gradle project.
+    summary = "Bigquery output plugin for Embulk"
+    homepage = "https://github.com/trocco-io/embulk-output-bigquery_java"
+    licenses = [ "Apache-2.0" ]
 }
 
-task gemPush(type: JRubyExec, dependsOn: ["gem"]) {
-    jrubyArgs "-S"
-    script "gem"
-    scriptArgs "push", "pkg/${project.name}-${project.version}.gem"
+gemPush {
+    host = "https://rubygems.org"
 }
-
-task "package"(dependsOn: ["gemspec", "classpath"]) {
-    doLast {
-        println "> Build succeeded."
-        println "> You can run embulk with '-L ${file(".").absolutePath}' argument."
-    }
-}
-
-task gemspec {
-    ext.gemspecFile = file("${project.name}.gemspec")
-    inputs.file "build.gradle"
-    outputs.file gemspecFile
-    doLast { gemspecFile.write($/
-Gem::Specification.new do |spec|
-  spec.name          = "${project.name}"
-  spec.version       = "${project.version}"
-  spec.authors       = ["giwa"]
-  spec.summary       = %[Bigquery Java output plugin for Embulk]
-  spec.description   = %[Dumps records to Bigquery Java.]
-  spec.email         = ["ugw.gi.world@gmail.com"]
-  spec.licenses      = ["MIT"]
-  spec.homepage      = "https://github.com/trocco-io/embulk-output-bigquery_java"
-
-  spec.files         = `git ls-files`.split("\n") + Dir["classpath/*.jar"]
-  spec.test_files    = spec.files.grep(%r"^(test|spec)/")
-  spec.require_paths = ["lib"]
-
-  #spec.add_dependency 'YOUR_GEM_DEPENDENCY', ['~> YOUR_GEM_DEPENDENCY_VERSION']
-  spec.add_development_dependency 'bundler', ['~> 1.0']
-  spec.add_development_dependency 'rake', ['~> 12.0']
-end
-/$)
-    }
-}
-clean { delete "${project.name}.gemspec" }

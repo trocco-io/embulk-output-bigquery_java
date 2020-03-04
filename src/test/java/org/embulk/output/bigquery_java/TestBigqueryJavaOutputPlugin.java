@@ -13,14 +13,11 @@ import static org.junit.Assert.assertEquals;
 public class TestBigqueryJavaOutputPlugin
 {
     private ConfigSource config;
-    private static final String BASIC_RESOURCE_PATH = "org/embulk/output/bigquery_java/";
+    private static final String BASIC_RESOURCE_PATH = "java/org/embulk/output/bigquery_java/";
 
     private static ConfigSource loadYamlResource(TestingEmbulk embulk, String fileName) {
         return embulk.loadYamlResource(BASIC_RESOURCE_PATH + fileName);
     }
-
-    @Rule
-    public EmbulkTestRuntime runtime = new EmbulkTestRuntime();
 
     @Rule
     public TestingEmbulk embulk = TestingEmbulk.builder()

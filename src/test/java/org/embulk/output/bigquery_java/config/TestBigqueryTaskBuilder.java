@@ -13,26 +13,21 @@ import static org.junit.Assert.assertEquals;
 public class TestBigqueryTaskBuilder {
 
     private ConfigSource config;
-    private static final String BASIC_RESOURCE_PATH = "org/embulk/output/bigquery_java/";
+    private static final String BASIC_RESOURCE_PATH = "java/org/embulk/output/bigquery_java/";
 
     private static ConfigSource loadYamlResource(TestingEmbulk embulk, String fileName) {
         return embulk.loadYamlResource(BASIC_RESOURCE_PATH + fileName);
     }
 
     @Rule
-    public EmbulkTestRuntime runtime = new EmbulkTestRuntime();
-
-    @Rule
     public TestingEmbulk embulk = TestingEmbulk.builder()
             .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
             .build();
     @Test
-    public void setAbortOnError() {
+    public void testSetAbortOnError() {
         config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
         BigqueryTaskBuilder.setAbortOnError(task);
-
-
         assertEquals("replace", task.getMode());
     }
 }
