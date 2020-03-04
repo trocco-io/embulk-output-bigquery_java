@@ -9,7 +9,7 @@ import org.embulk.spi.Schema;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
-public class BigqueryJobRunner implements Callable<JobStatistics.LoadStatistics> {
+public class BigqueryJobRunner implements Callable<JobStatistics> {
     private BigqueryClient client;
     private Path path;
     private PluginTask task;
@@ -22,7 +22,7 @@ public class BigqueryJobRunner implements Callable<JobStatistics.LoadStatistics>
     }
 
     @Override
-    public JobStatistics.LoadStatistics call() throws Exception {
+    public JobStatistics call() throws Exception {
         client = new BigqueryClient(this.task, this.schema);
 
         return client.load(this.path,
