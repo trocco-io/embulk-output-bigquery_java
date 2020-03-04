@@ -1,8 +1,8 @@
-package org.embulk.output.bigquery_java;
+package org.embulk.output.bigquery_java.config;
 
 import org.embulk.EmbulkTestRuntime;
 import org.embulk.config.ConfigSource;
-import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.test.TestingEmbulk;
 import org.junit.Rule;
@@ -10,8 +10,8 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 
-public class TestBigqueryJavaOutputPlugin
-{
+public class TestBigqueryTaskBuilder {
+
     private ConfigSource config;
     private static final String BASIC_RESOURCE_PATH = "org/embulk/output/bigquery_java/";
 
@@ -27,9 +27,12 @@ public class TestBigqueryJavaOutputPlugin
             .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
             .build();
     @Test
-    public void testDefaultConfigValues() {
+    public void setAbortOnError() {
         config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
+        BigqueryTaskBuilder.setAbortOnError(task);
+
+
         assertEquals("replace", task.getMode());
     }
 }
