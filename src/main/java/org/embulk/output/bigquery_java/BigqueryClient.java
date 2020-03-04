@@ -16,7 +16,11 @@ import com.google.cloud.bigquery.LegacySQLTypeName;
 import com.google.common.base.Throwables;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
+import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
+import org.embulk.output.bigquery_java.exception.BigqueryJobTimeoutException;
+import org.embulk.output.bigquery_java.exception.BigqueryRateLimitExceededException;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
 import org.embulk.spi.type.BooleanType;
@@ -150,8 +154,10 @@ public class BigqueryClient {
 
                         @Override
                         public boolean isRetryableException(Exception exception) {
-                            // TODO
-                            return true;
+                            return exception instanceof BigqueryBackendException
+                                    || exception instanceof BigqueryRateLimitExceededException
+                                    || exception instanceof BigqueryJobTimeoutException
+                                    || exception instanceof BigqueryInternalException;
                         }
 
                         @Override
@@ -211,8 +217,10 @@ public class BigqueryClient {
 
                         @Override
                         public boolean isRetryableException(Exception exception) {
-                            // TODO
-                            return true;
+                            return exception instanceof BigqueryBackendException
+                                    || exception instanceof BigqueryRateLimitExceededException
+                                    || exception instanceof BigqueryJobTimeoutException
+                                    || exception instanceof BigqueryInternalException;
                         }
 
                         @Override
