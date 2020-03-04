@@ -35,6 +35,8 @@ public class BigqueryFileWriter {
     }
 
     public OutputStream open(String path) throws IOException {
+        logger.info("embulk-output-bigquery: create {}", path);
+
         this.os = new FileOutputStream(path);
         if (this.compression.equals("GZIP")) {
             this.os = new GZIPOutputStream(this.os);
