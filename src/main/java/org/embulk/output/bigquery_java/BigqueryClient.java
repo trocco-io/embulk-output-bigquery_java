@@ -133,17 +133,61 @@ public class BigqueryClient {
                                              String destinationTable,
                                              String destinationDataset,
                                              JobInfo.WriteDisposition writeDestination) throws BigqueryException {
-        UUID uuid = UUID.randomUUID();
-        String jobId = String.format("embulk_load_job_%s", uuid.toString());
-        TableId destTableId = TableId.of(destinationDataset, destinationTable);
-        TableId srcTableId = TableId.of(this.dataset, sourceTable);
+        String dataset = this.dataset;
+        int retries = this.task.getRetries();
 
-        CopyJobConfiguration copyJobConfiguration = CopyJobConfiguration.newBuilder(destTableId, srcTableId)
-                .setWriteDisposition(writeDestination)
-                .build();
+        try {
+            return retryExecutor()
+                    .withRetryLimit(retries)
+                    .withInitialRetryWait(2 * 1000)
+                    .withMaxRetryWait(10 * 1000)
+                    .runInterruptible(new RetryExecutor.Retryable<JobStatistics.CopyStatistics>() {
+                        @Override
+                        public JobStatistics.CopyStatistics call() {
+                            UUID uuid = UUID.randomUUID();
+                            String jobId = String.format("embulk_load_job_%s", uuid.toString());
+                            TableId destTableId = TableId.of(destinationDataset, destinationTable);
+                            TableId srcTableId = TableId.of(dataset, sourceTable);
 
-        Job job = bigquery.create(JobInfo.newBuilder(copyJobConfiguration).setJobId(JobId.of(jobId)).build());
-        return (JobStatistics.CopyStatistics) waitForCopy(job);
+                            CopyJobConfiguration copyJobConfiguration = CopyJobConfiguration.newBuilder(destTableId, srcTableId)
+                                    .setWriteDisposition(writeDestination)
+                                    .build();
+
+                            Job job = bigquery.create(JobInfo.newBuilder(copyJobConfiguration).setJobId(JobId.of(jobId)).build());
+                            return (JobStatistics.CopyStatistics) waitForCopy(job);
+                        }
+
+                        @Override
+                        public boolean isRetryableException(Exception exception) {
+                            // TODO
+                            return true;
+                        }
+
+                        @Override
+                        public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
+                                throws RetryExecutor.RetryGiveupException {
+                            String message = String.format("embulk-output-bigquery: Copy job failed. Retrying %d/%d after %d seconds. Message: %s",
+                                    retryCount, retryLimit, retryWait/1000, exception.getMessage());
+                            if (retryCount % retries == 0) {
+                                logger.warn(message, exception);
+                            } else {
+                                logger.warn(message);
+                            }
+                        }
+
+                        @Override
+                        public void onGiveup(Exception firstException, Exception lastException) throws RetryExecutor.RetryGiveupException {
+                            logger.error("embulk-output-bigquery: Give up retrying for Copy job");
+                        }
+                    });
+
+        } catch (RetryExecutor.RetryGiveupException ex) {
+            Throwables.throwIfInstanceOf(ex.getCause(), BigqueryException.class);
+            // TODO:
+            throw new RuntimeException(ex);
+        } catch (InterruptedException ex) {
+            throw new BigqueryException("interrupted");
+        }
     }
 
     public boolean deleteTable(String table) {
