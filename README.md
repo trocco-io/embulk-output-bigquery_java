@@ -31,7 +31,7 @@ Under construction
 
 | name     (x) is unsupported                            | type        | required?  | default                  | description            |
 |:-------------------------------------|:------------|:-----------|:-------------------------|:-----------------------|
-|  mode (replace is supported)                                | string      | optional   | "append"                 | See [Mode](#mode)      |
+|  mode (replace, append is supported)                                | string      | optional   | "append"                 | See [Mode](#mode)      |
 |  auth_method (service_account is supported)                        | string      | optional   | "application\_default"   | See [Authentication](#authentication) |
 |  json_keyfile                        | string      | optional   |                          | keyfile path or `content` |
 |  project  (x)                           | string      | required unless service\_account's `json_keyfile` is given. | | project\_id |

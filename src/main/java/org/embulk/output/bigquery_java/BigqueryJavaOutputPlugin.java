@@ -88,7 +88,11 @@ public class BigqueryJavaOutputPlugin
         }
 
         if (task.getTempTable().isPresent()) {
-            client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
+            if (task.getMode().equals("append")){
+                client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_APPEND);
+            }else{
+                client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
+            }
             client.deleteTable(task.getTempTable().get());
         }
 

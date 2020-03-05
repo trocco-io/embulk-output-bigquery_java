@@ -11,9 +11,8 @@ import org.embulk.config.Task;
 public interface PluginTask
         extends Task {
 
-    // TODO: default should be append
     @Config("mode")
-    @ConfigDefault("\"replace\"")
+    @ConfigDefault("\"append\"")
     public String getMode();
 
     // TODO: default should be application default
