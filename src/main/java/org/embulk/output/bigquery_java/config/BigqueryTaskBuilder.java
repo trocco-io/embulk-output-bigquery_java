@@ -49,8 +49,8 @@ public class BigqueryTaskBuilder {
 
     @VisibleForTesting
     protected static void setTempTable(PluginTask task) {
-        // TODO: support replace_backup, append
-        String[] modeForTempTable = {"replace"};
+        // TODO: support replace_backup
+        String[] modeForTempTable = {"replace", "append"};
         if (Arrays.asList(modeForTempTable).contains(task.getMode())) {
             String tempTable = task.getTempTable().orElse(String.format("LOAD_TEMP_%s_%s", uniqueName, task.getTable()));
             task.setTempTable(Optional.of(tempTable));
