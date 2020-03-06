@@ -1,6 +1,6 @@
 package org.embulk.output.bigquery_java.config;
 
-import org.embulk.EmbulkTestRuntime;
+import org.embulk.config.ConfigException;
 import org.embulk.config.ConfigSource;
 import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
 import org.embulk.spi.OutputPlugin;
@@ -10,8 +10,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 
-public class TestBigqueryTaskBuilder {
-
+public class TestBigqueryConfigValidator {
     private ConfigSource config;
     private static final String BASIC_RESOURCE_PATH = "java/org/embulk/output/bigquery_java/";
 
@@ -25,25 +24,20 @@ public class TestBigqueryTaskBuilder {
             .build();
 
     @Test
-    public void setAbortOnError_DefaultMaxBadRecord_True() {
+    public void validateMode() {
         config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
-        BigqueryTaskBuilder.setAbortOnError(task);
+        BigqueryConfigValidator.validateMode(task);
 
-        assertEquals(0, task.getMaxBadRecords());
-        assertEquals(true, task.getAbortOnError().get());
+        assertEquals("replace", task.getMode());
     }
 
-    // TODO jsonl without compression, csv with/out compression
-    @Test
-    public void setFileExt_JSONL_GZIP_JSONL_GZ() {
+    @Test(expected = ConfigException.class)
+    public void validateMode_invalid_configException() {
         config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
-
-        BigqueryTaskBuilder.setFileExt(task);
-        assertEquals("NEWLINE_DELIMITED_JSON", task.getSourceFormat());
-        assertEquals("GZIP", task.getCompression());
-        assertEquals(".jsonl.gz", task.getFileExt().get());
-
+        task.setMode("foo");
+        BigqueryConfigValidator.validateMode(task);
     }
+
 }
