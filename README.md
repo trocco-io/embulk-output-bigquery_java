@@ -25,7 +25,7 @@ OAuth flow for installed applications.
 
 ## Difference to [embulk-output-bigquery](https://github.com/embulk/embulk-output-bigquery)
 - before_load
-  SQL query is executed before load to the table
+  SQL query might be executed before loading to the table
 
 
 ## Configuration
