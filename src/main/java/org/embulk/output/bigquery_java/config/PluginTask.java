@@ -128,4 +128,8 @@ public interface PluginTask
     @Config("retries")
     @ConfigDefault("5")
     public int getRetries();
+
+    @Config("before_load")
+    @ConfigDefault("null")
+    public Optional<String> getBeforeLoad();
 }

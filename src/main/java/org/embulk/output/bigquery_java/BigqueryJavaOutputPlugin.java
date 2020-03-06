@@ -87,6 +87,10 @@ public class BigqueryJavaOutputPlugin
             }
         }
 
+        if (task.getMode().equals("append") && task.getBeforeLoad().isPresent()){
+            client.executeQuery(task.getBeforeLoad().get());
+        }
+
         if (task.getTempTable().isPresent()) {
             if (task.getMode().equals("append")){
                 client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_APPEND);
