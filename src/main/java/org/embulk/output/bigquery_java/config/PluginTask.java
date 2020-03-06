@@ -121,6 +121,7 @@ public interface PluginTask
 
     public void setAbortOnError(Optional<Boolean> abortOnError);
 
+    // TODO: this is not corresponding to before_load SQL syntax
     @Config("enable_standard_sql")
     @ConfigDefault("false")
     public boolean getEnableStandardSQL();
@@ -128,4 +129,8 @@ public interface PluginTask
     @Config("retries")
     @ConfigDefault("5")
     public int getRetries();
+
+    @Config("before_load")
+    @ConfigDefault("null")
+    public Optional<String> getBeforeLoad();
 }

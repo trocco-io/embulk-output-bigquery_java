@@ -4,7 +4,7 @@
 
 ## Overview
 
-This plugin is targeting Java version of [embulk-output-bigquery](https://github.com/embulk/embulk-output-bigquery). Most of features are not implemented right row. You should use jruby version for stable transfer.
+This plugin is targeting Java version of [embulk-output-bigquery](https://github.com/embulk/embulk-output-bigquery) and some additional functions. Most of features are not implemented right row. You should use jruby version for stable transfer.
 
 load data into Google BigQuery as batch jobs for big amount of data
 https://developers.google.com/bigquery/loading-data-into-bigquery
@@ -22,6 +22,11 @@ https://developers.google.com/bigquery/loading-data-into-bigquery
 
 Current version of this plugin supports Google API with Service Account Authentication, but does not support
 OAuth flow for installed applications.
+
+## Difference to [embulk-output-bigquery](https://github.com/embulk/embulk-output-bigquery)
+- before_load
+  SQL query might be executed before loading to the table
+
 
 ## Configuration
 
@@ -56,6 +61,7 @@ Under construction
 |  gcs_bucket   (x)                       | string      | optional   | nil                      | See [GCS Bucket](#gcs-bucket) |
 |  auto_create_gcs_bucket (x)              | boolean     | optional   | false                    | See [GCS Bucket](#gcs-bucket) |
 |  progress_log_interval  (x)            | float       | optional   | nil (Disabled)           | Progress log interval. The progress log is disabled by nil (default). NOTE: This option may be removed in a future because a filter plugin can achieve the same goal |
+|  before_load          | string       | optional   | nil            |  if set, this SQL will be executed before loading all records in append mode. In replace mode, SQL is not executed. |
 
 
 Client or request options
@@ -103,6 +109,7 @@ Following options are same as [bq command-line tools](https://cloud.google.com/b
 |  clustering     (x)                   | hash     | optional  | nil     | Currently, clustering is supported for partitioned tables, so must be used with `time_partitioning` option. See [clustered tables](https://cloud.google.com/bigquery/docs/clustered-tables) |
 |  clustering.fields  (x)               | array    | required  | nil     | One or more fields on which data should be clustered. The order of the specified columns determines the sort order of the data. |
 |  schema_update_options  (x)           | array    | optional  | nil     | (Experimental) List of `ALLOW_FIELD_ADDITION` or `ALLOW_FIELD_RELAXATION` or both. See [jobs#configuration.load.schemaUpdateOptions](https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.schemaUpdateOptions). NOTE for the current status: `schema_update_options` does not work for `copy` job, that is, is not effective for most of modes such as `append`, `replace` and `replace_backup`. `delete_in_advance` deletes origin table so does not need to update schema. Only `append_direct` can utilize schema update. |
+
 
 
 ## Build

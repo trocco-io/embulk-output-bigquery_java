@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 import com.google.cloud.bigquery.LegacySQLTypeName;
+import com.google.cloud.bigquery.QueryJobConfiguration;
 import com.google.common.base.Throwables;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -249,6 +250,63 @@ public class BigqueryClient {
         }
     }
 
+    public JobStatistics.QueryStatistics executeQuery(String query) {
+        int retries = this.task.getRetries();
+
+        try {
+            return retryExecutor()
+                    .withRetryLimit(retries)
+                    .withInitialRetryWait(2 * 1000)
+                    .withMaxRetryWait(10 * 1000)
+                    .runInterruptible(new RetryExecutor.Retryable<JobStatistics.QueryStatistics>() {
+                        @Override
+                        public JobStatistics.QueryStatistics call() {
+                            UUID uuid = UUID.randomUUID();
+                            String jobId = String.format("embulk_query_job_%s", uuid.toString());
+
+                            QueryJobConfiguration queryConfig =
+                                    QueryJobConfiguration.newBuilder(query)
+                                            .setUseLegacySql(false)
+                                            .build();
+
+                            Job job = bigquery.create(JobInfo.newBuilder(queryConfig).setJobId(JobId.of(jobId)).build());
+                            return (JobStatistics.QueryStatistics) waitForQuery(job);
+                        }
+
+                        @Override
+                        public boolean isRetryableException(Exception exception) {
+                            return exception instanceof BigqueryBackendException
+                                    || exception instanceof BigqueryRateLimitExceededException
+                                    || exception instanceof BigqueryInternalException;
+                        }
+
+                        @Override
+                        public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
+                                throws RetryExecutor.RetryGiveupException {
+                            String message = String.format("embulk-output-bigquery: Query job failed. Retrying %d/%d after %d seconds. Message: %s",
+                                    retryCount, retryLimit, retryWait / 1000, exception.getMessage());
+                            if (retryCount % retries == 0) {
+                                logger.warn(message, exception);
+                            } else {
+                                logger.warn(message);
+                            }
+                        }
+
+                        @Override
+                        public void onGiveup(Exception firstException, Exception lastException) throws RetryExecutor.RetryGiveupException {
+                            logger.error("embulk-output-bigquery: Give up retrying for Query job");
+                        }
+                    });
+
+        } catch (RetryExecutor.RetryGiveupException ex) {
+            Throwables.throwIfInstanceOf(ex.getCause(), BigqueryException.class);
+            // TODO:
+            throw new RuntimeException(ex);
+        } catch (InterruptedException ex) {
+            throw new BigqueryException("interrupted");
+        }
+    }
+
     public boolean deleteTable(String table) {
         return this.bigquery.delete(TableId.of(this.dataset, table));
     }
@@ -263,6 +321,10 @@ public class BigqueryClient {
 
     private JobStatistics waitForCopy(Job job) throws BigqueryException {
         return new BigqueryJobWaiter(this.task, this, job).waitFor("Copy");
+    }
+
+    private JobStatistics waitForQuery(Job job) throws BigqueryException {
+        return new BigqueryJobWaiter(this.task, this, job).waitFor("Query");
     }
 
     @VisibleForTesting
