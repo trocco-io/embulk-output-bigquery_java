@@ -121,6 +121,7 @@ public interface PluginTask
 
     public void setAbortOnError(Optional<Boolean> abortOnError);
 
+    // TODO: this is not corresponding to before_load SQL syntax
     @Config("enable_standard_sql")
     @ConfigDefault("false")
     public boolean getEnableStandardSQL();

@@ -252,7 +252,6 @@ public class BigqueryClient {
 
     public JobStatistics.QueryStatistics executeQuery(String query) {
         int retries = this.task.getRetries();
-        boolean useLegacySql = !this.task.getEnableStandardSQL();
 
         try {
             return retryExecutor()
@@ -263,11 +262,11 @@ public class BigqueryClient {
                         @Override
                         public JobStatistics.QueryStatistics call() {
                             UUID uuid = UUID.randomUUID();
-                            String jobId = String.format("embulk_load_job_%s", uuid.toString());
+                            String jobId = String.format("embulk_query_job_%s", uuid.toString());
 
                             QueryJobConfiguration queryConfig =
                                     QueryJobConfiguration.newBuilder(query)
-                                            .setUseLegacySql(useLegacySql)
+                                            .setUseLegacySql(false)
                                             .build();
 
                             Job job = bigquery.create(JobInfo.newBuilder(queryConfig).setJobId(JobId.of(jobId)).build());
