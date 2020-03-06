@@ -3,6 +3,7 @@ package org.embulk.output.bigquery_java.config;
 import java.util.List;
 import java.util.Optional;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.Task;
@@ -14,6 +15,9 @@ public interface PluginTask
     @Config("mode")
     @ConfigDefault("\"append\"")
     public String getMode();
+
+    @VisibleForTesting
+    public void setMode(String mode);
 
     // TODO: default should be application default
     @Config("auth_method")
