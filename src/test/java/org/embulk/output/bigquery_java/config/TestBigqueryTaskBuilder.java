@@ -20,9 +20,6 @@ public class TestBigqueryTaskBuilder {
     }
 
     @Rule
-    public EmbulkTestRuntime runtime = new EmbulkTestRuntime();
-
-    @Rule
     public TestingEmbulk embulk = TestingEmbulk.builder()
             .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
             .build();
