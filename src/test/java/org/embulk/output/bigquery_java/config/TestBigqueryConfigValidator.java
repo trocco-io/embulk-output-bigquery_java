@@ -9,6 +9,7 @@ import org.junit.Rule;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class TestBigqueryConfigValidator {
     private ConfigSource config;
@@ -40,4 +41,21 @@ public class TestBigqueryConfigValidator {
         BigqueryConfigValidator.validateMode(task);
     }
 
+    @Test
+    public void validateModeAndAutoCreteTable(){
+        config = loadYamlResource(embulk, "base.yml");
+        PluginTask task = config.loadConfig(PluginTask.class);
+        BigqueryConfigValidator.validateModeAndAutoCreteTable(task);
+
+        assertEquals("replace", task.getMode());
+        assertTrue(task.getAutoCreateTable());
+    }
+
+    @Test(expected = ConfigException.class)
+    public void validateModeAndAutoCreteTable_autoCreateTable_False_configException(){
+        config = loadYamlResource(embulk, "base.yml");
+        PluginTask task = config.loadConfig(PluginTask.class);
+        task.setAutoCreateTable(false);
+        BigqueryConfigValidator.validateModeAndAutoCreteTable(task);
+    }
 }

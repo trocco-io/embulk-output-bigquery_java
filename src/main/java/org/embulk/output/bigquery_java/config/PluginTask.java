@@ -81,6 +81,9 @@ public interface PluginTask
     @ConfigDefault("true")
     public boolean getAutoCreateTable();
 
+    @VisibleForTesting
+    public void setAutoCreateTable(boolean autoCreateTable);
+
     @Config("max_bad_records")
     @ConfigDefault("0")
     public int getMaxBadRecords();
