@@ -1,0 +1,55 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image:  circleci/openjdk:8-jdk-stretch
+    steps:
+      - checkout
+      - restore_cache:
+          key: v1-gradle-wrapper-{{ checksum "gradle/wrapper/gradle-wrapper.properties" }}
+      - restore_cache:
+          key: v1-gradle-cache-{{ checksum "build.gradle" }}
+      - run:
+          name: Install dependencies
+          command: ./gradlew build -x test
+      - save_cache:
+          paths:
+            - ~/.gradle/wrapper
+          key: v1-gradle-wrapper-{{ checksum "gradle/wrapper/gradle-wrapper.properties" }}
+      - save_cache:
+          paths:
+            - ~/.gradle/caches
+          key: v1-gradle-cache-{{ checksum "build.gradle" }}
+      - persist_to_workspace:
+          root: .
+          paths:
+            - build
+  test:
+    docker:
+      - image:  circleci/openjdk:8-jdk-stretch
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Run tests
+          command: ./gradlew test
+      - run:
+          name: Assemble Gem
+          command: |
+            # Skip this for other nodes
+            if [ "$CIRCLE_NODE_INDEX" == 0 ]; then
+              ./gradlew gem
+            fi
+      # This will be empty for all nodes except the first one
+      - store_artifacts:
+          path: build/libs
+
+workflows:
+  version: 2
+  workflow:
+    jobs:
+      - build
+      - test:
+          requires:
+            - build
