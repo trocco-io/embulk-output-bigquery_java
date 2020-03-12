@@ -1,0 +1,2 @@
+rootProject.name = "embulk-input-bigquery_java"
+include "shadow-google-cloud-bigquery-helper"

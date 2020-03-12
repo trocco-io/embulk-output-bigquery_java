@@ -1,0 +1,48 @@
+/*
+ * A helper artifact to have the Google Cloud BigQuery client with some transitive dependencies relocated.
+ *
+ * This helper JAR is built separate from each plugin main JAR so that an impact of package relocation is
+ * closed within the helper JAR, not to impact the plugin main JAR.
+ */
+
+apply plugin: "java"
+apply plugin: "com.github.johnrengelman.shadow"
+
+repositories {
+    mavenCentral()
+}
+
+group = "io.trocco"
+version = "${rootProject.version}"
+description = "A helper library for Bigquery output for embulk"
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+configurations {
+    runtimeClasspath {
+        resolutionStrategy.activateDependencyLocking()
+    }
+    shadow {
+        resolutionStrategy.activateDependencyLocking()
+        transitive = false
+    }
+}
+
+dependencies {
+    compile("com.google.cloud:google-cloud-bigquery:1.106.0") {
+        exclude group: "commons-logging", module: "commons-logging"
+    }
+
+    // Use jcl-over-slf4j instead of commons-logging.
+    compile("org.slf4j:jcl-over-slf4j:1.7.12") {
+        exclude group: "org.slf4j", module: "slf4j-api"
+    }
+}
+
+// Relocate Guava and Jackson packages since they are incompatible from Embulk's.
+shadowJar {
+    relocate "com.google.common", "embulk.bigquery.com.google.common"
+    relocate "com.google.thirdparty.publicsuffix", "embulk.bigquery.com.google.thirdparty.publicsuffix"
+    relocate "com.fasterxml.jackson", "embulk.bigquery.com.fasterxml.jackson"
+}
