@@ -341,38 +341,49 @@ public class BigqueryClient {
 
         for (Column col : schema.getColumns()) {
             Field field;
-            StandardSQLTypeName sqlTypeName = getStandardSQLTypeNameByEmbulkType(col.getType());
-            LegacySQLTypeName legacySQLTypeName = getLegacySQLTypeNameByEmbulkType(col.getType());
+            Field.Builder fieldBuilder;
             Field.Mode fieldMode = Field.Mode.NULLABLE;
             Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(col.getName(), columnOptions);
+
+            fieldBuilder = createFieldBuilder(task, col, columnOption);
 
             if (columnOption.isPresent()) {
                 BigqueryColumnOption colOpt = columnOption.get();
                 if (!colOpt.getMode().isEmpty()) {
                     fieldMode = Field.Mode.valueOf(colOpt.getMode());
                 }
-                if (colOpt.getType().isPresent()) {
-                    if (this.task.getEnableStandardSQL()) {
-                        sqlTypeName = StandardSQLTypeName.valueOf(colOpt.getType().get());
-                    } else {
-                        legacySQLTypeName = LegacySQLTypeName.valueOf(colOpt.getType().get());
-                    }
+                fieldBuilder.setMode(fieldMode);
+
+                if (colOpt.getDescription().isPresent()){
+                    fieldBuilder.setDescription(colOpt.getDescription().get());
                 }
             }
-
-            if (task.getEnableStandardSQL()) {
-                field = Field.of(col.getName(), sqlTypeName);
-            } else {
-                field = Field.of(col.getName(), legacySQLTypeName);
-            }
-
             //  TODO:: support field for JSON type
-            field = field.toBuilder()
-                    .setMode(fieldMode)
-                    .build();
+            field = fieldBuilder.build();
             fields.add(field);
         }
         return com.google.cloud.bigquery.Schema.of(fields);
+    }
+
+    protected Field.Builder createFieldBuilder(PluginTask task, Column col, Optional<BigqueryColumnOption> columnOption){
+        StandardSQLTypeName sqlTypeName = getStandardSQLTypeNameByEmbulkType(col.getType());
+        LegacySQLTypeName legacySQLTypeName = getLegacySQLTypeNameByEmbulkType(col.getType());
+
+        if (columnOption.isPresent()) {
+            BigqueryColumnOption colOpt = columnOption.get();
+            if (colOpt.getType().isPresent()) {
+                if (task.getEnableStandardSQL()) {
+                    sqlTypeName = StandardSQLTypeName.valueOf(colOpt.getType().get());
+                } else {
+                    legacySQLTypeName = LegacySQLTypeName.valueOf(colOpt.getType().get());
+                }
+            }
+        }
+        if (task.getEnableStandardSQL()) {
+            return Field.newBuilder(col.getName(), sqlTypeName);
+        } else {
+            return Field.newBuilder(col.getName(), legacySQLTypeName);
+        }
     }
 
     @VisibleForTesting
