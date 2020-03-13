@@ -26,6 +26,7 @@ OAuth flow for installed applications.
 ## Difference to [embulk-output-bigquery](https://github.com/embulk/embulk-output-bigquery)
 - before_load: SQL query might be executed before loading to the table
 - column_options.timestamp_format:  timestamp_format is used to parse string for converting BiqQuery specific date, datetime and timestamp format
+- column_options.description: add description in Bigquery field
 
 ## Configuration
 
@@ -110,6 +111,41 @@ Following options are same as [bq command-line tools](https://cloud.google.com/b
 |  schema_update_options  (x)           | array    | optional  | nil     | (Experimental) List of `ALLOW_FIELD_ADDITION` or `ALLOW_FIELD_RELAXATION` or both. See [jobs#configuration.load.schemaUpdateOptions](https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.schemaUpdateOptions). NOTE for the current status: `schema_update_options` does not work for `copy` job, that is, is not effective for most of modes such as `append`, `replace` and `replace_backup`. `delete_in_advance` deletes origin table so does not need to update schema. Only `append_direct` can utilize schema update. |
 
 
+### Column Options (NOT fully supported)
+
+Column options are used to aid guessing BigQuery schema, or to define conversion of values:
+
+- **column_options**: advanced: an array of options for columns
+  - **name**: column name
+  - **type**: BigQuery type such as `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, and `RECORD`. See belows for supported conversion type.
+    - boolean (x):   `BOOLEAN`, `STRING` (default: `BOOLEAN`)
+    - long (x):      `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `INTEGER`)
+    - double (x):    `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `FLOAT`)
+    - string:    `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD` (default: `STRING`)
+    - timestamp (x): `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE` (default: `TIMESTAMP`)
+    - json (x):      `STRING`,  `RECORD` (default: `STRING`)
+  - **mode**: BigQuery mode such as `NULLABLE`, `REQUIRED`, and `REPEATED` (string, default: `NULLABLE`)
+  - **fields (x) **: Describes the nested schema fields if the type property is set to RECORD. Please note that this is **required** for `RECORD` column.
+  - **timestamp_format**: timestamp format to convert into/from `timestamp` (string, default is `default_timestamp_format`)
+  - **timezone**: timezone to convert into/from `timestamp`, `date` (string, default is `default_timezone`).
+  - **description**: Description for BigQuery field
+- **default_timestamp_format**: default timestamp format for column_options (string, default is "%Y-%m-%d %H:%M:%S.%6N")
+- **default_timezone**: default timezone for column_options (string, default is "UTC")
+
+Example)
+
+```yaml
+out:
+  type: bigquery
+  auto_create_table: true
+  column_options:
+    - {name: date, type: STRING, timestamp_format: %Y-%m-%d, timezone: "Asia/Tokyo"}
+    - name: json_column
+      type: RECORD
+      fields:
+        - {name: key1, type: STRING}
+        - {name: key2, type: STRING}
+```
 
 ## Build
 
