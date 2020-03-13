@@ -39,5 +39,9 @@ public interface BigqueryColumnOption extends Task {
     @ConfigDefault("\"UTC\"")
     public String getTimezone();
 
+    @Config("description")
+    @ConfigDefault("null")
+    public Optional<String> getDescription();
+
     // TODO: fields
 }
