@@ -340,12 +340,9 @@ public class BigqueryClient {
         List<Field> fields = new ArrayList<>();
 
         for (Column col : schema.getColumns()) {
-            Field field;
-            Field.Builder fieldBuilder;
             Field.Mode fieldMode = Field.Mode.NULLABLE;
             Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(col.getName(), columnOptions);
-
-            fieldBuilder = createFieldBuilder(task, col, columnOption);
+            Field.Builder fieldBuilder = createFieldBuilder(task, col, columnOption);
 
             if (columnOption.isPresent()) {
                 BigqueryColumnOption colOpt = columnOption.get();
@@ -359,7 +356,7 @@ public class BigqueryClient {
                 }
             }
             //  TODO:: support field for JSON type
-            field = fieldBuilder.build();
+            Field field = fieldBuilder.build();
             fields.add(field);
         }
         return com.google.cloud.bigquery.Schema.of(fields);
