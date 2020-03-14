@@ -91,6 +91,7 @@ public class BigqueryJavaOutputPlugin
 
         if (task.getMode().equals("append") && task.getBeforeLoad().isPresent()){
             logger.info("embulk-output-bigquery: before_load will be executed");
+            logger.info("embulk-output-bigquery: {}", task.getBeforeLoad().get());
             client.executeQuery(task.getBeforeLoad().get());
         }
 
