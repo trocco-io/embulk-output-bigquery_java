@@ -95,10 +95,11 @@ public class BigqueryClient {
 
     public TimePartitioning buildTimePartitioning(BigqueryTimePartitioning bigqueryTimePartitioning){
             TimePartitioning.Builder timePartitioningBuilder;
-            if (bigqueryTimePartitioning.getType().toUpperCase().equals("DAYS")){
+
+            if (bigqueryTimePartitioning.getType().toUpperCase().equals("DAY")){
                 timePartitioningBuilder = TimePartitioning.newBuilder(TimePartitioning.Type.DAY);
             }else{
-                throw new RuntimeException("time_partitioning.type is not DAYS");
+                throw new RuntimeException("time_partitioning.type is not DAY");
             }
 
             if (bigqueryTimePartitioning.getExpirationMs().isPresent()){
