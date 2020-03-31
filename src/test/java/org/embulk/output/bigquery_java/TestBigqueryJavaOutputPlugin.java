@@ -2,6 +2,7 @@ package org.embulk.output.bigquery_java;
 
 import org.embulk.EmbulkTestRuntime;
 import org.embulk.config.ConfigSource;
+import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.test.TestingEmbulk;
@@ -44,5 +45,18 @@ public class TestBigqueryJavaOutputPlugin {
         assertTrue(task.getDeleteFromLocalWhenJobEnd());
         assertFalse(task.getAutoCreateDataset());
         assertTrue(task.getAutoCreateTable());
+    }
+
+    @Test
+    public void testWithTimePartitioning() {
+        config = loadYamlResource(embulk, "time_partitioning.yml");
+        PluginTask task = config.loadConfig(PluginTask.class);
+        BigqueryTimePartitioning bigqueryTimePartitioning;
+
+        assertTrue(task.getTimePartitioning().isPresent());
+        bigqueryTimePartitioning = task.getTimePartitioning().get();
+        assertEquals("DAY",bigqueryTimePartitioning.getType());
+        assertTrue(bigqueryTimePartitioning.getField().isPresent());
+        assertEquals("date",bigqueryTimePartitioning.getField().get());
     }
 }
