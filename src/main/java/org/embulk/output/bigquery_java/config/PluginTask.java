@@ -140,4 +140,10 @@ public interface PluginTask
     @Config("before_load")
     @ConfigDefault("null")
     public Optional<String> getBeforeLoad();
+
+    @Config("time_partitioning")
+    @ConfigDefault("null")
+    public Optional<BigqueryTimePartitioning> getTimePartitioning();
+
+    void setTimePartitioning(Optional<BigqueryTimePartitioning> bigqueryTimePartitioning);
 }

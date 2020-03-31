@@ -12,10 +12,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
-import com.google.cloud.bigquery.LegacySQLTypeName;
-import com.google.cloud.bigquery.QueryJobConfiguration;
+import com.google.cloud.bigquery.*;
 import com.google.common.base.Throwables;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
@@ -35,23 +35,6 @@ import org.embulk.spi.util.RetryExecutor;
 import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 import com.google.auth.oauth2.ServiceAccountCredentials;
-import com.google.cloud.bigquery.BigQuery;
-import com.google.cloud.bigquery.BigQueryOptions;
-import com.google.cloud.bigquery.CopyJobConfiguration;
-import com.google.cloud.bigquery.Field;
-import com.google.cloud.bigquery.FormatOptions;
-import com.google.cloud.bigquery.Job;
-import com.google.cloud.bigquery.JobId;
-import com.google.cloud.bigquery.JobInfo;
-import com.google.cloud.bigquery.JobStatistics;
-import com.google.cloud.bigquery.StandardSQLTypeName;
-import com.google.cloud.bigquery.StandardTableDefinition;
-import com.google.cloud.bigquery.Table;
-import com.google.cloud.bigquery.TableDataWriteChannel;
-import com.google.cloud.bigquery.TableDefinition;
-import com.google.cloud.bigquery.TableId;
-import com.google.cloud.bigquery.TableInfo;
-import com.google.cloud.bigquery.WriteChannelConfiguration;
 import com.google.common.annotations.VisibleForTesting;
 
 import org.slf4j.Logger;
@@ -99,8 +82,33 @@ public class BigqueryClient {
 
     public Table createTableIfNotExist(String table, String dataset) {
         com.google.cloud.bigquery.Schema schema = buildSchema(this.schema, this.columnOptions);
-        TableDefinition tableDefinition = StandardTableDefinition.of(schema);
+        TableInfo.Builder tableInfoBuilder;
+        StandardTableDefinition.Builder tableDefinitionBuilder = StandardTableDefinition.newBuilder();
+        tableDefinitionBuilder.setSchema(schema);
+        if (this.task.getTimePartitioning().isPresent()) {
+            tableDefinitionBuilder.setTimePartitioning(buildTimePartitioning(this.task.getTimePartitioning().get()));
+        }
+        TableDefinition tableDefinition = tableDefinitionBuilder.build();
+
         return bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
+    }
+
+    public TimePartitioning buildTimePartitioning(BigqueryTimePartitioning bigqueryTimePartitioning){
+            TimePartitioning.Builder timePartitioningBuilder;
+            if (bigqueryTimePartitioning.getType().toUpperCase().equals("DAYS")){
+                timePartitioningBuilder = TimePartitioning.newBuilder(TimePartitioning.Type.DAY);
+            }else{
+                throw new RuntimeException("time_partitioning.type is not DAYS");
+            }
+
+            if (bigqueryTimePartitioning.getExpirationMs().isPresent()){
+                timePartitioningBuilder.setExpirationMs(bigqueryTimePartitioning.getExpirationMs().get());
+            }
+
+            if (bigqueryTimePartitioning.getField().isPresent()){
+                timePartitioningBuilder.setField(bigqueryTimePartitioning.getField().get());
+            }
+            return timePartitioningBuilder.build();
     }
 
     public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination) throws BigqueryException {
