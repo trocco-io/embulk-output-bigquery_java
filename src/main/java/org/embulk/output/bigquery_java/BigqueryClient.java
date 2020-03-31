@@ -82,7 +82,6 @@ public class BigqueryClient {
 
     public Table createTableIfNotExist(String table, String dataset) {
         com.google.cloud.bigquery.Schema schema = buildSchema(this.schema, this.columnOptions);
-        TableInfo.Builder tableInfoBuilder;
         StandardTableDefinition.Builder tableDefinitionBuilder = StandardTableDefinition.newBuilder();
         tableDefinitionBuilder.setSchema(schema);
         if (this.task.getTimePartitioning().isPresent()) {
@@ -93,23 +92,23 @@ public class BigqueryClient {
         return bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
     }
 
-    public TimePartitioning buildTimePartitioning(BigqueryTimePartitioning bigqueryTimePartitioning){
-            TimePartitioning.Builder timePartitioningBuilder;
+    public TimePartitioning buildTimePartitioning(BigqueryTimePartitioning bigqueryTimePartitioning) {
+        TimePartitioning.Builder timePartitioningBuilder;
 
-            if (bigqueryTimePartitioning.getType().toUpperCase().equals("DAY")){
-                timePartitioningBuilder = TimePartitioning.newBuilder(TimePartitioning.Type.DAY);
-            }else{
-                throw new RuntimeException("time_partitioning.type is not DAY");
-            }
+        if (bigqueryTimePartitioning.getType().toUpperCase().equals("DAY")) {
+            timePartitioningBuilder = TimePartitioning.newBuilder(TimePartitioning.Type.DAY);
+        } else {
+            throw new RuntimeException("time_partitioning.type is not DAY");
+        }
 
-            if (bigqueryTimePartitioning.getExpirationMs().isPresent()){
-                timePartitioningBuilder.setExpirationMs(bigqueryTimePartitioning.getExpirationMs().get());
-            }
+        if (bigqueryTimePartitioning.getExpirationMs().isPresent()) {
+            timePartitioningBuilder.setExpirationMs(bigqueryTimePartitioning.getExpirationMs().get());
+        }
 
-            if (bigqueryTimePartitioning.getField().isPresent()){
-                timePartitioningBuilder.setField(bigqueryTimePartitioning.getField().get());
-            }
-            return timePartitioningBuilder.build();
+        if (bigqueryTimePartitioning.getField().isPresent()) {
+            timePartitioningBuilder.setField(bigqueryTimePartitioning.getField().get());
+        }
+        return timePartitioningBuilder.build();
     }
 
     public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination) throws BigqueryException {
@@ -360,7 +359,7 @@ public class BigqueryClient {
                 }
                 fieldBuilder.setMode(fieldMode);
 
-                if (colOpt.getDescription().isPresent()){
+                if (colOpt.getDescription().isPresent()) {
                     fieldBuilder.setDescription(colOpt.getDescription().get());
                 }
             }
@@ -371,7 +370,7 @@ public class BigqueryClient {
         return com.google.cloud.bigquery.Schema.of(fields);
     }
 
-    protected Field.Builder createFieldBuilder(PluginTask task, Column col, Optional<BigqueryColumnOption> columnOption){
+    protected Field.Builder createFieldBuilder(PluginTask task, Column col, Optional<BigqueryColumnOption> columnOption) {
         StandardSQLTypeName sqlTypeName = getStandardSQLTypeNameByEmbulkType(col.getType());
         LegacySQLTypeName legacySQLTypeName = getLegacySQLTypeNameByEmbulkType(col.getType());
 
