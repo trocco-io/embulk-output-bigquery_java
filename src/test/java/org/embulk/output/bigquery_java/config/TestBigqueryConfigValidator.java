@@ -41,7 +41,7 @@ public class TestBigqueryConfigValidator {
     }
 
     @Test
-    public void validateModeAndAutoCreteTable(){
+    public void validateModeAndAutoCreteTable() {
         config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
         BigqueryConfigValidator.validateModeAndAutoCreteTable(task);
@@ -51,7 +51,7 @@ public class TestBigqueryConfigValidator {
     }
 
     @Test(expected = ConfigException.class)
-    public void validateModeAndAutoCreteTable_autoCreateTable_False_configException(){
+    public void validateModeAndAutoCreteTable_autoCreateTable_False_configException() {
         config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
         task.setAutoCreateTable(false);

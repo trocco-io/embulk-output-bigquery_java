@@ -44,6 +44,5 @@ public class TestBigqueryTaskBuilder {
         assertEquals("NEWLINE_DELIMITED_JSON", task.getSourceFormat());
         assertEquals("GZIP", task.getCompression());
         assertEquals(".jsonl.gz", task.getFileExt().get());
-
     }
 }

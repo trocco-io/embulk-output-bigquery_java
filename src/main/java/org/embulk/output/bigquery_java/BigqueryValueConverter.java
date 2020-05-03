@@ -56,11 +56,11 @@ public class BigqueryValueConverter {
                 node.put(name, timestampFormat.format(ts));
                 break;
             case DATE:
-                if (task.getSkipStringDateConvertIfMatched()){
+                if (task.getSkipStringDateConvertIfMatched()) {
                     Matcher m = datePattern.matcher(src);
-                    if (m.find()){
+                    if (m.find()) {
                         node.put(name, src);
-                    }else{
+                    } else {
                         node.putNull(name);
                     }
                     break;

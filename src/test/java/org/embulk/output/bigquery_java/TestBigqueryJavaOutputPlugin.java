@@ -22,9 +22,6 @@ public class TestBigqueryJavaOutputPlugin {
     }
 
     @Rule
-    public EmbulkTestRuntime runtime = new EmbulkTestRuntime();
-
-    @Rule
     public TestingEmbulk embulk = TestingEmbulk.builder()
             .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
             .build();
@@ -55,8 +52,8 @@ public class TestBigqueryJavaOutputPlugin {
 
         assertTrue(task.getTimePartitioning().isPresent());
         bigqueryTimePartitioning = task.getTimePartitioning().get();
-        assertEquals("DAY",bigqueryTimePartitioning.getType());
+        assertEquals("DAY", bigqueryTimePartitioning.getType());
         assertTrue(bigqueryTimePartitioning.getField().isPresent());
-        assertEquals("date",bigqueryTimePartitioning.getField().get());
+        assertEquals("date", bigqueryTimePartitioning.getField().get());
     }
 }
