@@ -60,8 +60,10 @@ public class BigqueryValueConverter {
                     Matcher m = datePattern.matcher(src);
                     if (m.find()){
                         node.put(name, src);
-                        break;
+                    }else{
+                        node.putNull(name);
                     }
+                    break;
                 }
 
                 pattern = columnOption.getTimestampFormat().orElse(task.getDefaultTimestampFormat());
