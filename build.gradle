@@ -1,55 +1,38 @@
 plugins {
-    id "com.jfrog.bintray" version "1.1"
-    id "com.github.johnrengelman.shadow" version "4.0.4"
+    id "com.github.johnrengelman.shadow" version "5.2.0" apply false
     id "java"
     id "checkstyle"
     id "maven-publish"
-    id "org.embulk.embulk-plugins" version "0.3.0"
+    id "org.embulk.embulk-plugins" version "0.4.1"
 }
+
 repositories {
     mavenCentral()
     jcenter()
 }
-configurations {
-    provided
-}
 
 group = "io.trocco"
 version = "0.0.8"
-// version = "0.0.8-SNAPSHOT"
 description = "Bigquery output for embulk"
-
-// version = "0.0.7"
 
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
 
-// Relocate Guava packages since it's incompatible with Guava's version from Embulk
-shadowJar {
-    classifier = "shadow"
-    exclude "org/embulk/plugin/**"
-
-    dependencies {
-        include dependency("com.google.guava:guava")
-        include dependency("com.google.http-client:google-http-client")
-    }
-
-    relocate "com.google.common", "embulk.bigquery.com.google.common"
+tasks.withType(JavaCompile) {
+    options.compilerArgs << "-Xlint:deprecation" << "-Xlint:unchecked"
 }
 
-
 dependencies {
-    compile "org.embulk:embulk-core:0.9.17"
+    compileOnly "org.embulk:embulk-core:0.9.23"
 
-    compile 'com.fasterxml.jackson.core:jackson-core:2.10.2'
-    compile 'com.google.cloud:google-cloud-bigquery:1.106.0'
+    compile project(path: ":shadow-google-cloud-bigquery-helper", configuration: "shadow")
 
     // compile "YOUR_JAR_DEPENDENCY_GROUP:YOUR_JAR_DEPENDENCY_MODULE:YOUR_JAR_DEPENDENCY_VERSION"
-    testCompile "junit:junit:4.+"
+    testCompile "junit:junit:4.13"
     testCompile "org.slf4j:slf4j-simple:1.7.12"
     testCompile 'org.embulk:embulk-standards:0.9.23'
     testCompile 'org.embulk:embulk-test:0.9.23'
-    testCompile "org.mockito:mockito-core:1.+"
+    testCompile "org.mockito:mockito-core:1.10.19"
     testCompile "org.embulk:embulk-core:0.9.23:tests"
     testCompile "org.embulk:embulk-deps-buffer:0.9.23"
     testCompile "org.embulk:embulk-deps-config:0.9.23"
@@ -73,16 +56,6 @@ publishing {
         }
     }
 }
-
-task classpath(type: Copy, dependsOn: ["jar", "shadowJar"]) {
-    doFirst { file("classpath").deleteDir() }
-    from (configurations.runtime - configurations.provided
-            + configurations.shadow
-            - files(shadowJar.getIncludedDependencies())
-            + files(shadowJar.archivePath))
-    into "classpath"
-}
-clean { delete "classpath" }
 
 checkstyle {
     configFile = file("${project.rootDir}/config/checkstyle/checkstyle.xml")
