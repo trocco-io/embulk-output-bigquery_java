@@ -42,7 +42,7 @@ public interface PluginTask
     public Optional<List<BigqueryColumnOption>> getColumnOptions();
 
     @Config("compression")
-    @ConfigDefault("NONE")
+    @ConfigDefault("\"NONE\"")
     public String getCompression();
 
     @Config("source_format")
