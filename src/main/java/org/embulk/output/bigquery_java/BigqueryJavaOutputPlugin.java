@@ -89,16 +89,16 @@ public class BigqueryJavaOutputPlugin
             }
         }
 
-        if (task.getMode().equals("append") && task.getBeforeLoad().isPresent()){
+        if (task.getMode().equals("append") && task.getBeforeLoad().isPresent()) {
             logger.info("embulk-output-bigquery: before_load will be executed");
             logger.info("embulk-output-bigquery: {}", task.getBeforeLoad().get());
             client.executeQuery(task.getBeforeLoad().get());
         }
 
         if (task.getTempTable().isPresent()) {
-            if (task.getMode().equals("append")){
+            if (task.getMode().equals("append")) {
                 client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_APPEND);
-            }else{
+            } else {
                 client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
             }
             client.deleteTable(task.getTempTable().get());

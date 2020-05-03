@@ -6,7 +6,7 @@ import org.embulk.config.Task;
 
 import java.util.Optional;
 
-public interface BigqueryTimePartitioning  extends Task {
+public interface BigqueryTimePartitioning extends Task {
     @Config("type")
     public String getType();
 

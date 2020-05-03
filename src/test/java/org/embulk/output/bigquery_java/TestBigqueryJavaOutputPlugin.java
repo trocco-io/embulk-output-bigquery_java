@@ -52,8 +52,8 @@ public class TestBigqueryJavaOutputPlugin {
 
         assertTrue(task.getTimePartitioning().isPresent());
         bigqueryTimePartitioning = task.getTimePartitioning().get();
-        assertEquals("DAY",bigqueryTimePartitioning.getType());
+        assertEquals("DAY", bigqueryTimePartitioning.getType());
         assertTrue(bigqueryTimePartitioning.getField().isPresent());
-        assertEquals("date",bigqueryTimePartitioning.getField().get());
+        assertEquals("date", bigqueryTimePartitioning.getField().get());
     }
 }
