@@ -311,7 +311,9 @@ public class BigqueryClient {
                     });
 
         } catch (RetryExecutor.RetryGiveupException ex) {
-            Throwables.throwIfInstanceOf(ex.getCause(), BigqueryException.class);
+            if (ex.getCause() instanceof BigqueryException) {
+                throw (BigqueryException) ex.getCause();
+            }
             // TODO:
             throw new RuntimeException(ex);
         } catch (InterruptedException ex) {
