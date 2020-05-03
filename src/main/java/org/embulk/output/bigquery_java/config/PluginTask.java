@@ -14,136 +14,136 @@ public interface PluginTask
 
     @Config("mode")
     @ConfigDefault("\"append\"")
-    public String getMode();
+    String getMode();
 
     @VisibleForTesting
-    public void setMode(String mode);
+    void setMode(String mode);
 
     // TODO: default should be application default
     @Config("auth_method")
     @ConfigDefault("\"service_account\"")
-    public String getAuthMethod();
+    String getAuthMethod();
 
     @Config("json_keyfile")
-    public String getJsonKeyfile();
+    String getJsonKeyfile();
 
     @Config("dataset")
-    public String getDataset();
+    String getDataset();
 
     @Config("table")
-    public String getTable();
+    String getTable();
 
     @Config("location")
     @ConfigDefault("null")
-    public Optional<String> getLocation();
+    Optional<String> getLocation();
 
     @Config("column_options")
     @ConfigDefault("null")
-    public Optional<List<BigqueryColumnOption>> getColumnOptions();
+    Optional<List<BigqueryColumnOption>> getColumnOptions();
 
     @Config("compression")
     @ConfigDefault("\"NONE\"")
-    public String getCompression();
+    String getCompression();
 
     @Config("source_format")
-    public String getSourceFormat();
+    String getSourceFormat();
 
     @Config("path_prefix")
     @ConfigDefault("null")
-    public Optional<String> getPathPrefix();
+    Optional<String> getPathPrefix();
 
-    public void setPathPrefix(Optional<String> pathPrefix);
+    void setPathPrefix(Optional<String> pathPrefix);
 
     @Config("default_timezone")
     @ConfigDefault("\"UTC\"")
-    public String getDefaultTimezone();
+    String getDefaultTimezone();
 
     @Config("default_timestamp_format")
     @ConfigDefault("\"%Y-%m-%d %H:%M:%S.%6N\"")
-    public String getDefaultTimestampFormat();
+    String getDefaultTimestampFormat();
 
     //TODO: make this optional
     @Config("file_ext")
     @ConfigDefault("null")
-    public Optional<String> getFileExt();
+    Optional<String> getFileExt();
 
-    public void setFileExt(Optional<String> fileExt);
+    void setFileExt(Optional<String> fileExt);
 
     @Config("encoding")
     @ConfigDefault("\"UTF-8\"")
-    public String getEncoding();
+    String getEncoding();
 
     @Config("auto_create_dataset")
     @ConfigDefault("false")
-    public boolean getAutoCreateDataset();
+    boolean getAutoCreateDataset();
 
     @Config("auto_create_table")
     @ConfigDefault("true")
-    public boolean getAutoCreateTable();
+    boolean getAutoCreateTable();
 
     @VisibleForTesting
-    public void setAutoCreateTable(boolean autoCreateTable);
+    void setAutoCreateTable(boolean autoCreateTable);
 
     @Config("max_bad_records")
     @ConfigDefault("0")
-    public int getMaxBadRecords();
+    int getMaxBadRecords();
 
     @Config("ignore_unknown_values")
     @ConfigDefault("false")
-    public boolean getIgnoreUnknownValues();
+    boolean getIgnoreUnknownValues();
 
     @Config("allow_quoted_newlines")
     @ConfigDefault("false")
-    public boolean getAllowQuotedNewlines();
+    boolean getAllowQuotedNewlines();
 
     @Config("template_table")
     @ConfigDefault("null")
-    public Optional<String> getTemplateTable();
+    Optional<String> getTemplateTable();
 
     @Config("job_status_polling_interval")
     @ConfigDefault("10")
-    public long getJobStatusPollingInterval();
+    long getJobStatusPollingInterval();
 
     @Config("job_status_max_polling_time")
     @ConfigDefault("3600")
-    public long getJobStatusMaxPollingTime();
+    long getJobStatusMaxPollingTime();
 
     @Config("temp_table")
     @ConfigDefault("null")
-    public Optional<String> getTempTable();
+    Optional<String> getTempTable();
 
-    public void setTempTable(Optional<String> tempTable);
+    void setTempTable(Optional<String> tempTable);
 
     @Config("delete_from_local_when_job_end")
     @ConfigDefault("true")
-    public boolean getDeleteFromLocalWhenJobEnd();
+    boolean getDeleteFromLocalWhenJobEnd();
 
     @Config("is_skip_job_result_check")
     @ConfigDefault("false")
-    public boolean getIsSkipJobResultCheck();
+    boolean getIsSkipJobResultCheck();
 
     @Config("abort_on_error")
     @ConfigDefault("null")
-    public Optional<Boolean> getAbortOnError();
+    Optional<Boolean> getAbortOnError();
 
-    public void setAbortOnError(Optional<Boolean> abortOnError);
+    void setAbortOnError(Optional<Boolean> abortOnError);
 
     // TODO: this is not corresponding to before_load SQL syntax
     @Config("enable_standard_sql")
     @ConfigDefault("false")
-    public boolean getEnableStandardSQL();
+    boolean getEnableStandardSQL();
 
     @Config("retries")
     @ConfigDefault("5")
-    public int getRetries();
+    int getRetries();
 
     @Config("before_load")
     @ConfigDefault("null")
-    public Optional<String> getBeforeLoad();
+    Optional<String> getBeforeLoad();
 
     @Config("time_partitioning")
     @ConfigDefault("null")
-    public Optional<BigqueryTimePartitioning> getTimePartitioning();
+    Optional<BigqueryTimePartitioning> getTimePartitioning();
 
     void setTimePartitioning(Optional<BigqueryTimePartitioning> bigqueryTimePartitioning);
 
@@ -152,6 +152,6 @@ public interface PluginTask
     // and if string is unmatched to \d{4}-\d{2}-\d{2}, value become null
     @Config("_skip_string_date_convert_if_matched")
     @ConfigDefault("false")
-    public boolean getSkipStringDateConvertIfMatched();
+    boolean getSkipStringDateConvertIfMatched();
 
 }
