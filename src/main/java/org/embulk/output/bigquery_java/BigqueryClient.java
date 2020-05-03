@@ -12,9 +12,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
-import com.google.cloud.bigquery.LegacySQLTypeName;
+import com.google.cloud.bigquery.*;
 import com.google.common.base.Throwables;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
@@ -34,23 +35,6 @@ import org.embulk.spi.util.RetryExecutor;
 import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 import com.google.auth.oauth2.ServiceAccountCredentials;
-import com.google.cloud.bigquery.BigQuery;
-import com.google.cloud.bigquery.BigQueryOptions;
-import com.google.cloud.bigquery.CopyJobConfiguration;
-import com.google.cloud.bigquery.Field;
-import com.google.cloud.bigquery.FormatOptions;
-import com.google.cloud.bigquery.Job;
-import com.google.cloud.bigquery.JobId;
-import com.google.cloud.bigquery.JobInfo;
-import com.google.cloud.bigquery.JobStatistics;
-import com.google.cloud.bigquery.StandardSQLTypeName;
-import com.google.cloud.bigquery.StandardTableDefinition;
-import com.google.cloud.bigquery.Table;
-import com.google.cloud.bigquery.TableDataWriteChannel;
-import com.google.cloud.bigquery.TableDefinition;
-import com.google.cloud.bigquery.TableId;
-import com.google.cloud.bigquery.TableInfo;
-import com.google.cloud.bigquery.WriteChannelConfiguration;
 import com.google.common.annotations.VisibleForTesting;
 
 import org.slf4j.Logger;
@@ -98,8 +82,33 @@ public class BigqueryClient {
 
     public Table createTableIfNotExist(String table, String dataset) {
         com.google.cloud.bigquery.Schema schema = buildSchema(this.schema, this.columnOptions);
-        TableDefinition tableDefinition = StandardTableDefinition.of(schema);
+        StandardTableDefinition.Builder tableDefinitionBuilder = StandardTableDefinition.newBuilder();
+        tableDefinitionBuilder.setSchema(schema);
+        if (this.task.getTimePartitioning().isPresent()) {
+            tableDefinitionBuilder.setTimePartitioning(buildTimePartitioning(this.task.getTimePartitioning().get()));
+        }
+        TableDefinition tableDefinition = tableDefinitionBuilder.build();
+
         return bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
+    }
+
+    public TimePartitioning buildTimePartitioning(BigqueryTimePartitioning bigqueryTimePartitioning) {
+        TimePartitioning.Builder timePartitioningBuilder;
+
+        if (bigqueryTimePartitioning.getType().toUpperCase().equals("DAY")) {
+            timePartitioningBuilder = TimePartitioning.newBuilder(TimePartitioning.Type.DAY);
+        } else {
+            throw new RuntimeException("time_partitioning.type is not DAY");
+        }
+
+        if (bigqueryTimePartitioning.getExpirationMs().isPresent()) {
+            timePartitioningBuilder.setExpirationMs(bigqueryTimePartitioning.getExpirationMs().get());
+        }
+
+        if (bigqueryTimePartitioning.getField().isPresent()) {
+            timePartitioningBuilder.setField(bigqueryTimePartitioning.getField().get());
+        }
+        return timePartitioningBuilder.build();
     }
 
     public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination) throws BigqueryException {
@@ -110,6 +119,8 @@ public class BigqueryClient {
         List<BigqueryColumnOption> columnOptions = this.columnOptions;
 
         try {
+            // https://cloud.google.com/bigquery/quotas#standard_tables
+            // Maximum rate of table metadata update operations — 5 operations every 10 seconds per table
             return retryExecutor()
                     .withRetryLimit(retries)
                     .withInitialRetryWait(2 * 1000)
@@ -251,6 +262,63 @@ public class BigqueryClient {
         }
     }
 
+    public JobStatistics.QueryStatistics executeQuery(String query) {
+        int retries = this.task.getRetries();
+
+        try {
+            return retryExecutor()
+                    .withRetryLimit(retries)
+                    .withInitialRetryWait(2 * 1000)
+                    .withMaxRetryWait(10 * 1000)
+                    .runInterruptible(new RetryExecutor.Retryable<JobStatistics.QueryStatistics>() {
+                        @Override
+                        public JobStatistics.QueryStatistics call() {
+                            UUID uuid = UUID.randomUUID();
+                            String jobId = String.format("embulk_query_job_%s", uuid.toString());
+
+                            QueryJobConfiguration queryConfig =
+                                    QueryJobConfiguration.newBuilder(query)
+                                            .setUseLegacySql(false)
+                                            .build();
+
+                            Job job = bigquery.create(JobInfo.newBuilder(queryConfig).setJobId(JobId.of(jobId)).build());
+                            return (JobStatistics.QueryStatistics) waitForQuery(job);
+                        }
+
+                        @Override
+                        public boolean isRetryableException(Exception exception) {
+                            return exception instanceof BigqueryBackendException
+                                    || exception instanceof BigqueryRateLimitExceededException
+                                    || exception instanceof BigqueryInternalException;
+                        }
+
+                        @Override
+                        public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait)
+                                throws RetryExecutor.RetryGiveupException {
+                            String message = String.format("embulk-output-bigquery: Query job failed. Retrying %d/%d after %d seconds. Message: %s",
+                                    retryCount, retryLimit, retryWait / 1000, exception.getMessage());
+                            if (retryCount % retries == 0) {
+                                logger.warn(message, exception);
+                            } else {
+                                logger.warn(message);
+                            }
+                        }
+
+                        @Override
+                        public void onGiveup(Exception firstException, Exception lastException) throws RetryExecutor.RetryGiveupException {
+                            logger.error("embulk-output-bigquery: Give up retrying for Query job");
+                        }
+                    });
+
+        } catch (RetryExecutor.RetryGiveupException ex) {
+            Throwables.throwIfInstanceOf(ex.getCause(), BigqueryException.class);
+            // TODO:
+            throw new RuntimeException(ex);
+        } catch (InterruptedException ex) {
+            throw new BigqueryException("interrupted");
+        }
+    }
+
     public boolean deleteTable(String table) {
         return this.bigquery.delete(TableId.of(this.dataset, table));
     }
@@ -267,6 +335,10 @@ public class BigqueryClient {
         return new BigqueryJobWaiter(this.task, this, job).waitFor("Copy");
     }
 
+    private JobStatistics waitForQuery(Job job) throws BigqueryException {
+        return new BigqueryJobWaiter(this.task, this, job).waitFor("Query");
+    }
+
     @VisibleForTesting
     protected com.google.cloud.bigquery.Schema buildSchema(Schema schema, List<BigqueryColumnOption> columnOptions) {
         // TODO: support schema file
@@ -280,39 +352,47 @@ public class BigqueryClient {
         List<Field> fields = new ArrayList<>();
 
         for (Column col : schema.getColumns()) {
-            Field field;
-            StandardSQLTypeName sqlTypeName = getStandardSQLTypeNameByEmbulkType(col.getType());
-            LegacySQLTypeName legacySQLTypeName = getLegacySQLTypeNameByEmbulkType(col.getType());
             Field.Mode fieldMode = Field.Mode.NULLABLE;
             Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(col.getName(), columnOptions);
+            Field.Builder fieldBuilder = createFieldBuilder(task, col, columnOption);
 
             if (columnOption.isPresent()) {
                 BigqueryColumnOption colOpt = columnOption.get();
                 if (!colOpt.getMode().isEmpty()) {
                     fieldMode = Field.Mode.valueOf(colOpt.getMode());
                 }
-                if (colOpt.getType().isPresent()) {
-                    if (this.task.getEnableStandardSQL()) {
-                        sqlTypeName = StandardSQLTypeName.valueOf(colOpt.getType().get());
-                    } else {
-                        legacySQLTypeName = LegacySQLTypeName.valueOf(colOpt.getType().get());
-                    }
+                fieldBuilder.setMode(fieldMode);
+
+                if (colOpt.getDescription().isPresent()) {
+                    fieldBuilder.setDescription(colOpt.getDescription().get());
                 }
             }
-
-            if (task.getEnableStandardSQL()) {
-                field = Field.of(col.getName(), sqlTypeName);
-            } else {
-                field = Field.of(col.getName(), legacySQLTypeName);
-            }
-
             //  TODO:: support field for JSON type
-            field = field.toBuilder()
-                    .setMode(fieldMode)
-                    .build();
+            Field field = fieldBuilder.build();
             fields.add(field);
         }
         return com.google.cloud.bigquery.Schema.of(fields);
+    }
+
+    protected Field.Builder createFieldBuilder(PluginTask task, Column col, Optional<BigqueryColumnOption> columnOption) {
+        StandardSQLTypeName sqlTypeName = getStandardSQLTypeNameByEmbulkType(col.getType());
+        LegacySQLTypeName legacySQLTypeName = getLegacySQLTypeNameByEmbulkType(col.getType());
+
+        if (columnOption.isPresent()) {
+            BigqueryColumnOption colOpt = columnOption.get();
+            if (colOpt.getType().isPresent()) {
+                if (task.getEnableStandardSQL()) {
+                    sqlTypeName = StandardSQLTypeName.valueOf(colOpt.getType().get());
+                } else {
+                    legacySQLTypeName = LegacySQLTypeName.valueOf(colOpt.getType().get());
+                }
+            }
+        }
+        if (task.getEnableStandardSQL()) {
+            return Field.newBuilder(col.getName(), sqlTypeName);
+        } else {
+            return Field.newBuilder(col.getName(), legacySQLTypeName);
+        }
     }
 
     @VisibleForTesting

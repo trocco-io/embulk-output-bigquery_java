@@ -9,3 +9,6 @@ compression: GZIP
 auto_create_dataset: false
 auto_create_table: true
 path_prefix: /tmp/bq_compress/bq_
+time_partitioning:
+  type: DAY
+  field: date

@@ -23,11 +23,26 @@ public class TestBigqueryTaskBuilder {
     public TestingEmbulk embulk = TestingEmbulk.builder()
             .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
             .build();
+
     @Test
-    public void testSetAbortOnError() {
+    public void setAbortOnError_DefaultMaxBadRecord_True() {
         config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
         BigqueryTaskBuilder.setAbortOnError(task);
-        assertEquals("replace", task.getMode());
+
+        assertEquals(0, task.getMaxBadRecords());
+        assertEquals(true, task.getAbortOnError().get());
+    }
+
+    // TODO jsonl without compression, csv with/out compression
+    @Test
+    public void setFileExt_JSONL_GZIP_JSONL_GZ() {
+        config = loadYamlResource(embulk, "base.yml");
+        PluginTask task = config.loadConfig(PluginTask.class);
+
+        BigqueryTaskBuilder.setFileExt(task);
+        assertEquals("NEWLINE_DELIMITED_JSON", task.getSourceFormat());
+        assertEquals("GZIP", task.getCompression());
+        assertEquals(".jsonl.gz", task.getFileExt().get());
     }
 }

@@ -3,6 +3,7 @@ package org.embulk.output.bigquery_java.config;
 import java.util.List;
 import java.util.Optional;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.Task;
@@ -11,10 +12,12 @@ import org.embulk.config.Task;
 public interface PluginTask
         extends Task {
 
-    // TODO: default should be append
     @Config("mode")
-    @ConfigDefault("\"replace\"")
+    @ConfigDefault("\"append\"")
     public String getMode();
+
+    @VisibleForTesting
+    public void setMode(String mode);
 
     // TODO: default should be application default
     @Config("auth_method")
@@ -39,7 +42,7 @@ public interface PluginTask
     public Optional<List<BigqueryColumnOption>> getColumnOptions();
 
     @Config("compression")
-    @ConfigDefault("NONE")
+    @ConfigDefault("\"NONE\"")
     public String getCompression();
 
     @Config("source_format")
@@ -77,6 +80,9 @@ public interface PluginTask
     @Config("auto_create_table")
     @ConfigDefault("true")
     public boolean getAutoCreateTable();
+
+    @VisibleForTesting
+    public void setAutoCreateTable(boolean autoCreateTable);
 
     @Config("max_bad_records")
     @ConfigDefault("0")
@@ -122,6 +128,7 @@ public interface PluginTask
 
     public void setAbortOnError(Optional<Boolean> abortOnError);
 
+    // TODO: this is not corresponding to before_load SQL syntax
     @Config("enable_standard_sql")
     @ConfigDefault("false")
     public boolean getEnableStandardSQL();
@@ -129,4 +136,22 @@ public interface PluginTask
     @Config("retries")
     @ConfigDefault("5")
     public int getRetries();
+
+    @Config("before_load")
+    @ConfigDefault("null")
+    public Optional<String> getBeforeLoad();
+
+    @Config("time_partitioning")
+    @ConfigDefault("null")
+    public Optional<BigqueryTimePartitioning> getTimePartitioning();
+
+    void setTimePartitioning(Optional<BigqueryTimePartitioning> bigqueryTimePartitioning);
+
+    // performance optimization
+    // if input value is string type and format is \d{4}-\d{2}-\d{2}, skip time parse due to the slowness of time parser
+    // and if string is unmatched to \d{4}-\d{2}-\d{2}, value become null
+    @Config("_skip_string_date_convert_if_matched")
+    @ConfigDefault("false")
+    public boolean getSkipStringDateConvertIfMatched();
+
 }
