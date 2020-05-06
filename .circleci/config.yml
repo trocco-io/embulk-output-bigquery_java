@@ -33,7 +33,7 @@ jobs:
           at: .
       - run:
           name: Run tests
-          command: ./gradlew test
+          command: ./gradlew test --info
       - run:
           name: Assemble Gem
           command: |
