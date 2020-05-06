@@ -7,6 +7,7 @@ import java.util.Optional;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.BigqueryUtil;
 import org.embulk.output.bigquery_java.BigqueryValueConverter;
+import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.Column;
 import org.embulk.spi.PageReader;
@@ -14,10 +15,10 @@ import org.embulk.spi.PageReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 public class JsonColumnVisitor implements BigqueryColumnVisitor {
-    private PluginTask task;
     final PageReader reader;
-    private List<BigqueryColumnOption> columnOptions;
     private final ObjectNode node;
+    private PluginTask task;
+    private List<BigqueryColumnOption> columnOptions;
 
     public JsonColumnVisitor(PluginTask task, PageReader reader, List<BigqueryColumnOption> columnOptions) {
         this.task = task;
@@ -36,7 +37,18 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
         if (reader.isNull(column)) {
             node.putNull(column.getName());
         } else {
-            node.put(column.getName(), reader.getBoolean(column));
+            Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
+            BigqueryColumnOptionType bigqueryColumnOptionType;
+            if (columnOption.isPresent() && columnOption.get().getType().isPresent()) {
+                bigqueryColumnOptionType = BigqueryColumnOptionType.valueOf(columnOption.get().getType().get());
+            }else{
+                bigqueryColumnOptionType = BigqueryColumnOptionType.BOOLEAN;
+            }
+            BigqueryValueConverter.convertAndSet(
+                    this.node,
+                    column.getName(),
+                    reader.getBoolean(column),
+                    bigqueryColumnOptionType);
         }
     }
 
@@ -45,7 +57,18 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
         if (reader.isNull(column)) {
             node.putNull(column.getName());
         } else {
-            node.put(column.getName(), reader.getLong(column));
+            Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
+            BigqueryColumnOptionType bigqueryColumnOptionType;
+            if (columnOption.isPresent() && columnOption.get().getType().isPresent()) {
+                bigqueryColumnOptionType = BigqueryColumnOptionType.valueOf(columnOption.get().getType().get());
+            }else{
+                bigqueryColumnOptionType = BigqueryColumnOptionType.INTEGER;
+            }
+            BigqueryValueConverter.convertAndSet(
+                    this.node,
+                    column.getName(),
+                    reader.getLong(column),
+                    bigqueryColumnOptionType);
         }
     }
 
@@ -54,7 +77,18 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
         if (reader.isNull(column)) {
             node.putNull(column.getName());
         } else {
-            node.put(column.getName(), reader.getDouble(column));
+            Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
+            BigqueryColumnOptionType bigqueryColumnOptionType;
+            if (columnOption.isPresent() && columnOption.get().getType().isPresent()) {
+                bigqueryColumnOptionType = BigqueryColumnOptionType.valueOf(columnOption.get().getType().get());
+            }else{
+                bigqueryColumnOptionType = BigqueryColumnOptionType.FLOAT;
+            }
+            BigqueryValueConverter.convertAndSet(
+                    this.node,
+                    column.getName(),
+                    reader.getDouble(column),
+                    bigqueryColumnOptionType);
         }
     }
 
@@ -64,12 +98,20 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
             node.putNull(column.getName());
         } else {
             Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
+            BigqueryColumnOptionType bigqueryColumnOptionType;
+            BigqueryColumnOption bigqueryColumnOption = null;
             if (columnOption.isPresent() && columnOption.get().getType().isPresent()) {
-                BigqueryValueConverter.convertAndSet(this.node, column.getName(),
-                        reader.getString(column), columnOption.get(), this.task);
-            } else {
-                node.put(column.getName(), reader.getString(column));
+                bigqueryColumnOptionType = BigqueryColumnOptionType.valueOf(columnOption.get().getType().get());
+                bigqueryColumnOption = columnOption.get();
+            }else{
+                bigqueryColumnOptionType = BigqueryColumnOptionType.STRING;
             }
+            BigqueryValueConverter.convertAndSet(
+                    this.node,
+                    column.getName(),
+                    reader.getString(column),
+                    bigqueryColumnOptionType,
+                    bigqueryColumnOption);
         }
     }
 
@@ -78,12 +120,23 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
         if (reader.isNull(column)) {
             node.putNull(column.getName());
         } else {
-            node.put(column.getName(), reader.getString(column));
+            Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
+            BigqueryColumnOptionType bigqueryColumnOptionType;
+            BigqueryColumnOption bigqueryColumnOption = null;
+            if (columnOption.isPresent() && columnOption.get().getType().isPresent()) {
+                bigqueryColumnOptionType = BigqueryColumnOptionType.valueOf(columnOption.get().getType().get());
+                bigqueryColumnOption = columnOption.get();
+            }else{
+                bigqueryColumnOptionType = BigqueryColumnOptionType.TIMESTAMP;
+            }
+            BigqueryValueConverter.convertAndSet(
+                    this.node,
+                    column.getName(),
+                    reader.getTimestamp(column),
+                    bigqueryColumnOptionType,
+                    bigqueryColumnOption,
+                    this.task);
         }
-
-        // TODO:
-        // TimestampFormatter formatter = timestampFormatters[column.getIndex()];
-        // Value value = ValueFactory.newString(formatter.format(reader.getTimestamp(column)));
     }
 
     @Override
