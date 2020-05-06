@@ -59,7 +59,7 @@ public interface PluginTask
     String getDefaultTimezone();
 
     @Config("default_timestamp_format")
-    @ConfigDefault("\"%Y-%m-%d %H:%M:%S.%6N\"")
+    @ConfigDefault("\"%Y-%m-%d %H:%M:%S.%6N %:z\"")
     String getDefaultTimestampFormat();
 
     //TODO: make this optional
