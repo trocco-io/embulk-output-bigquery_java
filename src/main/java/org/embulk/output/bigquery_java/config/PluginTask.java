@@ -146,12 +146,4 @@ public interface PluginTask
     Optional<BigqueryTimePartitioning> getTimePartitioning();
 
     void setTimePartitioning(Optional<BigqueryTimePartitioning> bigqueryTimePartitioning);
-
-    // performance optimization
-    // if input value is string type and format is \d{4}-\d{2}-\d{2}, skip time parse due to the slowness of time parser
-    // and if string is unmatched to \d{4}-\d{2}-\d{2}, value become null
-    @Config("_skip_string_date_convert_if_matched")
-    @ConfigDefault("false")
-    boolean getSkipStringDateConvertIfMatched();
-
 }

@@ -25,7 +25,6 @@ OAuth flow for installed applications.
 
 ## Difference to [embulk-output-bigquery](https://github.com/embulk/embulk-output-bigquery)
 - before_load: SQL query might be executed before loading to the table
-- column_options.timestamp_format:  timestamp_format is used to parse string for converting BiqQuery specific date, datetime and timestamp format
 - column_options.description: add description in Bigquery field
 
 ## Configuration
