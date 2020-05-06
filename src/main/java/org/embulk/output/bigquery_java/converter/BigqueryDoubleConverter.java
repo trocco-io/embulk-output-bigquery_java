@@ -1,7 +1,6 @@
 package org.embulk.output.bigquery_java.converter;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
 import org.embulk.output.bigquery_java.exception.BigqueryNotSupportedTypeException;
 

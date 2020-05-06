@@ -20,13 +20,13 @@ public class BigqueryStringConverter {
     public static void convertAndSet(ObjectNode node, String name, String src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption) {
         switch (bigqueryColumnOptionType) {
             case BOOLEAN:
-                if (src == null){
+                if (src == null) {
                     node.putNull(name);
-                }else if(src.toLowerCase().equals("true")){
+                } else if (src.toLowerCase().equals("true")) {
                     node.put(name, true);
-                }else if(src.toLowerCase().equals("false")){
+                } else if (src.toLowerCase().equals("false")) {
                     node.put(name, false);
-                }else{
+                } else {
                     throw new BigqueryTypeCastException(String.format("%s cannot be converted to BOOLEAN", src));
                 }
                 break;
@@ -34,7 +34,7 @@ public class BigqueryStringConverter {
                 int intVal;
                 try {
                     intVal = Integer.parseInt(src);
-                }catch (NumberFormatException e) {
+                } catch (NumberFormatException e) {
                     throw new BigqueryTypeCastException(String.format("%s cannot be converted to INTEGER", src));
                 }
                 node.put(name, intVal);
@@ -43,7 +43,7 @@ public class BigqueryStringConverter {
                 float floatVal;
                 try {
                     floatVal = Float.parseFloat(src);
-                } catch (NumberFormatException e){
+                } catch (NumberFormatException e) {
                     throw new BigqueryTypeCastException(String.format("%s cannot be converted to FLOAT", src));
                 }
                 node.put(name, floatVal);
@@ -59,11 +59,11 @@ public class BigqueryStringConverter {
                     ts = parser.parse(src);
                     timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N %:z", timezone);
                     node.put(name, timestampFormat.format(ts));
-                }else{
+                } else {
                     // Users must care of BQ timestamp format by themselves with no timestamp_format
-                    if(src == null){
+                    if (src == null) {
                         node.putNull(name);
-                    }else{
+                    } else {
                         node.put(name, src);
                     }
                 }
@@ -76,32 +76,32 @@ public class BigqueryStringConverter {
                     ts = parser.parse(src);
                     timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N", timezone);
                     node.put(name, timestampFormat.format(ts));
-                }else{
+                } else {
                     // Users must care of BQ datetime format by themselves with no timestamp_format
-                    if(src == null){
+                    if (src == null) {
                         node.putNull(name);
-                    }else{
+                    } else {
                         node.put(name, src);
                     }
                 }
                 break;
             case DATE:
-                if (columnOption.getTimestampFormat().isPresent()){
+                if (columnOption.getTimestampFormat().isPresent()) {
                     pattern = columnOption.getTimestampFormat().get();
                     timezone = columnOption.getTimezone();
                     parser = TimestampParser.of(pattern, timezone);
                     try {
                         ts = parser.parse(src);
-                    } catch (TimestampParseException e){
+                    } catch (TimestampParseException e) {
                         throw new BigqueryTypeCastException(e.getMessage());
                     }
                     timestampFormat = TimestampFormatter.of("%Y-%m-%d", timezone);
                     node.put(name, timestampFormat.format(ts));
                 } else {
                     // Users must care of BQ date format by themselves with no timestamp_format
-                    if(src == null){
+                    if (src == null) {
                         node.putNull(name);
-                    }else{
+                    } else {
                         node.put(name, src);
                     }
                 }
