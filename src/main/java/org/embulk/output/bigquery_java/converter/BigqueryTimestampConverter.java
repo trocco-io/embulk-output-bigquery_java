@@ -31,8 +31,7 @@ public class BigqueryTimestampConverter {
                 if (src == null) {
                     node.putNull(name);
                 } else {
-                    timezone = columnOption.getTimezone();
-                    timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N %:z", timezone);
+                    timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N %:z", "UTC");
                     node.put(name, timestampFormat.format(src));
                 }
                 break;
@@ -40,8 +39,7 @@ public class BigqueryTimestampConverter {
                 if (src == null) {
                     node.putNull(name);
                 } else {
-                    timezone = columnOption.getTimezone();
-                    timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N", timezone);
+                    timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N", "UTC");
                     node.put(name, timestampFormat.format(src));
                 }
                 break;
@@ -49,8 +47,7 @@ public class BigqueryTimestampConverter {
                 if (src == null) {
                     node.putNull(name);
                 } else {
-                    timezone = columnOption.getTimezone();
-                    timestampFormat = TimestampFormatter.of("%Y-%m-%d", timezone);
+                    timestampFormat = TimestampFormatter.of("%Y-%m-%d", "UTC");
                     node.put(name, timestampFormat.format(src));
                 }
                 break;
