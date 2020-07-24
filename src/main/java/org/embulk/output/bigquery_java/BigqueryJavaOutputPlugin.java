@@ -12,6 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
+import com.google.cloud.bigquery.Dataset;
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
 import org.embulk.config.ConfigDiff;
@@ -43,7 +44,7 @@ public class BigqueryJavaOutputPlugin
         BigqueryConfigValidator.validate(task);
         BigqueryTaskBuilder.build(task);
         BigqueryClient client = new BigqueryClient(task, schema);
-        client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
+        auto_create(task, client);
 
         control.run(task.dump());
         this.writers.values().forEach(BigqueryFileWriter::close);
@@ -135,6 +136,31 @@ public class BigqueryJavaOutputPlugin
     public TransactionalPageOutput open(TaskSource taskSource, Schema schema, int taskIndex) {
         PluginTask task = taskSource.loadTask(PluginTask.class);
         return new BigqueryPageOutput(task, schema);
+    }
+
+    protected void auto_create(PluginTask task, BigqueryClient client){
+        if (task.getAutoCreateDataset()){
+            client.createDataset(task.getDataset());
+        }else{
+            Dataset dataset = client.getDataset(task.getDataset());
+            if (dataset == null){
+                throw new RuntimeException(String.format("dataset %s is not found", task.getDataset()));
+            }
+        }
+        switch (task.getMode()){
+            case "replace":
+                client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
+                // TODO: create table to support partition
+                break;
+            case "append":
+                client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
+                // TODO: create table to support partition
+                break;
+            default:
+                // never reach here
+                throw new RuntimeException(String.format("mode %s is not supported", task.getMode()));
+        }
+
     }
 
 
