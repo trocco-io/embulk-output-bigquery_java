@@ -68,6 +68,14 @@ public class BigqueryClient {
                 .getService();
     }
 
+    public Dataset createDataset(String datasetId){
+        return bigquery.create(DatasetInfo.newBuilder(datasetId).build());
+    }
+
+    public Dataset getDataset(String datasetId) {
+        return bigquery.getDataset(datasetId);
+    }
+
     public Job getJob(JobId jobId) {
         return this.bigquery.getJob(jobId);
     }
@@ -80,7 +88,7 @@ public class BigqueryClient {
         return this.bigquery.getTable(tableId);
     }
 
-    public Table createTableIfNotExist(String table, String dataset) {
+    public void createTableIfNotExist(String table, String dataset) {
         com.google.cloud.bigquery.Schema schema = buildSchema(this.schema, this.columnOptions);
         StandardTableDefinition.Builder tableDefinitionBuilder = StandardTableDefinition.newBuilder();
         tableDefinitionBuilder.setSchema(schema);
@@ -89,7 +97,15 @@ public class BigqueryClient {
         }
         TableDefinition tableDefinition = tableDefinitionBuilder.build();
 
-        return bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
+        try{
+            bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
+        }catch (BigQueryException e){
+            if(e.getCode() == 409 && e.getMessage().contains("Already Exists:")){
+                return;
+            }
+            logger.error(String.format("embulk-out_bigquery: insert_table(%s, %s)", dataset, table));
+            throw new RuntimeException(String.format("failed to create table %s.%s, response: %s", dataset, table, e));
+        }
     }
 
     public TimePartitioning buildTimePartitioning(BigqueryTimePartitioning bigqueryTimePartitioning) {
