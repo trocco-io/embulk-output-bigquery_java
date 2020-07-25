@@ -69,26 +69,7 @@ public class TestBigqueryTimestampConverter {
     }
 
     @Test
-    public void testConvertTimestampToTimestamp() {
-        ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
-        config = loadYamlResource(embulk, "base.yml");
-        ImmutableList.Builder<ConfigSource> builder = ImmutableList.builder();
-        ConfigSource configSource = embulk.newConfig();
-        configSource.set("type", "TIMESTAMP");
-        configSource.set("name", "key");
-        builder.add(configSource);
-        config.set("column_options",builder.build());
-        BigqueryColumnOption columnOption = configSource.loadConfig(BigqueryColumnOption.class);
-        PluginTask task = config.loadConfig(PluginTask.class);
-        // Fri May 01 2020 00:00:00
-        Timestamp ts = Timestamp.ofEpochMilli(1588291200000L);
-
-        BigqueryTimestampConverter.convertAndSet(node, "key", ts, BigqueryColumnOptionType.TIMESTAMP, columnOption, task);
-        assertEquals("2020-05-01 00:00:00.000000 +00:00", node.get("key").asText());
-    }
-
-    @Test
-    public void testConvertTimestampToTimestampWithoutColumnOption() {
+    public void testConvertTimestampToTimestampColumnOption() {
         ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
         config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
