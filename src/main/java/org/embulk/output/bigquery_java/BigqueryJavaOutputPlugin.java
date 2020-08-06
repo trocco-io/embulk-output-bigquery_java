@@ -148,6 +148,10 @@ public class BigqueryJavaOutputPlugin
             }
         }
         switch (task.getMode()){
+            case "delete_in_advance":
+                client.deleteTableOrPartition(task.getTable());
+                client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
+                break;
             case "replace":
                 client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
                 // TODO: create table to support partition

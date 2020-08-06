@@ -151,3 +151,9 @@ out:
 ```
 $ ./gradlew gem  # -t to watch change of files and rebuild continuously
 ```
+
+### Develop
+
+```
+$ embulk run config.yml -L PATH/embulk-output-bigquery_java/build/gemContents/
+```
