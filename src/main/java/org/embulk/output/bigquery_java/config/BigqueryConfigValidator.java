@@ -12,9 +12,9 @@ public class BigqueryConfigValidator {
 
     public static void validateMode(PluginTask task) throws ConfigException {
         // TODO: append_direct delete_in_advance replace_backup
-        String[] modes = {"replace", "append", "delete_in_advance"};
+        String[] modes = {"replace", "append", "delete_in_advance", "append_direct"};
         if (!Arrays.asList(modes).contains(task.getMode().toLowerCase())) {
-            throw new ConfigException("replace, append and delete_in_advance are supported. Stay tuned!");
+            throw new ConfigException("replace, append, delete_in_advance and append_direct are supported. Stay tuned!");
         }
     }
 

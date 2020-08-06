@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 import com.google.cloud.bigquery.Dataset;
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
+import com.google.cloud.bigquery.Table;
 import org.embulk.config.ConfigDiff;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.TaskReport;
@@ -22,6 +23,7 @@ import org.embulk.config.TaskSource;
 import org.embulk.output.bigquery_java.config.BigqueryConfigValidator;
 import org.embulk.output.bigquery_java.config.BigqueryTaskBuilder;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.spi.Exec;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.spi.Schema;
@@ -160,6 +162,15 @@ public class BigqueryJavaOutputPlugin
                 client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
                 // TODO: create table to support partition
                 break;
+            case "append_direct":
+                if (task.getAutoCreateTable()) {
+                    client.createTableIfNotExist(task.getTable(), task.getDataset());
+                }else{
+                    Table table = client.getTable(task.getTable());
+                    if (table == null){
+                        throw new BigqueryException(String.format("%s.%s not found, create table or enable auto_create_table", task.getDataset(), task.getTable()));
+                    }
+                }
             default:
                 // never reach here
                 throw new RuntimeException(String.format("mode %s is not supported", task.getMode()));

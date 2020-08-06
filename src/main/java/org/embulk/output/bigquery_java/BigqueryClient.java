@@ -104,7 +104,7 @@ public class BigqueryClient {
                 return;
             }
             logger.error(String.format("embulk-out_bigquery: insert_table(%s, %s)", dataset, table));
-            throw new RuntimeException(String.format("failed to create table %s.%s, response: %s", dataset, table, e));
+            throw new BigqueryException(String.format("failed to create table %s.%s, response: %s", dataset, table, e));
         }
     }
 
