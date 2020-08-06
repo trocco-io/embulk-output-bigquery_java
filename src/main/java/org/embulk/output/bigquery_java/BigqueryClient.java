@@ -104,7 +104,7 @@ public class BigqueryClient {
                 return;
             }
             logger.error(String.format("embulk-out_bigquery: insert_table(%s, %s)", dataset, table));
-            throw new RuntimeException(String.format("failed to create table %s.%s, response: %s", dataset, table, e));
+            throw new BigqueryException(String.format("failed to create table %s.%s, response: %s", dataset, table, e));
         }
     }
 
@@ -337,11 +337,29 @@ public class BigqueryClient {
         }
     }
 
+
     public boolean deleteTable(String table) {
-        return this.bigquery.delete(TableId.of(this.dataset, table));
+        return deleteTable(table, null);
     }
 
     public boolean deleteTable(String table, String dataset) {
+        if (dataset == null){
+            dataset = this.dataset;
+        }
+        String chompedTable = BigqueryUtil.chompPartitionDecorator(table);
+        return deleteTableOrPartition(chompedTable, dataset);
+    }
+
+    public boolean deleteTableOrPartition(String table){
+        return deleteTableOrPartition(table, null);
+    }
+
+    //  if `table` with a partition decorator is given, a partition is deleted.
+    public boolean deleteTableOrPartition(String table, String dataset){
+        if (dataset == null){
+            dataset = this.dataset;
+        }
+        logger.info(String.format("embulk-output-bigquery: Delete table... %s.%s", dataset, table));
         return this.bigquery.delete(TableId.of(dataset, table));
     }
 

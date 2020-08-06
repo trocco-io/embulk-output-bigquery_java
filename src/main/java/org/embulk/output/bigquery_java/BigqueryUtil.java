@@ -19,6 +19,7 @@ import org.embulk.output.bigquery_java.config.PluginTask;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class BigqueryUtil {
+    private static final String PARTITION_DECORATOR_REGEXP = "\\$.+\\z";
     public static List<Path> getIntermediateFiles(PluginTask task) throws IOException {
         Path startDir;
         String pathPrefix = task.getPathPrefix().get();
@@ -63,5 +64,9 @@ public class BigqueryUtil {
         return columnOptions.stream()
                 .filter(colOpt -> colOpt.getName().equals(columnName))
                 .findFirst();
+    }
+
+    public static String chompPartitionDecorator(String table){
+        return table.replaceAll("\\$.+\\z", "");
     }
 }
