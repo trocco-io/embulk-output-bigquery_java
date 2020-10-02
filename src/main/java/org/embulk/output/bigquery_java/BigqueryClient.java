@@ -13,7 +13,6 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 import com.google.cloud.bigquery.*;
-import com.google.common.base.Throwables;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -86,6 +85,10 @@ public class BigqueryClient {
 
     public Table getTable(TableId tableId) {
         return this.bigquery.getTable(tableId);
+    }
+
+    public void  createTableIfNotExist(String table) {
+        createTableIfNotExist(table, dataset);
     }
 
     public void createTableIfNotExist(String table, String dataset) {
