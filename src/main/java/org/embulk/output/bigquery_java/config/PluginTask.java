@@ -33,6 +33,14 @@ public interface PluginTask
     @Config("table")
     String getTable();
 
+    @Config("old_dataset")
+    @ConfigDefault("null")
+    Optional<String> getOldDataset();
+
+    @Config("old_table")
+    @ConfigDefault("null")
+    Optional<String> getOldTable();
+
     @Config("location")
     @ConfigDefault("null")
     Optional<String> getLocation();

@@ -146,9 +146,21 @@ public class BigqueryJavaOutputPlugin
         }else{
             Dataset dataset = client.getDataset(task.getDataset());
             if (dataset == null){
-                throw new RuntimeException(String.format("dataset %s is not found", task.getDataset()));
+                throw new BigqueryException(String.format("dataset %s is not found", task.getDataset()));
             }
         }
+
+        if (task.getMode().equals("replace_backup") && !task.getOldDataset().get().equals(task.getDataset())){
+            if (task.getAutoCreateDataset()){
+                client.createDataset(task.getDataset());
+            }else{
+                Dataset dataset = client.getDataset(task.getOldDataset().get());
+                if (dataset == null){
+                    throw new BigqueryException(String.format("dataset %s is not found", task.getDataset()));
+                }
+            }
+        }
+
         switch (task.getMode()){
             case "delete_in_advance":
                 client.deleteTableOrPartition(task.getTable());
@@ -162,6 +174,12 @@ public class BigqueryJavaOutputPlugin
                 client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
                 // TODO: create table to support partition
                 break;
+            case "replace_backup":
+                client.createTableIfNotExist(task.getTemplateTable().get());
+                client.createTableIfNotExist(task.getTable());
+                // needs for when a partition
+                client.createTableIfNotExist(task.getOldTable().get(),task.getOldDataset().get());
+                break;
             case "append_direct":
                 if (task.getAutoCreateTable()) {
                     client.createTableIfNotExist(task.getTable(), task.getDataset());
@@ -171,6 +189,7 @@ public class BigqueryJavaOutputPlugin
                         throw new BigqueryException(String.format("%s.%s not found, create table or enable auto_create_table", task.getDataset(), task.getTable()));
                     }
                 }
+                break;
             default:
                 // never reach here
                 throw new RuntimeException(String.format("mode %s is not supported", task.getMode()));
