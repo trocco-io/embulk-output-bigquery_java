@@ -46,7 +46,7 @@ public class BigqueryJavaOutputPlugin
         BigqueryConfigValidator.validate(task);
         BigqueryTaskBuilder.build(task);
         BigqueryClient client = new BigqueryClient(task, schema);
-        auto_create(task, client);
+        autoCreate(task, client);
 
         control.run(task.dump());
         this.writers.values().forEach(BigqueryFileWriter::close);
@@ -60,6 +60,12 @@ public class BigqueryJavaOutputPlugin
         }
         if (paths.isEmpty()) {
             logger.info("embulk-output-bigquery: Nothing for transfer");
+            client.createTableIfNotExist(task.getTable(), task.getDataset());
+            // append, replace, delete_in_advance
+            if (! "append_direct".equals(task.getMode())) {
+                client.deleteTable(task.getTempTable().get());
+            }
+
             return Exec.newConfigDiff();
         }
 
@@ -140,7 +146,7 @@ public class BigqueryJavaOutputPlugin
         return new BigqueryPageOutput(task, schema);
     }
 
-    protected void auto_create(PluginTask task, BigqueryClient client){
+    protected void autoCreate(PluginTask task, BigqueryClient client){
         if (task.getAutoCreateDataset()){
             client.createDataset(task.getDataset());
         }else{

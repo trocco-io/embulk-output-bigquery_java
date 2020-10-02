@@ -3,11 +3,7 @@ package org.embulk.output.bigquery_java;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.PathMatcher;
+import java.nio.file.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -35,7 +31,7 @@ public class BigqueryUtil {
 
         FileSystem fs = FileSystems.getDefault();
         PathMatcher matcher = fs.getPathMatcher(glob);
-        return Files.walk(startDir).filter(matcher::matches).collect(Collectors.toList());
+        return Files.walk(startDir, FileVisitOption.FOLLOW_LINKS).filter(matcher::matches).collect(Collectors.toList());
     }
 
     public static long getPID() {
