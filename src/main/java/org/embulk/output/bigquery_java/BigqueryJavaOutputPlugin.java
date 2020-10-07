@@ -153,24 +153,22 @@ public class BigqueryJavaOutputPlugin
     }
 
     protected void autoCreate(PluginTask task, BigqueryClient client){
-        if (task.getAutoCreateDataset()){
-            client.createDataset(task.getDataset());
-        }else{
-            Dataset dataset = client.getDataset(task.getDataset());
-            if (dataset == null){
+        if (client.getDataset(task.getDataset()) == null){
+            if (task.getAutoCreateDataset()){
+                client.createDataset(task.getDataset());
+            }else{
                 throw new BigqueryException(String.format("dataset %s is not found", task.getDataset()));
             }
         }
 
-        if (task.getMode().equals("replace_backup") && !task.getOldDataset().get().equals(task.getDataset())){
-            if (task.getAutoCreateDataset()){
-                client.createDataset(task.getDataset());
-            }else{
-                Dataset dataset = client.getDataset(task.getOldDataset().get());
-                if (dataset == null){
-                    throw new BigqueryException(String.format("dataset %s is not found", task.getDataset()));
-                }
-            }
+        if (task.getMode().equals("replace_backup") && task.getOldDataset().isPresent() && !task.getOldDataset().get().equals(task.getDataset())){
+           if (client.getDataset(task.getOldDataset().get()) == null){
+               if (task.getAutoCreateDataset()){
+                   client.createDataset(task.getDataset());
+               }else{
+                   throw new BigqueryException(String.format("dataset %s is not found", task.getDataset()));
+               }
+           }
         }
 
         switch (task.getMode()){
