@@ -62,8 +62,10 @@ public class BigqueryJavaOutputPlugin
             logger.info("embulk-output-bigquery: Nothing for transfer");
             client.createTableIfNotExist(task.getTable(), task.getDataset());
             // append, replace, delete_in_advance
-            if (! "append_direct".equals(task.getMode())) {
-                client.deleteTable(task.getTempTable().get());
+            if (! task.getMode().equals("append_direct")) {
+                if(task.getTempTable().isPresent()){
+                    client.deleteTable(task.getTempTable().get());
+                }
             }
 
             return Exec.newConfigDiff();
