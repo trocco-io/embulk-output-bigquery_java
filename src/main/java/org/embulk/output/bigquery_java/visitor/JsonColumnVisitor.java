@@ -144,7 +144,7 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
         if (reader.isNull(column)) {
             node.putNull(column.getName());
         } else {
-            node.put(column.getName(), reader.getString(column));
+            node.put(column.getName(), reader.getJson(column).toJson());
         }
     }
 }
