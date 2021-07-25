@@ -153,6 +153,7 @@ public class BigqueryJavaOutputPlugin
     }
 
     protected void autoCreate(PluginTask task, BigqueryClient client){
+
         if (client.getDataset(task.getDataset()) == null){
             if (task.getAutoCreateDataset()){
                 client.createDataset(task.getDataset());
