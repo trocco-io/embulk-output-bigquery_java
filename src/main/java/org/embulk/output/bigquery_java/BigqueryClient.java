@@ -294,6 +294,7 @@ public class BigqueryClient {
 
     public JobStatistics.QueryStatistics executeQuery(String query) {
         int retries = this.task.getRetries();
+        String location = this.location;
 
         try {
             return retryExecutor()
@@ -310,8 +311,12 @@ public class BigqueryClient {
                                     QueryJobConfiguration.newBuilder(query)
                                             .setUseLegacySql(false)
                                             .build();
+                            JobId.Builder jobIdBuilder = JobId.newBuilder().setJob(jobId);
+                            if (location != null){
+                                jobIdBuilder.setLocation(location);
+                            }
 
-                            Job job = bigquery.create(JobInfo.newBuilder(queryConfig).setJobId(JobId.of(jobId)).build());
+                            Job job = bigquery.create(JobInfo.newBuilder(queryConfig).setJobId(jobIdBuilder.build()).build());
                             return (JobStatistics.QueryStatistics) waitForQuery(job);
                         }
 
