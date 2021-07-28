@@ -7,13 +7,11 @@ import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryNotSupportedTypeException;
 import org.embulk.spi.time.Timestamp;
 import org.embulk.spi.time.TimestampFormatter;
-import org.embulk.spi.time.TimestampParser;
 
 public class BigqueryTimestampConverter {
-    private static TimestampFormatter timestampFormat;
-    private static String timezone;
-
     public static void convertAndSet(ObjectNode node, String name, Timestamp src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption, PluginTask task) {
+        TimestampFormatter timestampFormat;
+        String timezone;
         switch (bigqueryColumnOptionType) {
             case INTEGER:
                 node.put(name, src.toEpochMilli());
