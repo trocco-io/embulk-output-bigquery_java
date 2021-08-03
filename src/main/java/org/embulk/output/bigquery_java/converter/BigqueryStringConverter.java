@@ -11,13 +11,13 @@ import org.embulk.spi.time.TimestampParseException;
 import org.embulk.spi.time.TimestampParser;
 
 public class BigqueryStringConverter {
-    private static TimestampFormatter timestampFormat;
-    private static String pattern;
-    private static String timezone;
-    private static TimestampParser parser;
-    private static Timestamp ts;
 
     public static void convertAndSet(ObjectNode node, String name, String src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption) {
+        TimestampFormatter timestampFormat;
+        String pattern;
+        String timezone;
+        TimestampParser parser;
+        Timestamp ts;
         switch (bigqueryColumnOptionType) {
             case BOOLEAN:
                 if (src == null) {
