@@ -44,6 +44,8 @@ public class BigqueryClient {
     private final Logger logger = LoggerFactory.getLogger(BigqueryClient.class);
     private BigQuery bigquery;
     private String dataset;
+    private String location;
+    private String locationForLog;
     private PluginTask task;
     private Schema schema;
     private List<BigqueryColumnOption> columnOptions;
@@ -52,6 +54,12 @@ public class BigqueryClient {
         this.task = task;
         this.schema = schema;
         this.dataset = task.getDataset();
+        if (task.getLocation().isPresent()){
+            this.location = task.getLocation().get();
+            this.locationForLog = task.getLocation().get();
+        }else{
+            this.locationForLog = "us/eu";
+        }
         this.columnOptions = this.task.getColumnOptions().orElse(Collections.emptyList());
         try {
             this.bigquery = getClientWithJsonKey(this.task.getJsonKeyfile());
@@ -68,7 +76,11 @@ public class BigqueryClient {
     }
 
     public Dataset createDataset(String datasetId){
-        return bigquery.create(DatasetInfo.newBuilder(datasetId).build());
+        DatasetInfo.Builder builder = DatasetInfo.newBuilder(datasetId);
+        if (this.location != null){
+            builder.setLocation(this.location);
+        }
+        return bigquery.create(builder.build());
     }
 
     public Dataset getDataset(String datasetId) {
@@ -151,9 +163,8 @@ public class BigqueryClient {
                             String jobId = String.format("embulk_load_job_%s", uuid.toString());
 
                             if (Files.exists(loadFile)) {
-                                // TODO:  "embulk-output-bigquery: Load job starting... job_id:[#{job_id}] #{path} => #{@project}:#{@dataset}.#{table} in #{@location_for_log}"
-                                logger.info("embulk-output-bigquery: Load job starting... job_id:[{}] {} => {}.{}",
-                                        jobId, loadFile.toString(), dataset, table);
+                                logger.info("embulk-output-bigquery: Load job starting... job_id:[{}] {} => {}.{} in {}",
+                                        jobId, loadFile.toString(), dataset, table, locationForLog);
                             } else {
                                 logger.info("embulk-output-bigquery: Load job starting... {} does not exist, skipped", loadFile.toString());
                                 // TODO: should throw error?
@@ -283,6 +294,7 @@ public class BigqueryClient {
 
     public JobStatistics.QueryStatistics executeQuery(String query) {
         int retries = this.task.getRetries();
+        String location = this.location;
 
         try {
             return retryExecutor()
@@ -299,8 +311,12 @@ public class BigqueryClient {
                                     QueryJobConfiguration.newBuilder(query)
                                             .setUseLegacySql(false)
                                             .build();
+                            JobId.Builder jobIdBuilder = JobId.newBuilder().setJob(jobId);
+                            if (location != null){
+                                jobIdBuilder.setLocation(location);
+                            }
 
-                            Job job = bigquery.create(JobInfo.newBuilder(queryConfig).setJobId(JobId.of(jobId)).build());
+                            Job job = bigquery.create(JobInfo.newBuilder(queryConfig).setJobId(jobIdBuilder.build()).build());
                             return (JobStatistics.QueryStatistics) waitForQuery(job);
                         }
 
