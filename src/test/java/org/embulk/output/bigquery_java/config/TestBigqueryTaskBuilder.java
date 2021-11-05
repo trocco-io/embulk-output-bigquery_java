@@ -1,5 +1,6 @@
 package org.embulk.output.bigquery_java.config;
 
+import com.google.common.io.Resources;
 import org.embulk.config.ConfigException;
 import org.embulk.config.ConfigSource;
 import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
@@ -49,7 +50,7 @@ public class TestBigqueryTaskBuilder {
     @Test
     public void setProject() {
         config = loadYamlResource(embulk, "base.yml");
-        config.set("json_keyfile", BASIC_RESOURCE_PATH + "json_key.json");
+        config.set("json_keyfile", Resources.getResource(BASIC_RESOURCE_PATH+"json_key.json").getPath());
         PluginTask task = config.loadConfig(PluginTask.class);
         BigqueryTaskBuilder.setProject(task);
 

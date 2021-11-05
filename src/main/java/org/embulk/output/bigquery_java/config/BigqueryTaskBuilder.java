@@ -75,7 +75,7 @@ public class BigqueryTaskBuilder {
             JsonNode root;
             try {
                 ObjectMapper mapper = new ObjectMapper();
-                root = mapper.readTree(task.getJsonKeyfile().get());
+                root = mapper.readTree(new File(task.getJsonKeyfile().get()));
             }catch (IOException e){
                 throw new ConfigException(String.format("Parsing 'json_keyfile' failed with error: %s %s", e.getClass(), e.getMessage()));
             }
