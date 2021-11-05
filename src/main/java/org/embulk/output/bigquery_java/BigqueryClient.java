@@ -43,6 +43,7 @@ import org.slf4j.LoggerFactory;
 public class BigqueryClient {
     private final Logger logger = LoggerFactory.getLogger(BigqueryClient.class);
     private BigQuery bigquery;
+    private String destinationProject;
     private String dataset;
     private String location;
     private String locationForLog;
@@ -53,16 +54,17 @@ public class BigqueryClient {
     public BigqueryClient(PluginTask task, Schema schema) {
         this.task = task;
         this.schema = schema;
+        this.destinationProject = task.getDestinationProject().get();
         this.dataset = task.getDataset();
-        if (task.getLocation().isPresent()){
+        if (task.getLocation().isPresent()) {
             this.location = task.getLocation().get();
             this.locationForLog = task.getLocation().get();
-        }else{
+        } else {
             this.locationForLog = "us/eu";
         }
         this.columnOptions = this.task.getColumnOptions().orElse(Collections.emptyList());
         try {
-            this.bigquery = getClientWithJsonKey(this.task.getJsonKeyfile());
+            this.bigquery = getClientWithJsonKey(this.task.getJsonKeyfile().get());
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -75,15 +77,17 @@ public class BigqueryClient {
                 .getService();
     }
 
-    public Dataset createDataset(String datasetId){
-        DatasetInfo.Builder builder = DatasetInfo.newBuilder(datasetId);
-        if (this.location != null){
+    public Dataset createDataset(String datasetId) {
+        logger.info(String.format("embulk-output-bigquery_java: Create dataset... %s:%s in %s", this.destinationProject, datasetId, this.locationForLog));
+        DatasetInfo.Builder builder = DatasetInfo.newBuilder(this.destinationProject, datasetId);
+        if (this.location != null) {
             builder.setLocation(this.location);
         }
         return bigquery.create(builder.build());
     }
 
     public Dataset getDataset(String datasetId) {
+        logger.info(String.format("embulk-output-bigquery_java: Get dataset... %s:%s", this.destinationProject, datasetId));
         return bigquery.getDataset(datasetId);
     }
 
@@ -92,14 +96,14 @@ public class BigqueryClient {
     }
 
     public Table getTable(String name) {
-        return getTable(TableId.of(this.dataset, name));
+        return getTable(TableId.of(this.destinationProject, this.dataset, name));
     }
 
     public Table getTable(TableId tableId) {
         return this.bigquery.getTable(tableId);
     }
 
-    public void  createTableIfNotExist(String table) {
+    public void createTableIfNotExist(String table) {
         createTableIfNotExist(table, dataset);
     }
 
@@ -112,14 +116,15 @@ public class BigqueryClient {
         }
         TableDefinition tableDefinition = tableDefinitionBuilder.build();
 
-        try{
-            bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
-        }catch (BigQueryException e){
-            if(e.getCode() == 409 && e.getMessage().contains("Already Exists:")){
+        logger.info(String.format("embulk-output-bigquery: Create table... %s:%s.%s", this.destinationProject, dataset, table));
+        try {
+            bigquery.create(TableInfo.newBuilder(TableId.of(this.destinationProject, dataset, table), tableDefinition).build());
+        } catch (BigQueryException e) {
+            if (e.getCode() == 409 && e.getMessage().contains("Already Exists:")) {
                 return;
             }
-            logger.error(String.format("embulk-out_bigquery: insert_table(%s, %s)", dataset, table));
-            throw new BigqueryException(String.format("failed to create table %s.%s, response: %s", dataset, table, e));
+            logger.error(String.format("embulk-out_bigquery: insert_table(%s, %s, %s)", this.destinationProject, dataset, table));
+            throw new BigqueryException(String.format("failed to create table %s:%s.%s, response: %s", this.destinationProject, dataset, table, e));
         }
     }
 
@@ -147,6 +152,7 @@ public class BigqueryClient {
         int retries = this.task.getRetries();
         PluginTask task = this.task;
         Schema schema = this.schema;
+        String destinationProject = this.task.getDestinationProject().get();
         List<BigqueryColumnOption> columnOptions = this.columnOptions;
 
         try {
@@ -171,7 +177,7 @@ public class BigqueryClient {
                                 return null;
                             }
 
-                            TableId tableId = TableId.of(dataset, table);
+                            TableId tableId = TableId.of(destinationProject, dataset, table);
                             WriteChannelConfiguration writeChannelConfiguration =
                                     WriteChannelConfiguration.newBuilder(tableId)
                                             .setFormatOptions(FormatOptions.json())
@@ -234,6 +240,7 @@ public class BigqueryClient {
                                              JobInfo.WriteDisposition writeDestination) throws BigqueryException {
         String dataset = this.dataset;
         int retries = this.task.getRetries();
+        String destinationProject = this.task.getDestinationProject().get();
 
         try {
             return retryExecutor()
@@ -245,8 +252,8 @@ public class BigqueryClient {
                         public JobStatistics.CopyStatistics call() {
                             UUID uuid = UUID.randomUUID();
                             String jobId = String.format("embulk_load_job_%s", uuid.toString());
-                            TableId destTableId = TableId.of(destinationDataset, destinationTable);
-                            TableId srcTableId = TableId.of(dataset, sourceTable);
+                            TableId destTableId = TableId.of(destinationProject, destinationDataset, destinationTable);
+                            TableId srcTableId = TableId.of(destinationProject, dataset, sourceTable);
 
                             CopyJobConfiguration copyJobConfiguration = CopyJobConfiguration.newBuilder(destTableId, srcTableId)
                                     .setWriteDisposition(writeDestination)
@@ -312,7 +319,7 @@ public class BigqueryClient {
                                             .setUseLegacySql(false)
                                             .build();
                             JobId.Builder jobIdBuilder = JobId.newBuilder().setJob(jobId);
-                            if (location != null){
+                            if (location != null) {
                                 jobIdBuilder.setLocation(location);
                             }
 
@@ -362,24 +369,24 @@ public class BigqueryClient {
     }
 
     public boolean deleteTable(String table, String dataset) {
-        if (dataset == null){
+        if (dataset == null) {
             dataset = this.dataset;
         }
         String chompedTable = BigqueryUtil.chompPartitionDecorator(table);
         return deleteTableOrPartition(chompedTable, dataset);
     }
 
-    public boolean deleteTableOrPartition(String table){
+    public boolean deleteTableOrPartition(String table) {
         return deleteTableOrPartition(table, null);
     }
 
     //  if `table` with a partition decorator is given, a partition is deleted.
-    public boolean deleteTableOrPartition(String table, String dataset){
-        if (dataset == null){
+    public boolean deleteTableOrPartition(String table, String dataset) {
+        if (dataset == null) {
             dataset = this.dataset;
         }
-        logger.info(String.format("embulk-output-bigquery: Delete table... %s.%s", dataset, table));
-        return this.bigquery.delete(TableId.of(dataset, table));
+        logger.info(String.format("embulk-output-bigquery: Delete table... %s:%s.%s", this.destinationProject, dataset, table));
+        return this.bigquery.delete(TableId.of(this.destinationProject, dataset, table));
     }
 
     private JobStatistics waitForLoad(Job job) throws BigqueryException {

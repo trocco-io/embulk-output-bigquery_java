@@ -1,5 +1,6 @@
 package org.embulk.output.bigquery_java.config;
 
+import org.embulk.config.Config;
 import org.embulk.config.ConfigException;
 import org.embulk.config.ConfigSource;
 import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
@@ -7,6 +8,8 @@ import org.embulk.spi.OutputPlugin;
 import org.embulk.test.TestingEmbulk;
 import org.junit.Rule;
 import org.junit.Test;
+
+import java.util.Optional;
 
 import static org.junit.Assert.*;
 
@@ -57,4 +60,30 @@ public class TestBigqueryConfigValidator {
         task.setAutoCreateTable(false);
         BigqueryConfigValidator.validateModeAndAutoCreteTable(task);
     }
+
+    @Test
+    public void validateProject() {
+        config = loadYamlResource(embulk, "base.yml");
+        PluginTask task = config.loadConfig(PluginTask.class);
+        task.setProject(Optional.of("project_id"));
+        BigqueryConfigValidator.validateProject(task);
+
+        assertEquals("project_id", task.getProject().get());
+    }
+
+    @Test(expected = ConfigException.class)
+    public void validateProject_project_null_configException() {
+        config = loadYamlResource(embulk, "base.yml");
+        PluginTask task = config.loadConfig(PluginTask.class);
+        BigqueryConfigValidator.validateProject(task);
+    }
+
+    @Test(expected = ConfigException.class)
+    public void validateProject_project_empty_string_configException() {
+        config = loadYamlResource(embulk, "base.yml");
+        PluginTask task = config.loadConfig(PluginTask.class);
+        task.setProject(Optional.empty());
+        BigqueryConfigValidator.validateProject(task);
+    }
+
 }
