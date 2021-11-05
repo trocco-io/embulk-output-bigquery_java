@@ -79,7 +79,7 @@ public class BigqueryTaskBuilder {
             }catch (IOException e){
                 throw new ConfigException(String.format("Parsing 'json_keyfile' failed with error: %s %s", e.getClass(), e.getMessage()));
             }
-            task.setProject(Optional.of(root.get("project_id").toString()));
+            task.setProject(Optional.of(root.get("project_id").asText()));
         }
 
         if (!task.getDestinationProject().isPresent()){
