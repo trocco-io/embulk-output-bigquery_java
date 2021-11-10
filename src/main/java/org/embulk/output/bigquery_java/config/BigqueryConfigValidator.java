@@ -8,6 +8,7 @@ public class BigqueryConfigValidator {
     public static void validate(PluginTask task) {
         validateMode(task);
         validateModeAndAutoCreteTable(task);
+        validateTimePartitioning(task);
         validateProject(task);
     }
 
