@@ -25,7 +25,20 @@ public interface PluginTask
     String getAuthMethod();
 
     @Config("json_keyfile")
-    String getJsonKeyfile();
+    @ConfigDefault("null")
+    Optional<String> getJsonKeyfile();
+
+    @Config("project")
+    @ConfigDefault("null")
+    Optional<String> getProject();
+
+    void setProject(Optional<String> project);
+
+    @Config("destination_project")
+    @ConfigDefault("null")
+    Optional<String> getDestinationProject();
+
+    void setDestinationProject(Optional<String> destinationProject);
 
     @Config("dataset")
     String getDataset();
@@ -154,4 +167,12 @@ public interface PluginTask
     Optional<BigqueryTimePartitioning> getTimePartitioning();
 
     void setTimePartitioning(Optional<BigqueryTimePartitioning> bigqueryTimePartitioning);
+
+    @Config("gcs_bucket")
+    @ConfigDefault("null")
+    Optional<String> getGcsBucket();
+
+    @Config("auto_create_gcs_bucket")
+    @ConfigDefault("false")
+    Optional<String> getAutoCreateGcsBucket();
 }
