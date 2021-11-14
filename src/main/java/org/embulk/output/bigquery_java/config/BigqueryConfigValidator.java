@@ -9,6 +9,7 @@ public class BigqueryConfigValidator {
         validateMode(task);
         validateModeAndAutoCreteTable(task);
         validateProject(task);
+        validateClustering(task);
     }
 
     public static void validateMode(PluginTask task) throws ConfigException {
@@ -42,6 +43,14 @@ public class BigqueryConfigValidator {
         String project = task.getProject().get();
         if (project.isEmpty()){
             throw new ConfigException("project is empty string");
+        }
+    }
+
+    public static void validateClustering(PluginTask task) throws ConfigException{
+        if (task.getClustering().isPresent()){
+            if (!task.getClustering().get().getFields().isPresent()){
+                throw new ConfigException("`clustering` must have `fields` key");
+            }
         }
     }
 }

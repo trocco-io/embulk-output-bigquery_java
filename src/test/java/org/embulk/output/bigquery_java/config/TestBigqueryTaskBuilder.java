@@ -9,6 +9,9 @@ import org.embulk.test.TestingEmbulk;
 import org.junit.Rule;
 import org.junit.Test;
 
+import java.util.Arrays;
+import java.util.List;
+
 import static org.junit.Assert.assertEquals;
 
 public class TestBigqueryTaskBuilder {
@@ -27,7 +30,22 @@ public class TestBigqueryTaskBuilder {
 
     @Test
     public void setAbortOnError_DefaultMaxBadRecord_True() {
-        config = loadYamlResource(embulk, "base.yml");
+        config = embulk.configLoader().fromYamlString(
+                String.join("\n",
+                        "type: bigquery_java",
+                        "mode: replace",
+                        "auth_method: service_account",
+                        "json_keyfile: json_key.json",
+                        "dataset: dataset",
+                        "table: table",
+                        "source_format: NEWLINE_DELIMITED_JSON",
+                        "compression: GZIP",
+                        "auto_create_dataset: false",
+                        "auto_create_table: true",
+                        "path_prefix: /tmp/bq_compress/bq_",
+                        ""
+                )
+        );
         PluginTask task = config.loadConfig(PluginTask.class);
         BigqueryTaskBuilder.setAbortOnError(task);
 
@@ -38,7 +56,22 @@ public class TestBigqueryTaskBuilder {
     // TODO jsonl without compression, csv with/out compression
     @Test
     public void setFileExt_JSONL_GZIP_JSONL_GZ() {
-        config = loadYamlResource(embulk, "base.yml");
+        config = embulk.configLoader().fromYamlString(
+                String.join("\n",
+                        "type: bigquery_java",
+                        "mode: replace",
+                        "auth_method: service_account",
+                        "json_keyfile: json_key.json",
+                        "dataset: dataset",
+                        "table: table",
+                        "source_format: NEWLINE_DELIMITED_JSON",
+                        "compression: GZIP",
+                        "auto_create_dataset: false",
+                        "auto_create_table: true",
+                        "path_prefix: /tmp/bq_compress/bq_",
+                        ""
+                        )
+        );
         PluginTask task = config.loadConfig(PluginTask.class);
 
         BigqueryTaskBuilder.setFileExt(task);
@@ -49,7 +82,22 @@ public class TestBigqueryTaskBuilder {
 
     @Test
     public void setProject() {
-        config = loadYamlResource(embulk, "base.yml");
+        config = embulk.configLoader().fromYamlString(
+                String.join("\n",
+                        "type: bigquery_java",
+                        "mode: replace",
+                        "auth_method: service_account",
+                        "json_keyfile: json_key.json",
+                        "dataset: dataset",
+                        "table: table",
+                        "source_format: NEWLINE_DELIMITED_JSON",
+                        "compression: GZIP",
+                        "auto_create_dataset: false",
+                        "auto_create_table: true",
+                        "path_prefix: /tmp/bq_compress/bq_",
+                        ""
+                )
+        );
         config.set("json_keyfile", Resources.getResource(BASIC_RESOURCE_PATH+"json_key.json").getPath());
         PluginTask task = config.loadConfig(PluginTask.class);
         BigqueryTaskBuilder.setProject(task);
@@ -59,8 +107,54 @@ public class TestBigqueryTaskBuilder {
 
     @Test(expected = ConfigException.class)
     public void setProject_config_exception() {
-        config = loadYamlResource(embulk, "base.yml");
+        config = embulk.configLoader().fromYamlString(
+                String.join("\n",
+                        "type: bigquery_java",
+                        "mode: replace",
+                        "auth_method: service_account",
+                        "json_keyfile: json_key.json",
+                        "dataset: dataset",
+                        "table: table",
+                        "source_format: NEWLINE_DELIMITED_JSON",
+                        "compression: GZIP",
+                        "auto_create_dataset: false",
+                        "auto_create_table: true",
+                        "path_prefix: /tmp/bq_compress/bq_",
+                        ""
+                )
+        );
         PluginTask task = config.loadConfig(PluginTask.class);
         BigqueryTaskBuilder.setProject(task);
+    }
+
+
+    @Test
+    public void clustering() {
+        config = embulk.configLoader().fromYamlString(
+                String.join("\n",
+                        "type: bigquery_java",
+                        "mode: replace",
+                        "auth_method: service_account",
+                        "json_keyfile: json_key.json",
+                        "dataset: dataset",
+                        "table: table",
+                        "source_format: NEWLINE_DELIMITED_JSON",
+                        "compression: GZIP",
+                        "auto_create_dataset: false",
+                        "auto_create_table: true",
+                        "path_prefix: /tmp/bq_compress/bq_",
+                        "clustering:",
+                        "  fields:",
+                        "    - foo",
+                        "    - bar",
+                        "    - baz"
+                        )
+        );
+        PluginTask task = config.loadConfig(PluginTask.class);
+        BigqueryTaskBuilder.setAbortOnError(task);
+        System.out.println(task.getClustering().get().getFields());
+        List<String> expectedOutput = Arrays.asList("foo", "bar", "baz");
+
+        assertEquals(expectedOutput, task.getClustering().get().getFields().get());
     }
 }

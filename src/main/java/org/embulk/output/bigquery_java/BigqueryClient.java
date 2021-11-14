@@ -114,6 +114,11 @@ public class BigqueryClient {
         if (this.task.getTimePartitioning().isPresent()) {
             tableDefinitionBuilder.setTimePartitioning(buildTimePartitioning(this.task.getTimePartitioning().get()));
         }
+        if (this.task.getClustering().isPresent()){
+            tableDefinitionBuilder.setClustering(
+                    Clustering.newBuilder().setFields(this.task.getClustering().get().getFields().get()).build()
+            );
+        }
         TableDefinition tableDefinition = tableDefinitionBuilder.build();
 
         logger.info(String.format("embulk-output-bigquery: Create table... %s:%s.%s", this.destinationProject, dataset, table));

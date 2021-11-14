@@ -175,4 +175,8 @@ public interface PluginTask
     @Config("auto_create_gcs_bucket")
     @ConfigDefault("false")
     Optional<String> getAutoCreateGcsBucket();
+
+    @Config("clustering")
+    @ConfigDefault("null")
+    Optional<BigqueryClustering> getClustering();
 }
