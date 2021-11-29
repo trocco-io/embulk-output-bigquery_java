@@ -39,6 +39,7 @@ Under construction
 |  auth_method (service_account is supported)                        | string      | optional   | "application\_default"   | See [Authentication](#authentication) |
 |  json_keyfile                        | string      | optional   |                          | keyfile path or `content` |
 |  project  (x)                           | string      | required unless service\_account's `json_keyfile` is given. | | project\_id |
+|  destination_project                 | string      | optional   | `project` value         |  A destination project to which the data will be loaded. Use this if you want to separate a billing project (the `project` value) and a destination project (the `destination_project` value). |
 |  dataset                             | string      | required   |                          | dataset |
 |  location                            | string      | optional   | nil                      | geographic location of dataset. See [Location](#location) |
 |  table                               | string      | required   |                          | table name, or table name with a partition decorator such as `table_name$20160929`|

@@ -6,7 +6,11 @@ import java.util.Arrays;
 import java.util.UUID;
 import java.util.Optional;
 
+import com.fasterxml.jackson.annotation.JacksonAnnotation;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
+import org.embulk.config.ConfigException;
 
 public class BigqueryTaskBuilder {
     private static final String uniqueName = UUID.randomUUID().toString().replace("-", "_");
@@ -16,6 +20,7 @@ public class BigqueryTaskBuilder {
         setFileExt(task);
         setTempTable(task);
         setAbortOnError(task);
+        setProject(task);
         return task;
     }
 
@@ -61,6 +66,24 @@ public class BigqueryTaskBuilder {
     protected static void setAbortOnError(PluginTask task) {
         if (!task.getAbortOnError().isPresent()) {
             task.setAbortOnError(Optional.of(task.getMaxBadRecords() == 0));
+        }
+    }
+
+    @VisibleForTesting
+    protected static void setProject(PluginTask task){
+        if (task.getJsonKeyfile().isPresent()){
+            JsonNode root;
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                root = mapper.readTree(new File(task.getJsonKeyfile().get()));
+            }catch (IOException e){
+                throw new ConfigException(String.format("Parsing 'json_keyfile' failed with error: %s %s", e.getClass(), e.getMessage()));
+            }
+            task.setProject(Optional.of(root.get("project_id").asText()));
+        }
+
+        if (!task.getDestinationProject().isPresent()){
+            task.setDestinationProject(Optional.of(task.getProject().get()));
         }
     }
 }
