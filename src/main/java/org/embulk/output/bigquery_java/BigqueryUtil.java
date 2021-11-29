@@ -2,11 +2,10 @@ package org.embulk.output.bigquery_java;
 
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 import java.util.Optional;
 
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
@@ -16,12 +15,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class BigqueryUtil {
     private static final String PARTITION_DECORATOR_REGEXP = "\\$.+\\z";
-    public static List<Path> getIntermediateFiles(PluginTask task) throws IOException {
+    public static List<Path> getIntermediateFiles(PluginTask task) {
         Path startDir;
         String pathPrefix = task.getPathPrefix().get();
         String fileExt = task.getFileExt().get();
         File pathPrefixFile = new File(pathPrefix);
         String glob = String.format("glob:%s*%s", pathPrefix, fileExt);
+        List<Path> r = new ArrayList<Path>(){};
 
         if (pathPrefixFile.isDirectory()) {
             startDir = pathPrefixFile.toPath();
@@ -29,9 +29,18 @@ public class BigqueryUtil {
             startDir = pathPrefixFile.toPath().getParent();
         }
 
-        FileSystem fs = FileSystems.getDefault();
-        PathMatcher matcher = fs.getPathMatcher(glob);
-        return Files.walk(startDir, FileVisitOption.FOLLOW_LINKS).filter(matcher::matches).collect(Collectors.toList());
+        File[] files = startDir.toFile().listFiles();
+        if (files == null){
+            return r;
+        }
+        PathMatcher m  = FileSystems.getDefault().getPathMatcher(glob);
+        for (File file : files){
+            Path path = file.toPath();
+            if (m.matches(path)){
+                r.add(path);
+            }
+        }
+        return r;
     }
 
     public static long getPID() {
