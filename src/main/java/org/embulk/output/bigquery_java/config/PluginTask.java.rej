@@ -1,0 +1,15 @@
+***************
+*** 175,178 ****
+      @Config("auto_create_gcs_bucket")
+      @ConfigDefault("false")
+      Optional<String> getAutoCreateGcsBucket();
+  }
+--- 175,182 ----
+      @Config("auto_create_gcs_bucket")
+      @ConfigDefault("false")
+      Optional<String> getAutoCreateGcsBucket();
++ 
++     @Config("clustering")
++     @ConfigDefault("null")
++     Optional<BigqueryClustering> getClustering();
+  }

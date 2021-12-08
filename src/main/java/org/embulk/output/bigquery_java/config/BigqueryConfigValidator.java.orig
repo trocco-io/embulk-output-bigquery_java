@@ -33,12 +33,4 @@ public class BigqueryConfigValidator {
             }
         }
     }
-
-    public static void validateClustering(PluginTask task) throws ConfigException{
-        if (task.getClustering().isPresent()){
-            if (!task.getClustering().get().getFields().isPresent()){
-                throw new ConfigException("`clustering` must have `fields` key");
-            }
-        }
-    }
 }

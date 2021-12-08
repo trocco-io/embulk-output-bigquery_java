@@ -7,9 +7,6 @@ import org.embulk.test.TestingEmbulk;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.util.Arrays;
-import java.util.List;
-
 import static org.junit.Assert.assertEquals;
 
 public class TestBigqueryTaskBuilder {
@@ -28,22 +25,7 @@ public class TestBigqueryTaskBuilder {
 
     @Test
     public void setAbortOnError_DefaultMaxBadRecord_True() {
-        config = embulk.configLoader().fromYamlString(
-                String.join("\n",
-                        "type: bigquery_java",
-                        "mode: replace",
-                        "auth_method: service_account",
-                        "json_keyfile: json_key.json",
-                        "dataset: dataset",
-                        "table: table",
-                        "source_format: NEWLINE_DELIMITED_JSON",
-                        "compression: GZIP",
-                        "auto_create_dataset: false",
-                        "auto_create_table: true",
-                        "path_prefix: /tmp/bq_compress/bq_",
-                        ""
-                )
-        );
+        config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
         BigqueryTaskBuilder.setAbortOnError(task);
 
@@ -54,22 +36,7 @@ public class TestBigqueryTaskBuilder {
     // TODO jsonl without compression, csv with/out compression
     @Test
     public void setFileExt_JSONL_GZIP_JSONL_GZ() {
-        config = embulk.configLoader().fromYamlString(
-                String.join("\n",
-                        "type: bigquery_java",
-                        "mode: replace",
-                        "auth_method: service_account",
-                        "json_keyfile: json_key.json",
-                        "dataset: dataset",
-                        "table: table",
-                        "source_format: NEWLINE_DELIMITED_JSON",
-                        "compression: GZIP",
-                        "auto_create_dataset: false",
-                        "auto_create_table: true",
-                        "path_prefix: /tmp/bq_compress/bq_",
-                        ""
-                        )
-        );
+        config = loadYamlResource(embulk, "base.yml");
         PluginTask task = config.loadConfig(PluginTask.class);
 
         BigqueryTaskBuilder.setFileExt(task);

@@ -1,0 +1,16 @@
+***************
+*** 9,14 ****
+          validateMode(task);
+          validateModeAndAutoCreteTable(task);
+          validateProject(task);
+      }
+  
+      public static void validateMode(PluginTask task) throws ConfigException {
+--- 9,15 ----
+          validateMode(task);
+          validateModeAndAutoCreteTable(task);
+          validateProject(task);
++         validateClustering(task);
+      }
+  
+      public static void validateMode(PluginTask task) throws ConfigException {
