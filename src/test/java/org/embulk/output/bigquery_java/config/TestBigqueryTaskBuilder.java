@@ -1,5 +1,7 @@
 package org.embulk.output.bigquery_java.config;
 
+import com.google.common.io.Resources;
+import org.embulk.config.ConfigException;
 import org.embulk.config.ConfigSource;
 import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
 import org.embulk.spi.OutputPlugin;
@@ -68,7 +70,7 @@ public class TestBigqueryTaskBuilder {
                         "auto_create_table: true",
                         "path_prefix: /tmp/bq_compress/bq_",
                         ""
-                        )
+                )
         );
         PluginTask task = config.loadConfig(PluginTask.class);
 
@@ -76,5 +78,35 @@ public class TestBigqueryTaskBuilder {
         assertEquals("NEWLINE_DELIMITED_JSON", task.getSourceFormat());
         assertEquals("GZIP", task.getCompression());
         assertEquals(".jsonl.gz", task.getFileExt().get());
+    }
+
+    @Test
+    public void clustering() {
+        config = embulk.configLoader().fromYamlString(
+                String.join("\n",
+                        "type: bigquery_java",
+                        "mode: replace",
+                        "auth_method: service_account",
+                        "json_keyfile: json_key.json",
+                        "dataset: dataset",
+                        "table: table",
+                        "source_format: NEWLINE_DELIMITED_JSON",
+                        "compression: GZIP",
+                        "auto_create_dataset: false",
+                        "auto_create_table: true",
+                        "path_prefix: /tmp/bq_compress/bq_",
+                        "clustering:",
+                        "  fields:",
+                        "    - foo",
+                        "    - bar",
+                        "    - baz"
+                )
+        );
+        PluginTask task = config.loadConfig(PluginTask.class);
+        BigqueryTaskBuilder.setAbortOnError(task);
+        System.out.println(task.getClustering().get().getFields());
+        List<String> expectedOutput = Arrays.asList("foo", "bar", "baz");
+
+        assertEquals(expectedOutput, task.getClustering().get().getFields().get());
     }
 }

@@ -154,4 +154,8 @@ public interface PluginTask
     Optional<BigqueryTimePartitioning> getTimePartitioning();
 
     void setTimePartitioning(Optional<BigqueryTimePartitioning> bigqueryTimePartitioning);
+
+    @Config("clustering")
+    @ConfigDefault("null")
+    Optional<BigqueryClustering> getClustering();
 }

@@ -8,6 +8,7 @@ public class BigqueryConfigValidator {
     public static void validate(PluginTask task) {
         validateMode(task);
         validateModeAndAutoCreteTable(task);
+        validateClustering(task);
     }
 
     public static void validateMode(PluginTask task) throws ConfigException {
