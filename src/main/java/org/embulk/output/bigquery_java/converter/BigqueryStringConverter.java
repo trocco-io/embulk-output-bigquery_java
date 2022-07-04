@@ -10,6 +10,8 @@ import org.embulk.spi.time.TimestampFormatter;
 import org.embulk.spi.time.TimestampParseException;
 import org.embulk.spi.time.TimestampParser;
 
+import java.math.BigDecimal;
+
 public class BigqueryStringConverter {
 
     public static void convertAndSet(ObjectNode node, String name, String src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption) {
@@ -105,6 +107,11 @@ public class BigqueryStringConverter {
                         node.put(name, src);
                     }
                 }
+                break;
+            case NUMERIC:
+                // BigQuery NUMERIC型のスケール最大値が9なのでデフォルト値を9にする
+                int scale = columnOption != null ? columnOption.getScale() : 9;
+                node.put(name, new BigDecimal(src).setScale(scale, BigDecimal.ROUND_CEILING));
                 break;
             default:
                 throw new BigqueryNotSupportedTypeException("Invalid data convert for String");

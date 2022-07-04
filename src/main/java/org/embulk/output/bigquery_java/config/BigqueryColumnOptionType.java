@@ -8,5 +8,6 @@ public enum BigqueryColumnOptionType {
     TIMESTAMP,
     DATETIME,
     DATE,
-    RECORD
+    RECORD,
+    NUMERIC
 }

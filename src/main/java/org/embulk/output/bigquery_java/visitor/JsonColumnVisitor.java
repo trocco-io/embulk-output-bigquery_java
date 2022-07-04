@@ -57,9 +57,11 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
         if (reader.isNull(column)) {
             node.putNull(column.getName());
         } else {
+            BigqueryColumnOption bigqueryColumnOption = null;
             Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
             BigqueryColumnOptionType bigqueryColumnOptionType;
             if (columnOption.isPresent() && columnOption.get().getType().isPresent()) {
+                bigqueryColumnOption = columnOption.get();
                 bigqueryColumnOptionType = BigqueryColumnOptionType.valueOf(columnOption.get().getType().get());
             }else{
                 bigqueryColumnOptionType = BigqueryColumnOptionType.INTEGER;
@@ -68,7 +70,8 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
                     this.node,
                     column.getName(),
                     reader.getLong(column),
-                    bigqueryColumnOptionType);
+                    bigqueryColumnOptionType,
+                    bigqueryColumnOption);
         }
     }
 
@@ -77,9 +80,11 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
         if (reader.isNull(column)) {
             node.putNull(column.getName());
         } else {
+            BigqueryColumnOption bigqueryColumnOption = null;
             Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
             BigqueryColumnOptionType bigqueryColumnOptionType;
             if (columnOption.isPresent() && columnOption.get().getType().isPresent()) {
+                bigqueryColumnOption = columnOption.get();
                 bigqueryColumnOptionType = BigqueryColumnOptionType.valueOf(columnOption.get().getType().get());
             }else{
                 bigqueryColumnOptionType = BigqueryColumnOptionType.FLOAT;
@@ -88,7 +93,8 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
                     this.node,
                     column.getName(),
                     reader.getDouble(column),
-                    bigqueryColumnOptionType);
+                    bigqueryColumnOptionType,
+                    bigqueryColumnOption);
         }
     }
 
