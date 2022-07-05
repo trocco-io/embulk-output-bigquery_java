@@ -116,7 +116,7 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
 
 - **column_options**: advanced: an array of options for columns
   - **name**: column name
-  - **type**: BigQuery type such as `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, and `RECORD`. See belows for supported conversion type.
+  - **type**: BigQuery type such as `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD`, ans `NUMERIC`. See belows for supported conversion type.
     - boolean (x):   `BOOLEAN`, `STRING` (default: `BOOLEAN`)
     - long (x):      `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `INTEGER`)
     - double (x):    `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `FLOAT`)
