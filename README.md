@@ -128,6 +128,7 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
   - **timestamp_format**: timestamp format to convert into/from `timestamp` (string, default is `default_timestamp_format`)
   - **timezone**: timezone to convert into/from `timestamp`, `date` (string, default is `default_timezone`).
   - **description**: Description for BigQuery field
+  - **scale**: optional, [scale](https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types?hl=ja#decimal_types) for numeric column (long, default is 9).
 - **default_timestamp_format**: default timestamp format for column_options (string, default is "%Y-%m-%d %H:%M:%S.%6N")
 - **default_timezone**: default timezone for column_options (string, default is "UTC")
 
