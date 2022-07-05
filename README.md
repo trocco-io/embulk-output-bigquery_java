@@ -123,6 +123,7 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
     - string:    `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD` (default: `STRING`)
     - timestamp (x): `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE` (default: `TIMESTAMP`)
     - json (x):      `STRING`,  `RECORD` (default: `STRING`)
+    - numeric (x): `STRING`
   - **mode**: BigQuery mode such as `NULLABLE`, `REQUIRED`, and `REPEATED` (string, default: `NULLABLE`)
   - **fields (x) **: Describes the nested schema fields if the type property is set to RECORD. Please note that this is **required** for `RECORD` column.
   - **timestamp_format**: timestamp format to convert into/from `timestamp` (string, default is `default_timestamp_format`)
