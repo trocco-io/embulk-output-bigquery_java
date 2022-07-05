@@ -19,12 +19,12 @@ public class BigqueryValueConverter {
         BigqueryTimestampConverter.convertAndSet(node, name, src, bigqueryColumnOptionType, columnOption, task);
     }
 
-    public static void convertAndSet(ObjectNode node, String name, long src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption) {
-        BigqueryLongConverter.convertAndSet(node, name, src, bigqueryColumnOptionType, columnOption);
+    public static void convertAndSet(ObjectNode node, String name, long src, BigqueryColumnOptionType bigqueryColumnOptionType) {
+        BigqueryLongConverter.convertAndSet(node, name, src, bigqueryColumnOptionType);
     }
 
-    public static void convertAndSet(ObjectNode node, String name, double src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption) {
-        BigqueryDoubleConverter.convertAndSet(node, name, src, bigqueryColumnOptionType, columnOption);
+    public static void convertAndSet(ObjectNode node, String name, double src, BigqueryColumnOptionType bigqueryColumnOptionType) {
+        BigqueryDoubleConverter.convertAndSet(node, name, src, bigqueryColumnOptionType);
     }
 
     public static void convertAndSet(ObjectNode node, String name, boolean src, BigqueryColumnOptionType bigqueryColumnOptionType) {

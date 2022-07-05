@@ -1,15 +1,12 @@
 package org.embulk.output.bigquery_java.converter;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
 import org.embulk.output.bigquery_java.exception.BigqueryNotSupportedTypeException;
 import org.embulk.output.bigquery_java.exception.BigqueryTypeCastException;
 
-import java.math.BigDecimal;
-
 public class BigqueryLongConverter {
-    public static void convertAndSet(ObjectNode node, String name, long src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption) {
+    public static void convertAndSet(ObjectNode node, String name, long src, BigqueryColumnOptionType bigqueryColumnOptionType) {
         switch (bigqueryColumnOptionType) {
             case BOOLEAN:
                 if (src == 0) {
@@ -31,11 +28,6 @@ public class BigqueryLongConverter {
                 break;
             case STRING:
                 node.put(name, String.valueOf(src));
-                break;
-            case NUMERIC:
-                // BigQuery NUMERIC型のスケール最大値が9なのでデフォルト値を9にする
-                int scale = columnOption != null ? columnOption.getScale() : 9;
-                node.put(name, BigDecimal.valueOf(src).setScale(scale, BigDecimal.ROUND_CEILING));
                 break;
             default:
                 throw new BigqueryNotSupportedTypeException("Invalid data convert for double");
