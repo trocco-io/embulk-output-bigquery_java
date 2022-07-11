@@ -1,4 +1,4 @@
-name: main
+name: Ruby Gem
 
 on:
   workflow_dispatch:
