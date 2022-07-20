@@ -109,7 +109,7 @@ public class BigqueryStringConverter {
                 }
                 break;
             case NUMERIC:
-                // BigQuery NUMERIC型のスケール最大値が9なのでデフォルト値を9にする
+                // Default value: 9, BigQuery NUMERIC type has a maximum scale of 9
                 int scale = columnOption != null ? columnOption.getScale() : 9;
                 node.put(name, new BigDecimal(src).setScale(scale, BigDecimal.ROUND_CEILING));
                 break;
