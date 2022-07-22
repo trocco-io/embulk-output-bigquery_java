@@ -16,12 +16,11 @@ group = "io.trocco"
 description = "Bigquery output for embulk"
 
 version = {
-    def baseVersion = "0.1.0"
     def vd = versionDetails()
     if (vd.commitDistance == 0 && vd.lastTag ==~ /^v[0-9]+\.[0-9]+\.[0-9]+(\.[a-zA-Z0-9]+)?/) {
         vd.lastTag.substring(1)
     } else {
-        "${baseVersion}.${vd.gitHash}.pre"
+        "0.0.0.${vd.gitHash}.pre"
     }
 }()
 
