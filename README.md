@@ -116,18 +116,20 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
 
 - **column_options**: advanced: an array of options for columns
   - **name**: column name
-  - **type**: BigQuery type such as `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, and `RECORD`. See belows for supported conversion type.
+  - **type**: BigQuery type such as `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD`, and `NUMERIC`. See belows for supported conversion type.
     - boolean (x):   `BOOLEAN`, `STRING` (default: `BOOLEAN`)
     - long (x):      `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `INTEGER`)
     - double (x):    `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `FLOAT`)
     - string:    `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD` (default: `STRING`)
     - timestamp (x): `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE` (default: `TIMESTAMP`)
     - json (x):      `STRING`,  `RECORD` (default: `STRING`)
+    - numeric (x): `STRING`
   - **mode**: BigQuery mode such as `NULLABLE`, `REQUIRED`, and `REPEATED` (string, default: `NULLABLE`)
   - **fields (x) **: Describes the nested schema fields if the type property is set to RECORD. Please note that this is **required** for `RECORD` column.
   - **timestamp_format**: timestamp format to convert into/from `timestamp` (string, default is `default_timestamp_format`)
   - **timezone**: timezone to convert into/from `timestamp`, `date` (string, default is `default_timezone`).
   - **description**: Description for BigQuery field
+  - **scale**: optional, [scale](https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types?hl=ja#decimal_types) for numeric column (long, default is 9).
 - **default_timestamp_format**: default timestamp format for column_options (string, default is "%Y-%m-%d %H:%M:%S.%6N")
 - **default_timezone**: default timezone for column_options (string, default is "UTC")
 

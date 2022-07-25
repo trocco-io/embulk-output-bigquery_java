@@ -43,5 +43,9 @@ public interface BigqueryColumnOption extends Task {
     @ConfigDefault("null")
     public Optional<String> getDescription();
 
+    @Config("scale")
+    @ConfigDefault("9")
+    public int getScale();
+
     // TODO: fields
 }
