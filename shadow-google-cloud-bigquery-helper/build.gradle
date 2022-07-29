@@ -30,7 +30,7 @@ configurations {
 }
 
 dependencies {
-    compile("com.google.cloud:google-cloud-bigquery:1.106.0") {
+    compile("com.google.cloud:google-cloud-bigquery:2.14.0") {
         exclude group: "commons-logging", module: "commons-logging"
     }
 
