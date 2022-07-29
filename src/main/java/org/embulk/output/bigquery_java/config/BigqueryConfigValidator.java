@@ -29,8 +29,9 @@ public class BigqueryConfigValidator {
 
     public static void validateTimePartitioning(PluginTask task) throws ConfigException {
         if (task.getTimePartitioning().isPresent()) {
-            if (!task.getTimePartitioning().get().getType().toUpperCase().equals("DAY")) {
-                throw new ConfigException(String.format("`time_partitioning.type: %s` requires `time_partitioning.type: DAY`", task.getMode()));
+            String[] types = {"HOUR", "DAY", "MONTH", "YEAR"};
+            if (!Arrays.asList(types).contains(task.getTimePartitioning().get().getType().toUpperCase())) {
+                throw new ConfigException("time_partitioning.type: HOUR, DAY, MONTH and YEAR are supported.");
             }
         }
     }
