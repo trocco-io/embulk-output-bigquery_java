@@ -131,10 +131,21 @@ public class BigqueryClient {
     public TimePartitioning buildTimePartitioning(BigqueryTimePartitioning bigqueryTimePartitioning) {
         TimePartitioning.Builder timePartitioningBuilder;
 
-        if (bigqueryTimePartitioning.getType().toUpperCase().equals("DAY")) {
-            timePartitioningBuilder = TimePartitioning.newBuilder(TimePartitioning.Type.DAY);
-        } else {
-            throw new RuntimeException("time_partitioning.type is not DAY");
+        switch (bigqueryTimePartitioning.getType().toUpperCase()) {
+            case "HOUR":
+                timePartitioningBuilder = TimePartitioning.newBuilder(TimePartitioning.Type.HOUR);
+                break;
+            case "DAY":
+                timePartitioningBuilder = TimePartitioning.newBuilder(TimePartitioning.Type.DAY);
+                break;
+            case "MONTH":
+                timePartitioningBuilder = TimePartitioning.newBuilder(TimePartitioning.Type.MONTH);
+                break;
+            case "YEAR":
+                timePartitioningBuilder = TimePartitioning.newBuilder(TimePartitioning.Type.YEAR);
+                break;
+            default:
+                throw new RuntimeException("time_partitioning.type is not HOUR, DAY, MONTH, or YEAR");
         }
 
         if (bigqueryTimePartitioning.getExpirationMs().isPresent()) {
