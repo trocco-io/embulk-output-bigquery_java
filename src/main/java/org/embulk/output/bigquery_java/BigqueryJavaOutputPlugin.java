@@ -1,18 +1,5 @@
 package org.embulk.output.bigquery_java;
 
-import java.io.File;
-import java.math.BigInteger;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.stream.Collectors;
-
-import com.google.cloud.bigquery.Dataset;
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.Table;
@@ -28,9 +15,21 @@ import org.embulk.spi.Exec;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.spi.Schema;
 import org.embulk.spi.TransactionalPageOutput;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.math.BigInteger;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 public class BigqueryJavaOutputPlugin
         implements OutputPlugin {
@@ -63,6 +62,7 @@ public class BigqueryJavaOutputPlugin
             client.createTableIfNotExist(task.getTable(), task.getDataset());
 
             switch (task.getMode()){
+                case "merge":
                 case "append":
                 case "replace":
                 case "delete_in_advance":
@@ -111,7 +111,9 @@ public class BigqueryJavaOutputPlugin
         }
 
         if (task.getTempTable().isPresent()) {
-            if (task.getMode().equals("append")) {
+            if (task.getMode().equals("merge")) {
+                client.merge(task.getTempTable().get(), task.getTable(), task.getMergeKeys().orElse(Collections.emptyList()), task.getMergeRule().orElse(Collections.emptyList()));
+            } else if (task.getMode().equals("append")) {
                 client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_APPEND);
             } else {
                 client.copy(task.getTempTable().get(), task.getTable(), task.getDataset(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
@@ -184,6 +186,10 @@ public class BigqueryJavaOutputPlugin
             case "append":
                 client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
                 // TODO: create table to support partition
+                break;
+            case "merge":
+                client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
+                client.createTableIfNotExist(task.getTable()); // needs for when task['table'] is a partition
                 break;
             case "replace_backup":
                 client.createTableIfNotExist(task.getTemplateTable().get());

@@ -1,18 +1,33 @@
 package org.embulk.output.bigquery_java;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
-import java.nio.channels.Channels;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.UUID;
-
-import com.google.cloud.bigquery.*;
+import com.google.auth.oauth2.ServiceAccountCredentials;
+import com.google.cloud.bigquery.BigQuery;
+import com.google.cloud.bigquery.BigQueryException;
+import com.google.cloud.bigquery.BigQueryOptions;
+import com.google.cloud.bigquery.Clustering;
+import com.google.cloud.bigquery.CopyJobConfiguration;
+import com.google.cloud.bigquery.Dataset;
+import com.google.cloud.bigquery.DatasetInfo;
+import com.google.cloud.bigquery.Field;
+import com.google.cloud.bigquery.FieldValue;
+import com.google.cloud.bigquery.FormatOptions;
+import com.google.cloud.bigquery.Job;
+import com.google.cloud.bigquery.JobId;
+import com.google.cloud.bigquery.JobInfo;
+import com.google.cloud.bigquery.JobStatistics;
+import com.google.cloud.bigquery.LegacySQLTypeName;
+import com.google.cloud.bigquery.QueryJobConfiguration;
+import com.google.cloud.bigquery.StandardSQLTypeName;
+import com.google.cloud.bigquery.StandardTableDefinition;
+import com.google.cloud.bigquery.Table;
+import com.google.cloud.bigquery.TableDataWriteChannel;
+import com.google.cloud.bigquery.TableDefinition;
+import com.google.cloud.bigquery.TableId;
+import com.google.cloud.bigquery.TableInfo;
+import com.google.cloud.bigquery.TableResult;
+import com.google.cloud.bigquery.TimePartitioning;
+import com.google.cloud.bigquery.WriteChannelConfiguration;
+import com.google.common.annotations.VisibleForTesting;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -30,15 +45,27 @@ import org.embulk.spi.type.StringType;
 import org.embulk.spi.type.TimestampType;
 import org.embulk.spi.type.Type;
 import org.embulk.spi.util.RetryExecutor;
-
-import static org.embulk.spi.util.RetryExecutor.retryExecutor;
-
-import com.google.auth.oauth2.ServiceAccountCredentials;
-import com.google.common.annotations.VisibleForTesting;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.channels.Channels;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
+
+import static org.embulk.spi.util.RetryExecutor.retryExecutor;
 
 public class BigqueryClient {
     private final Logger logger = LoggerFactory.getLogger(BigqueryClient.class);
@@ -158,7 +185,7 @@ public class BigqueryClient {
         return timePartitioningBuilder.build();
     }
 
-    public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDestination) throws BigqueryException {
+    public JobStatistics.LoadStatistics load(Path loadFile, String table, JobInfo.WriteDisposition writeDisposition) throws BigqueryException {
         String dataset = this.dataset;
         int retries = this.task.getRetries();
         PluginTask task = this.task;
@@ -191,7 +218,7 @@ public class BigqueryClient {
                             WriteChannelConfiguration writeChannelConfiguration =
                                     WriteChannelConfiguration.newBuilder(tableId)
                                             .setFormatOptions(FormatOptions.json())
-                                            .setWriteDisposition(writeDestination)
+                                            .setWriteDisposition(writeDisposition)
                                             .setMaxBadRecords(task.getMaxBadRecords())
                                             .setIgnoreUnknownValues(task.getIgnoreUnknownValues())
                                             .setSchema(buildSchema(schema, columnOptions))
@@ -247,7 +274,7 @@ public class BigqueryClient {
     public JobStatistics.CopyStatistics copy(String sourceTable,
                                              String destinationTable,
                                              String destinationDataset,
-                                             JobInfo.WriteDisposition writeDestination) throws BigqueryException {
+                                             JobInfo.WriteDisposition writeDisposition) throws BigqueryException {
         String dataset = this.dataset;
         int retries = this.task.getRetries();
 
@@ -265,7 +292,7 @@ public class BigqueryClient {
                             TableId srcTableId = TableId.of(dataset, sourceTable);
 
                             CopyJobConfiguration copyJobConfiguration = CopyJobConfiguration.newBuilder(destTableId, srcTableId)
-                                    .setWriteDisposition(writeDestination)
+                                    .setWriteDisposition(writeDisposition)
                                     .build();
 
                             Job job = bigquery.create(JobInfo.newBuilder(copyJobConfiguration).setJobId(JobId.of(jobId)).build());
@@ -306,6 +333,167 @@ public class BigqueryClient {
         } catch (InterruptedException ex) {
             throw new BigqueryException("interrupted");
         }
+    }
+
+    public JobStatistics.QueryStatistics merge(String sourceTable, String targetTable, List<String> mergeKeys, List<String> mergeRule) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("MERGE ");
+        sb.append(quoteIdentifier(dataset));
+        sb.append(".");
+        sb.append(quoteIdentifier(targetTable));
+        sb.append(" T");
+        sb.append(" USING ");
+        sb.append(quoteIdentifier(dataset));
+        sb.append(".");
+        sb.append(quoteIdentifier(sourceTable));
+        sb.append(" S");
+        sb.append(" ON ");
+        appendMergeKeys(sb, mergeKeys.isEmpty() ? getMergeKeys(targetTable) : mergeKeys);
+        sb.append(" WHEN MATCHED THEN");
+        sb.append(" UPDATE SET ");
+        appendMergeRule(sb, mergeRule, schema);
+        sb.append(" WHEN NOT MATCHED THEN");
+        sb.append(" INSERT (");
+        appendColumns(sb, schema);
+        sb.append(") VALUES (");
+        appendColumns(sb, schema);
+        sb.append(")");
+        String query = sb.toString();
+        logger.info(String.format("embulk-output-bigquery: Execute query... %s", query));
+        return executeQuery(query);
+    }
+
+    private List<String> getMergeKeys(String table) {
+        String query =
+                "SELECT" +
+                " KCU.COLUMN_NAME " +
+                "FROM " +
+                quoteIdentifier(dataset) + ".INFORMATION_SCHEMA.KEY_COLUMN_USAGE KCU " +
+                "JOIN " +
+                quoteIdentifier(dataset) + ".INFORMATION_SCHEMA.TABLE_CONSTRAINTS TC " +
+                "ON" +
+                " KCU.CONSTRAINT_CATALOG = TC.CONSTRAINT_CATALOG AND" +
+                " KCU.CONSTRAINT_SCHEMA = TC.CONSTRAINT_SCHEMA AND" +
+                " KCU.CONSTRAINT_NAME = TC.CONSTRAINT_NAME AND" +
+                " KCU.TABLE_CATALOG = TC.TABLE_CATALOG AND" +
+                " KCU.TABLE_SCHEMA = TC.TABLE_SCHEMA AND" +
+                " KCU.TABLE_NAME = TC.TABLE_NAME " +
+                "WHERE" +
+                " TC.TABLE_NAME = '" + table + "' AND" +
+                " TC.CONSTRAINT_TYPE = 'PRIMARY KEY' " +
+                "ORDER BY" +
+                " KCU.ORDINAL_POSITION";
+        return stream(runQuery(query).iterateAll())
+                .flatMap(BigqueryClient::stream)
+                .map(FieldValue::getStringValue)
+                .collect(Collectors.toList());
+    }
+
+    public TableResult runQuery(String query) {
+        int retries = task.getRetries();
+        try {
+            return retryExecutor()
+                    .withRetryLimit(retries)
+                    .withInitialRetryWait(2 * 1000)
+                    .withMaxRetryWait(10 * 1000)
+                    .runInterruptible(new RetryExecutor.Retryable<TableResult>() {
+                        @Override
+                        public TableResult call() throws Exception {
+                            QueryJobConfiguration configuration =
+                                    QueryJobConfiguration.newBuilder(query)
+                                            .setUseLegacySql(false)
+                                            .build();
+                            String job = String.format("embulk_query_job_%s", UUID.randomUUID());
+                            JobId.Builder builder = JobId.newBuilder().setJob(job);
+                            if (location != null){
+                                builder.setLocation(location);
+                            }
+                            return bigquery.query(configuration, builder.build());
+                        }
+                        @Override
+                        public boolean isRetryableException(Exception exception) {
+                            return exception instanceof BigqueryBackendException
+                                    || exception instanceof BigqueryRateLimitExceededException
+                                    || exception instanceof BigqueryInternalException;
+                        }
+                        @Override
+                        public void onRetry(Exception exception, int retryCount, int retryLimit, int retryWait) {
+                            String message = String.format("embulk-output-bigquery: Query job failed. Retrying %d/%d after %d seconds. Message: %s",
+                                    retryCount, retryLimit, retryWait / 1000, exception.getMessage());
+                            if (retryCount % retries == 0) {
+                                logger.warn(message, exception);
+                            } else {
+                                logger.warn(message);
+                            }
+                        }
+                        @Override
+                        public void onGiveup(Exception firstException, Exception lastException) {
+                            logger.error("embulk-output-bigquery: Give up retrying for Query job");
+                        }
+                    });
+        } catch (RetryExecutor.RetryGiveupException e) {
+            if (e.getCause() instanceof BigqueryException) {
+                throw (BigqueryException) e.getCause();
+            }
+            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            throw new BigqueryException("interrupted");
+        }
+    }
+
+    private static <T> Stream<T> stream(Iterable<T> iterable) {
+        return StreamSupport.stream(Spliterators.spliteratorUnknownSize(iterable.iterator(), Spliterator.ORDERED), false);
+    }
+
+    private static StringBuilder appendMergeKeys(StringBuilder sb, List<String> mergeKeys) {
+        if (mergeKeys.isEmpty()) {
+            throw new RuntimeException("merge key or primary key is required");
+        }
+        for (int i = 0; i < mergeKeys.size(); i++) {
+            if (i != 0) { sb.append(" AND "); }
+            String mergeKey = quoteIdentifier(mergeKeys.get(i));
+            sb.append("T.");
+            sb.append(mergeKey);
+            sb.append(" = S.");
+            sb.append(mergeKey);
+        }
+        return sb;
+    }
+
+    private static StringBuilder appendMergeRule(StringBuilder sb, List<String> mergeRule, Schema schema) {
+        return mergeRule.isEmpty() ? appendMergeRule(sb, schema) : appendMergeRule(sb, mergeRule);
+    }
+
+    private static StringBuilder appendMergeRule(StringBuilder sb, List<String> mergeRule) {
+        for (int i = 0; i < mergeRule.size(); i++) {
+            if (i != 0) { sb.append(", "); }
+            sb.append(mergeRule.get(i));
+        }
+        return sb;
+    }
+
+    private static StringBuilder appendMergeRule(StringBuilder sb, Schema schema) {
+        for (int i = 0; i < schema.getColumnCount(); i++) {
+            if (i != 0) { sb.append(", "); }
+            String column = quoteIdentifier(schema.getColumnName(i));
+            sb.append("T.");
+            sb.append(column);
+            sb.append(" = S.");
+            sb.append(column);
+        }
+        return sb;
+    }
+
+    private static StringBuilder appendColumns(StringBuilder sb, Schema schema) {
+        for (int i = 0; i < schema.getColumnCount(); i++) {
+            if (i != 0) { sb.append(", "); }
+            sb.append(quoteIdentifier(schema.getColumnName(i)));
+        }
+        return sb;
+    }
+
+    private static String quoteIdentifier(String identifier) {
+        return "`" + identifier + "`";
     }
 
     public JobStatistics.QueryStatistics executeQuery(String query) {
@@ -371,7 +559,6 @@ public class BigqueryClient {
             throw new BigqueryException("interrupted");
         }
     }
-
 
     public boolean deleteTable(String table) {
         return deleteTable(table, null);

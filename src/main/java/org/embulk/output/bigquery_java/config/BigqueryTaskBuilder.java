@@ -1,12 +1,12 @@
 package org.embulk.output.bigquery_java.config;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.UUID;
 import java.util.Optional;
-
-import com.google.common.annotations.VisibleForTesting;
+import java.util.UUID;
 
 public class BigqueryTaskBuilder {
     private static final String uniqueName = UUID.randomUUID().toString().replace("-", "_");
@@ -50,7 +50,7 @@ public class BigqueryTaskBuilder {
     @VisibleForTesting
     protected static void setTempTable(PluginTask task) {
         // TODO: support replace_backup
-        String[] modeForTempTable = {"replace", "append", "delete_in_advance"};
+        String[] modeForTempTable = {"replace", "append", "merge", "delete_in_advance"};
         if (Arrays.asList(modeForTempTable).contains(task.getMode())) {
             String tempTable = task.getTempTable().orElse(String.format("LOAD_TEMP_%s_%s", uniqueName, task.getTable()));
             task.setTempTable(Optional.of(tempTable));
