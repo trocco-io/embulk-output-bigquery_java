@@ -43,6 +43,7 @@ jobs:
     needs: [ test ]
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.ref, 'refs/tags/') }}
     steps:
+      - uses: actions/checkout@v2
       - name: push gem
         uses: trocco-io/push-gem-to-gpr-action@v1
         with:
