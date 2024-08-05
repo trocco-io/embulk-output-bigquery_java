@@ -158,4 +158,12 @@ public interface PluginTask
     @Config("clustering")
     @ConfigDefault("null")
     Optional<BigqueryClustering> getClustering();
+
+    @Config("merge_keys")
+    @ConfigDefault("null")
+    Optional<List<String>> getMergeKeys();
+
+    @Config("merge_rule")
+    @ConfigDefault("null")
+    Optional<List<String>> getMergeRule();
 }
