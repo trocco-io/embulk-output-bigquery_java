@@ -1,11 +1,12 @@
 package org.embulk.output.bigquery_java.config;
 
-import com.google.common.io.Resources;
 import org.embulk.config.ConfigException;
 import org.embulk.config.ConfigSource;
 import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.test.TestingEmbulk;
+import org.embulk.util.config.ConfigMapper;
+import org.embulk.util.config.ConfigMapperFactory;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -15,9 +16,13 @@ import java.util.List;
 import static org.junit.Assert.assertEquals;
 
 public class TestBigqueryTaskBuilder {
+    protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
+            ConfigMapperFactory.builder().addDefaultModules().build();
+
+    protected static final ConfigMapper CONFIG_MAPPER = CONFIG_MAPPER_FACTORY.createConfigMapper();
 
     private ConfigSource config;
-    private static final String BASIC_RESOURCE_PATH = "java/org/embulk/output/bigquery_java/";
+    private static final String BASIC_RESOURCE_PATH = "/java/org/embulk/output/bigquery_java/";
 
     private static ConfigSource loadYamlResource(TestingEmbulk embulk, String fileName) {
         return embulk.loadYamlResource(BASIC_RESOURCE_PATH + fileName);
@@ -46,7 +51,7 @@ public class TestBigqueryTaskBuilder {
                         ""
                 )
         );
-        PluginTask task = config.loadConfig(PluginTask.class);
+        PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
         BigqueryTaskBuilder.setAbortOnError(task);
 
         assertEquals(0, task.getMaxBadRecords());
@@ -72,7 +77,7 @@ public class TestBigqueryTaskBuilder {
                         ""
                 )
         );
-        PluginTask task = config.loadConfig(PluginTask.class);
+        PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
         BigqueryTaskBuilder.setFileExt(task);
         assertEquals("NEWLINE_DELIMITED_JSON", task.getSourceFormat());
@@ -102,7 +107,7 @@ public class TestBigqueryTaskBuilder {
                         "    - baz"
                 )
         );
-        PluginTask task = config.loadConfig(PluginTask.class);
+        PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
         BigqueryTaskBuilder.setAbortOnError(task);
         System.out.println(task.getClustering().get().getFields());
         List<String> expectedOutput = Arrays.asList("foo", "bar", "baz");

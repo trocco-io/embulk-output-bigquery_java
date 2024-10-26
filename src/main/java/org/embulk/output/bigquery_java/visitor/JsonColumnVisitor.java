@@ -115,6 +115,7 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
         }
     }
 
+    @SuppressWarnings("deprecation") // The use of PageReader.getTimestamp(column)
     @Override
     public void timestampColumn(Column column) {
         if (reader.isNull(column)) {
@@ -139,6 +140,7 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
         }
     }
 
+    @SuppressWarnings("deprecation") // The use of PageReader.getJson(column)
     @Override
     public void jsonColumn(Column column) {
         if (reader.isNull(column)) {

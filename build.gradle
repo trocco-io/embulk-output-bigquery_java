@@ -5,11 +5,11 @@ plugins {
     id "maven-publish"
     id "org.embulk.embulk-plugins" version "0.4.1"
     id "com.palantir.git-version" version "0.12.3"
+    id "com.adarshr.test-logger" version "3.0.0"
 }
 
 repositories {
     mavenCentral()
-    jcenter()
 }
 
 group = "io.trocco"
@@ -27,24 +27,30 @@ version = {
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
 
-tasks.withType(JavaCompile) {
+tasks.withType(JavaCompile).configureEach {
     options.compilerArgs << "-Xlint:deprecation" << "-Xlint:unchecked"
 }
 
 dependencies {
-    compileOnly "org.embulk:embulk-core:0.9.23"
+    def embulkVersion = "0.10.42"
+    compileOnly("org.embulk:embulk-api:${embulkVersion}")
+    compileOnly("org.embulk:embulk-spi:${embulkVersion}")
+
+    compile "org.embulk:embulk-util-config:0.3.4"
+    compile "org.embulk:embulk-util-file:0.2.0"
+    compile "org.embulk:embulk-util-text:0.2.0"
+    compile "org.embulk:embulk-util-timestamp:0.3.0"
+    compile "org.embulk:embulk-util-retryhelper:0.8.0"
 
     compile project(path: ":shadow-google-cloud-bigquery-helper", configuration: "shadow")
 
     // compile "YOUR_JAR_DEPENDENCY_GROUP:YOUR_JAR_DEPENDENCY_MODULE:YOUR_JAR_DEPENDENCY_VERSION"
-    testCompile "junit:junit:4.13"
-    testCompile "org.slf4j:slf4j-simple:1.7.12"
-    testCompile 'org.embulk:embulk-standards:0.9.23'
-    testCompile 'org.embulk:embulk-test:0.9.23'
-    testCompile "org.mockito:mockito-core:1.10.19"
-    testCompile "org.embulk:embulk-core:0.9.23:tests"
-    testCompile "org.embulk:embulk-deps-buffer:0.9.23"
-    testCompile "org.embulk:embulk-deps-config:0.9.23"
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.slf4j:slf4j-simple:1.7.30"
+    testImplementation "org.mockito:mockito-core:1.10.19"
+    testImplementation "org.embulk:embulk-core:${embulkVersion}"
+    testImplementation "org.embulk:embulk-deps:${embulkVersion}"
+    testImplementation "org.embulk:embulk-junit4:${embulkVersion}"
 }
 
 embulkPlugin {

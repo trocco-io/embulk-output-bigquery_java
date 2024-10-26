@@ -5,6 +5,8 @@ import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.test.TestingEmbulk;
+import org.embulk.util.config.ConfigMapper;
+import org.embulk.util.config.ConfigMapperFactory;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -13,8 +15,13 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class TestBigqueryJavaOutputPlugin {
+    protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
+            ConfigMapperFactory.builder().addDefaultModules().build();
+
+    protected static final ConfigMapper CONFIG_MAPPER = CONFIG_MAPPER_FACTORY.createConfigMapper();
+
     private ConfigSource config;
-    private static final String BASIC_RESOURCE_PATH = "java/org/embulk/output/bigquery_java/";
+    private static final String BASIC_RESOURCE_PATH = "/java/org/embulk/output/bigquery_java/";
 
     private static ConfigSource loadYamlResource(TestingEmbulk embulk, String fileName) {
         return embulk.loadYamlResource(BASIC_RESOURCE_PATH + fileName);
@@ -47,7 +54,7 @@ public class TestBigqueryJavaOutputPlugin {
     @Test
     public void testWithTimePartitioning() {
         config = loadYamlResource(embulk, "time_partitioning.yml");
-        PluginTask task = config.loadConfig(PluginTask.class);
+        PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
         BigqueryTimePartitioning bigqueryTimePartitioning;
 
         assertTrue(task.getTimePartitioning().isPresent());

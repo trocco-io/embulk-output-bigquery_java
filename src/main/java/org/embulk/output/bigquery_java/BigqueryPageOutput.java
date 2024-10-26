@@ -12,16 +12,19 @@ import org.embulk.spi.PageReader;
 import org.embulk.spi.Schema;
 import org.embulk.spi.TransactionalPageOutput;
 
+import org.embulk.util.config.ConfigMapperFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 
 public class BigqueryPageOutput implements TransactionalPageOutput {
+    private static final ConfigMapperFactory CONFIG_MAPPER_FACTORY = ConfigMapperFactory.builder().addDefaultModules().build();
     private final Logger logger = LoggerFactory.getLogger(BigqueryPageOutput.class);
     private PageReader pageReader;
     private final Schema schema;
     private PluginTask task;
 
+    @SuppressWarnings("deprecation") // The use of new PageReader(schema)
     public BigqueryPageOutput(PluginTask task, Schema schema) {
         this.task = task;
         this.schema = schema;
@@ -63,6 +66,6 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
 
     @Override
     public TaskReport commit() {
-        return Exec.newTaskReport();
+        return CONFIG_MAPPER_FACTORY.newTaskReport();
     }
 }

@@ -1,7 +1,5 @@
 package org.embulk.output.bigquery_java.config;
 
-import com.google.common.annotations.VisibleForTesting;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
@@ -19,7 +17,6 @@ public class BigqueryTaskBuilder {
         return task;
     }
 
-    @VisibleForTesting
     protected static void setPathPrefix(PluginTask task) {
         if (!task.getPathPrefix().isPresent()) {
             try {
@@ -31,7 +28,6 @@ public class BigqueryTaskBuilder {
         }
     }
 
-    @VisibleForTesting
     protected static void setFileExt(PluginTask task) {
         if (!task.getFileExt().isPresent()) {
             if (task.getSourceFormat().equals("CSV")) {
@@ -47,7 +43,6 @@ public class BigqueryTaskBuilder {
         }
     }
 
-    @VisibleForTesting
     protected static void setTempTable(PluginTask task) {
         // TODO: support replace_backup
         String[] modeForTempTable = {"replace", "append", "merge", "delete_in_advance"};
@@ -57,7 +52,6 @@ public class BigqueryTaskBuilder {
         }
     }
 
-    @VisibleForTesting
     protected static void setAbortOnError(PluginTask task) {
         if (!task.getAbortOnError().isPresent()) {
             task.setAbortOnError(Optional.of(task.getMaxBadRecords() == 0));
