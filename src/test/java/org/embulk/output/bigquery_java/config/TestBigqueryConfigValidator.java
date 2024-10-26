@@ -1,5 +1,7 @@
 package org.embulk.output.bigquery_java.config;
 
+import static org.junit.Assert.*;
+
 import org.embulk.config.ConfigException;
 import org.embulk.config.ConfigSource;
 import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
@@ -9,8 +11,6 @@ import org.embulk.util.config.ConfigMapper;
 import org.embulk.util.config.ConfigMapperFactory;
 import org.junit.Rule;
 import org.junit.Test;
-
-import static org.junit.Assert.*;
 
 public class TestBigqueryConfigValidator {
     protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =

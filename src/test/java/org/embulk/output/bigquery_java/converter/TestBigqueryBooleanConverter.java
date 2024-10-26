@@ -1,6 +1,11 @@
 package org.embulk.output.bigquery_java.converter;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.ArrayList;
+import java.util.List;
 import org.embulk.config.ConfigSource;
 import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
 import org.embulk.output.bigquery_java.BigqueryUtil;
@@ -13,12 +18,6 @@ import org.embulk.util.config.ConfigMapper;
 import org.embulk.util.config.ConfigMapperFactory;
 import org.junit.Rule;
 import org.junit.Test;
-
-import java.util.ArrayList;
-import java.util.List;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 public class TestBigqueryBooleanConverter {
     protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =

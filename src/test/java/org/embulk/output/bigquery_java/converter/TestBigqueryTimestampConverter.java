@@ -1,6 +1,10 @@
 package org.embulk.output.bigquery_java.converter;
 
+import static org.junit.Assert.assertEquals;
+
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.ArrayList;
+import java.util.List;
 import org.embulk.config.ConfigSource;
 import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
 import org.embulk.output.bigquery_java.BigqueryUtil;
@@ -9,15 +13,10 @@ import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.test.TestingEmbulk;
-import org.embulk.util.config.ConfigMapperFactory;
 import org.embulk.util.config.ConfigMapper;
+import org.embulk.util.config.ConfigMapperFactory;
 import org.junit.Rule;
 import org.junit.Test;
-
-import java.util.List;
-import java.util.ArrayList;
-
-import static org.junit.Assert.assertEquals;
 
 public class TestBigqueryTimestampConverter {
     private static final ConfigMapperFactory CONFIG_MAPPER_FACTORY = ConfigMapperFactory.builder().addDefaultModules().build();

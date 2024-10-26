@@ -1,5 +1,8 @@
 package org.embulk.output.bigquery_java;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
 import org.embulk.config.ConfigSource;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -9,10 +12,6 @@ import org.embulk.util.config.ConfigMapper;
 import org.embulk.util.config.ConfigMapperFactory;
 import org.junit.Rule;
 import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
 public class TestBigqueryJavaOutputPlugin {
     protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =

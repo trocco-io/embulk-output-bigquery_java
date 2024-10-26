@@ -1,6 +1,9 @@
 package org.embulk.output.bigquery_java.config;
 
-import org.embulk.config.ConfigException;
+import static org.junit.Assert.assertEquals;
+
+import java.util.Arrays;
+import java.util.List;
 import org.embulk.config.ConfigSource;
 import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
 import org.embulk.spi.OutputPlugin;
@@ -9,11 +12,6 @@ import org.embulk.util.config.ConfigMapper;
 import org.embulk.util.config.ConfigMapperFactory;
 import org.junit.Rule;
 import org.junit.Test;
-
-import java.util.Arrays;
-import java.util.List;
-
-import static org.junit.Assert.assertEquals;
 
 public class TestBigqueryTaskBuilder {
     protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
