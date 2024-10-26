@@ -1,6 +1,7 @@
 package org.embulk.output.bigquery_java;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.embulk.config.ConfigSource;
@@ -31,24 +32,22 @@ public class TestBigqueryJavaOutputPlugin {
             .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
             .build();
 
-    // TODO: fix me OOM
-    // @Test
-    // public void testDefaultConfigValues() {
-    //     config = loadYamlResource(embulk, "base.yml");
-    //     PluginTask task = config.loadConfig(PluginTask.class);
-
-    //     assertEquals("replace", task.getMode());
-    //     assertEquals(5, task.getRetries());
-    //     assertEquals(0, task.getMaxBadRecords());
-    //     assertEquals("dataset", task.getDataset());
-    //     assertEquals("table", task.getTable());
-    //     assertEquals("service_account", task.getAuthMethod());
-    //     assertEquals("UTC", task.getDefaultTimezone());
-    //     assertEquals("UTF-8", task.getEncoding());
-    //     assertTrue(task.getDeleteFromLocalWhenJobEnd());
-    //     assertFalse(task.getAutoCreateDataset());
-    //     assertTrue(task.getAutoCreateTable());
-    // }
+    @Test
+    public void testDefaultConfigValues() {
+        config = loadYamlResource(embulk, "base.yml");
+        PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+        assertEquals("replace", task.getMode());
+        assertEquals(5, task.getRetries());
+        assertEquals(0, task.getMaxBadRecords());
+        assertEquals("dataset", task.getDataset());
+        assertEquals("table", task.getTable());
+        assertEquals("service_account", task.getAuthMethod());
+        assertEquals("UTC", task.getDefaultTimezone());
+        assertEquals("UTF-8", task.getEncoding());
+        assertTrue(task.getDeleteFromLocalWhenJobEnd());
+        assertFalse(task.getAutoCreateDataset());
+        assertTrue(task.getAutoCreateTable());
+    }
 
     @Test
     public void testWithTimePartitioning() {

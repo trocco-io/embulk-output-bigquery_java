@@ -1,6 +1,7 @@
 package org.embulk.output.bigquery_java.converter;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -12,6 +13,7 @@ import org.embulk.output.bigquery_java.BigqueryUtil;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryTypeCastException;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.test.TestingEmbulk;
 import org.embulk.util.config.ConfigMapper;
@@ -106,8 +108,11 @@ public class TestBigqueryStringConverter {
         PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
         BigqueryStringConverter.convertAndSet(node, "key", "2020/05/01", BigqueryColumnOptionType.DATE, columnOption);
-
         assertEquals("2020-05-01", node.get("key").asText());
+
+        assertThrows(BigqueryTypeCastException.class, () -> {
+            BigqueryStringConverter.convertAndSet(node, "key", "20200501", BigqueryColumnOptionType.DATE, columnOption);
+        });
     }
 
     @Test
