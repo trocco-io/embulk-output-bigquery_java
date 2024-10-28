@@ -5,17 +5,19 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.google.cloud.bigquery.FieldValueList;
-import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.TableResult;
-import org.checkerframework.checker.units.qual.A;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.FileInputPlugin;
-import org.embulk.spi.FileOutputPlugin;
-import org.embulk.spi.FormatterPlugin;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.spi.ParserPlugin;
 import org.embulk.test.EmbulkTests;
@@ -27,13 +29,6 @@ import org.embulk.util.config.Task;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 
 public class TestBigqueryJavaOutputPlugin {
     protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
