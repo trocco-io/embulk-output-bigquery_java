@@ -159,3 +159,16 @@ $ ./gradlew gem  # -t to watch change of files and rebuild continuously
 ```
 $ embulk run config.yml -L PATH/embulk-output-bigquery_java/build/gemContents/
 ```
+
+## TEST
+
+
+```
+$ ./gradlew test
+```
+
+Real bigquery connection tests are normally disabled. To enable them, set the EMBULK_OUTPUT_BIGQUERY_TEST_CONFIG environment variable to config.yml path.
+
+```
+$ EMBULK_OUTPUT_BIGQUERY_TEST_CONFIG="example/test.yml" ./gradlew test # Create example/test.yml based on example/test.yml.example
+```

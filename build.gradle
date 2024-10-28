@@ -51,6 +51,8 @@ dependencies {
     testImplementation "org.embulk:embulk-core:${embulkVersion}"
     testImplementation "org.embulk:embulk-deps:${embulkVersion}"
     testImplementation "org.embulk:embulk-junit4:${embulkVersion}"
+    testImplementation "org.embulk:embulk-input-file:0.11.1"
+    testImplementation "org.embulk:embulk-parser-csv:0.11.6"
 }
 
 embulkPlugin {
