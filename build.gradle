@@ -92,6 +92,6 @@ spotless {
     java {
         importOrder()
         removeUnusedImports()
-        // googleJavaFormat()
+        googleJavaFormat()
     }
 }
