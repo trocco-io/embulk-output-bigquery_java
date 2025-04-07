@@ -9,6 +9,7 @@ import com.google.cloud.bigquery.CopyJobConfiguration;
 import com.google.cloud.bigquery.Dataset;
 import com.google.cloud.bigquery.DatasetInfo;
 import com.google.cloud.bigquery.Field;
+import com.google.cloud.bigquery.FieldList;
 import com.google.cloud.bigquery.FieldValue;
 import com.google.cloud.bigquery.FormatOptions;
 import com.google.cloud.bigquery.Job;
@@ -16,6 +17,7 @@ import com.google.cloud.bigquery.JobId;
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.LegacySQLTypeName;
+import com.google.cloud.bigquery.PolicyTags;
 import com.google.cloud.bigquery.QueryJobConfiguration;
 import com.google.cloud.bigquery.StandardSQLTypeName;
 import com.google.cloud.bigquery.StandardTableDefinition;
@@ -75,15 +77,16 @@ public class BigqueryClient {
     private PluginTask task;
     private Schema schema;
     private List<BigqueryColumnOption> columnOptions;
+    private Table srcTable;
 
     public BigqueryClient(PluginTask task, Schema schema) {
         this.task = task;
         this.schema = schema;
         this.dataset = task.getDataset();
-        if (task.getLocation().isPresent()){
+        if (task.getLocation().isPresent()) {
             this.location = task.getLocation().get();
             this.locationForLog = task.getLocation().get();
-        }else{
+        } else {
             this.locationForLog = "us/eu";
         }
         this.columnOptions = this.task.getColumnOptions().orElse(Collections.emptyList());
@@ -92,6 +95,7 @@ public class BigqueryClient {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+        this.srcTable = (task.getMode().equals("replace") && task.getRetainColumnDescriptions()) ? getTable(task.getTable()) : null;
     }
 
     private static BigQuery getClientWithJsonKey(String key) throws IOException {
@@ -615,6 +619,15 @@ public class BigqueryClient {
             Field.Mode fieldMode = Field.Mode.NULLABLE;
             Optional<BigqueryColumnOption> columnOption = BigqueryUtil.findColumnOption(col.getName(), columnOptions);
             Field.Builder fieldBuilder = createFieldBuilder(task, col, columnOption);
+
+            if(srcTable != null && task.getRetainColumnDescriptions()){
+                FieldList srcFields = srcTable.getDefinition().getSchema().getFields();
+                if(srcFields != null) {
+                    srcFields.stream().filter(x -> x.getName().equals(col.getName()))
+                            .findFirst()
+                            .ifPresent(field -> fieldBuilder.setDescription(field.getDescription()));
+                }
+            }
 
             if (columnOption.isPresent()) {
                 BigqueryColumnOption colOpt = columnOption.get();

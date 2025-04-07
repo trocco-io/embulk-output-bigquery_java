@@ -162,4 +162,8 @@ public interface PluginTask
     @Config("merge_rule")
     @ConfigDefault("null")
     Optional<List<String>> getMergeRule();
+
+    @Config("retain_column_descriptions")
+    @ConfigDefault("false")
+    Boolean getRetainColumnDescriptions();
 }
