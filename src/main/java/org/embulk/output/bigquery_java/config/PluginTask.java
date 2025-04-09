@@ -1,13 +1,11 @@
 package org.embulk.output.bigquery_java.config;
 
+import org.embulk.util.config.Config;
+import org.embulk.util.config.ConfigDefault;
+import org.embulk.util.config.Task;
+
 import java.util.List;
 import java.util.Optional;
-
-import com.google.common.annotations.VisibleForTesting;
-import org.embulk.config.Config;
-import org.embulk.config.ConfigDefault;
-import org.embulk.config.Task;
-
 
 public interface PluginTask
         extends Task {
@@ -16,7 +14,6 @@ public interface PluginTask
     @ConfigDefault("\"append\"")
     String getMode();
 
-    @VisibleForTesting
     void setMode(String mode);
 
     // TODO: default should be application default
@@ -89,7 +86,6 @@ public interface PluginTask
     @ConfigDefault("true")
     boolean getAutoCreateTable();
 
-    @VisibleForTesting
     void setAutoCreateTable(boolean autoCreateTable);
 
     @Config("max_bad_records")

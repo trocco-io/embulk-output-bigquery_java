@@ -4,7 +4,6 @@ import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.converter.*;
-import org.embulk.spi.time.Timestamp;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
@@ -15,7 +14,8 @@ public class BigqueryValueConverter {
         BigqueryStringConverter.convertAndSet(node, name, src, bigqueryColumnOptionType, columnOption);
     }
 
-    public static void convertAndSet(ObjectNode node, String name, Timestamp src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption, PluginTask task) {
+    @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
+    public static void convertAndSet(ObjectNode node, String name, org.embulk.spi.time.Timestamp src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption, PluginTask task) {
         BigqueryTimestampConverter.convertAndSet(node, name, src, bigqueryColumnOptionType, columnOption, task);
     }
 

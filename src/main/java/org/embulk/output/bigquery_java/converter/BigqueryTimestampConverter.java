@@ -5,11 +5,11 @@ import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryNotSupportedTypeException;
-import org.embulk.spi.time.Timestamp;
-import org.embulk.spi.time.TimestampFormatter;
+import org.embulk.util.timestamp.TimestampFormatter;
 
 public class BigqueryTimestampConverter {
-    public static void convertAndSet(ObjectNode node, String name, Timestamp src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption, PluginTask task) {
+    @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
+    public static void convertAndSet(ObjectNode node, String name, org.embulk.spi.time.Timestamp src, BigqueryColumnOptionType bigqueryColumnOptionType, BigqueryColumnOption columnOption, PluginTask task) {
         TimestampFormatter timestampFormat;
         String timezone;
         switch (bigqueryColumnOptionType) {
@@ -22,15 +22,15 @@ public class BigqueryTimestampConverter {
             case STRING:
                 String format = columnOption.getTimestampFormat().orElse(task.getDefaultTimestampFormat());
                 timezone = columnOption.getTimezone();
-                timestampFormat = TimestampFormatter.of(format, timezone);
-                node.put(name, timestampFormat.format(src));
+                timestampFormat = TimestampFormatter.builder(format, true).setDefaultZoneFromString(timezone).build();
+                node.put(name, timestampFormat.format(src.getInstant()));
                 break;
             case TIMESTAMP:
                 if (src == null) {
                     node.putNull(name);
                 } else {
-                    timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N %:z", "UTC");
-                    node.put(name, timestampFormat.format(src));
+                    timestampFormat = TimestampFormatter.builder("%Y-%m-%d %H:%M:%S.%6N %:z", true).setDefaultZoneFromString("UTC").build();
+                    node.put(name, timestampFormat.format(src.getInstant()));
                 }
                 break;
             case DATETIME:
@@ -38,8 +38,8 @@ public class BigqueryTimestampConverter {
                     node.putNull(name);
                 } else {
                     timezone = columnOption.getTimezone();
-                    timestampFormat = TimestampFormatter.of("%Y-%m-%d %H:%M:%S.%6N", timezone);
-                    node.put(name, timestampFormat.format(src));
+                    timestampFormat = TimestampFormatter.builder("%Y-%m-%d %H:%M:%S.%6N", true).setDefaultZoneFromString(timezone).build();
+                    node.put(name, timestampFormat.format(src.getInstant()));
                 }
                 break;
             case DATE:
@@ -47,8 +47,8 @@ public class BigqueryTimestampConverter {
                     node.putNull(name);
                 } else {
                     timezone = columnOption.getTimezone();
-                    timestampFormat = TimestampFormatter.of("%Y-%m-%d", timezone);
-                    node.put(name, timestampFormat.format(src));
+                    timestampFormat = TimestampFormatter.builder("%Y-%m-%d", true).setDefaultZoneFromString(timezone).build();
+                    node.put(name, timestampFormat.format(src.getInstant()));
                 }
                 break;
             default:

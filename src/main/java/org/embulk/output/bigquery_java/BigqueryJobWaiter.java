@@ -1,16 +1,15 @@
 package org.embulk.output.bigquery_java;
 
-import java.util.Date;
-import java.util.List;
-import java.util.stream.Collectors;
-
-import org.embulk.output.bigquery_java.config.PluginTask;
+import static com.google.cloud.bigquery.JobStatus.State.DONE;
 
 import com.google.cloud.bigquery.BigQueryError;
 import com.google.cloud.bigquery.Job;
 import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.JobStatus;
-
+import java.util.Date;
+import java.util.List;
+import java.util.stream.Collectors;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
@@ -18,9 +17,6 @@ import org.embulk.output.bigquery_java.exception.BigqueryJobTimeoutException;
 import org.embulk.output.bigquery_java.exception.BigqueryRateLimitExceededException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-
-import static com.google.cloud.bigquery.JobStatus.State.DONE;
 
 public class BigqueryJobWaiter {
     private final Logger logger = LoggerFactory.getLogger(BigqueryJobWaiter.class);
