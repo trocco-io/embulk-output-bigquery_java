@@ -15,7 +15,7 @@ jobs:
         with:
           java-version: 8
           distribution: "zulu"
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
@@ -36,7 +36,7 @@ jobs:
       packages: write
       contents: read
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Set up Ruby 2.7
         uses: ruby/setup-ruby@v1
         with:
@@ -46,7 +46,7 @@ jobs:
         with:
           java-version: 8
           distribution: "zulu"
-      - uses: actions/cache@v3
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
