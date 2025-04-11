@@ -160,4 +160,12 @@ public interface PluginTask extends Task {
   @Config("merge_rule")
   @ConfigDefault("null")
   Optional<List<String>> getMergeRule();
+
+  @Config("retain_column_descriptions")
+  @ConfigDefault("false")
+  Boolean getRetainColumnDescriptions();
+
+  @Config("retain_column_policy_tags")
+  @ConfigDefault("false")
+  Boolean getRetainColumnPolicyTags();
 }
