@@ -20,6 +20,7 @@ import org.embulk.spi.Schema;
 import org.embulk.spi.type.Types;
 import org.embulk.util.config.ConfigMapper;
 import org.embulk.util.config.ConfigMapperFactory;
+import org.embulk.util.config.units.LocalFile;
 import org.junit.Test;
 import org.msgpack.value.Value;
 import org.msgpack.value.impl.ImmutableArrayValueImpl;
@@ -130,7 +131,7 @@ public class TestJsonColumnVisitor {
       throws JsonProcessingException {
     ConfigSource configSource = CONFIG_MAPPER_FACTORY.newConfigSource();
     configSource.set("mode", "replace");
-    configSource.set("json_keyfile", "test");
+    configSource.set("json_keyfile", LocalFile.ofContent(""));
     configSource.set("dataset", "test");
     configSource.set("table", "test");
     configSource.set("source_format", "NEWLINE_DELIMITED_JSON");

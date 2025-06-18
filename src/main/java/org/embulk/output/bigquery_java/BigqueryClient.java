@@ -1,6 +1,6 @@
 package org.embulk.output.bigquery_java;
 
-import com.google.auth.oauth2.ServiceAccountCredentials;
+import com.google.api.services.bigquery.BigqueryScopes;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.BigQueryException;
 import com.google.cloud.bigquery.BigQueryOptions;
@@ -27,7 +27,6 @@ import com.google.cloud.bigquery.TableInfo;
 import com.google.cloud.bigquery.TableResult;
 import com.google.cloud.bigquery.TimePartitioning;
 import com.google.cloud.bigquery.WriteChannelConfiguration;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.channels.Channels;
@@ -88,15 +87,15 @@ public class BigqueryClient {
     }
     columnOptions = task.getColumnOptions().orElse(Collections.emptyList());
     try {
-      bigquery = getClientWithJsonKey(task.getJsonKeyfile());
+      bigquery = getBigQueryService();
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
   }
 
-  private static BigQuery getClientWithJsonKey(String key) throws IOException {
+  private BigQuery getBigQueryService() throws IOException {
     return BigQueryOptions.newBuilder()
-        .setCredentials(ServiceAccountCredentials.fromStream(new FileInputStream(key)))
+        .setCredentials(new Auth(task).getCredentials(BigqueryScopes.BIGQUERY))
         .build()
         .getService();
   }
