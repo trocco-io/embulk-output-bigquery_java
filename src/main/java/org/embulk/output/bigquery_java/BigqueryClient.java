@@ -7,6 +7,7 @@ import com.google.cloud.bigquery.BigQueryOptions;
 import com.google.cloud.bigquery.Clustering;
 import com.google.cloud.bigquery.CopyJobConfiguration;
 import com.google.cloud.bigquery.Dataset;
+import com.google.cloud.bigquery.DatasetId;
 import com.google.cloud.bigquery.DatasetInfo;
 import com.google.cloud.bigquery.Field;
 import com.google.cloud.bigquery.FieldValue;
@@ -27,6 +28,7 @@ import com.google.cloud.bigquery.TableInfo;
 import com.google.cloud.bigquery.TableResult;
 import com.google.cloud.bigquery.TimePartitioning;
 import com.google.cloud.bigquery.WriteChannelConfiguration;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.channels.Channels;
@@ -61,13 +63,17 @@ import org.embulk.spi.type.Type;
 import org.embulk.util.retryhelper.RetryExecutor;
 import org.embulk.util.retryhelper.RetryGiveupException;
 import org.embulk.util.retryhelper.Retryable;
+import org.json.JSONObject;
+import org.json.JSONTokener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class BigqueryClient {
   private final Logger logger = LoggerFactory.getLogger(BigqueryClient.class);
   private final BigQuery bigquery;
-  private final String dataset;
+  private final String project;
+  public final String destinationProject; // FIXME: should be private
+  public final String destinationDataset; // FIXME: should be private
   private final String location;
   private final String locationForLog;
   private final PluginTask task;
@@ -77,7 +83,9 @@ public class BigqueryClient {
   public BigqueryClient(PluginTask task, Schema schema) {
     this.task = task;
     this.schema = schema;
-    dataset = task.getDataset();
+    project = task.getProject().orElse(getProjectIdFromJsonKeyfile());
+    destinationProject = task.getDestinationProject().orElse(project);
+    destinationDataset = task.getDataset();
     if (task.getLocation().isPresent()) {
       location = task.getLocation().get();
       locationForLog = task.getLocation().get();
@@ -93,42 +101,73 @@ public class BigqueryClient {
     }
   }
 
+  private String getProjectIdFromJsonKeyfile() {
+    return new JSONObject(
+            new JSONTokener(new ByteArrayInputStream(task.getJsonKeyfile().getContent())))
+        .getString("project_id");
+  }
+
   private BigQuery getBigQueryService() throws IOException {
     return BigQueryOptions.newBuilder()
         .setCredentials(new Auth(task).getCredentials(BigqueryScopes.BIGQUERY))
+        .setProjectId(project)
         .build()
         .getService();
   }
 
-  public Dataset createDataset(String datasetId) {
-    DatasetInfo.Builder builder = DatasetInfo.newBuilder(datasetId);
+  public Dataset createDataset() {
+    return createDataset(destinationDataset);
+  }
+
+  public Dataset createDataset(String dataset) {
+    return createDataset(destinationProject, dataset);
+  }
+
+  private Dataset createDataset(String project, String dataset) {
+    DatasetInfo.Builder builder = DatasetInfo.newBuilder(DatasetId.of(project, dataset));
     if (location != null) {
       builder.setLocation(location);
     }
     return bigquery.create(builder.build());
   }
 
-  public Dataset getDataset(String datasetId) {
-    return bigquery.getDataset(datasetId);
+  public Dataset getDataset() {
+    return getDataset(destinationDataset);
+  }
+
+  public Dataset getDataset(String dataset) {
+    return getDataset(destinationProject, dataset);
+  }
+
+  private Dataset getDataset(String project, String dataset) {
+    return bigquery.getDataset(DatasetId.of(project, dataset));
   }
 
   public Job getJob(JobId jobId) {
     return bigquery.getJob(jobId);
   }
 
-  public Table getTable(String name) {
-    return getTable(TableId.of(dataset, name));
+  public Table getTable(String table) {
+    return getTable(table, destinationDataset);
   }
 
-  public Table getTable(TableId tableId) {
-    return bigquery.getTable(tableId);
+  private Table getTable(String table, String dataset) {
+    return getTable(table, dataset, destinationProject);
+  }
+
+  private Table getTable(String table, String dataset, String project) {
+    return bigquery.getTable(TableId.of(project, dataset, table));
   }
 
   public void createTableIfNotExist(String table) {
-    createTableIfNotExist(table, dataset);
+    createTableIfNotExist(table, destinationDataset);
   }
 
   public void createTableIfNotExist(String table, String dataset) {
+    createTableIfNotExist(table, dataset, destinationProject);
+  }
+
+  private void createTableIfNotExist(String table, String dataset, String project) {
     StandardTableDefinition.Builder tableDefinitionBuilder = StandardTableDefinition.newBuilder();
     tableDefinitionBuilder.setSchema(buildSchema(schema, columnOptions));
     if (task.getTimePartitioning().isPresent()) {
@@ -142,14 +181,17 @@ public class BigqueryClient {
     TableDefinition tableDefinition = tableDefinitionBuilder.build();
 
     try {
-      bigquery.create(TableInfo.newBuilder(TableId.of(dataset, table), tableDefinition).build());
+      bigquery.create(
+          TableInfo.newBuilder(TableId.of(project, dataset, table), tableDefinition).build());
     } catch (BigQueryException e) {
       if (e.getCode() == 409 && e.getMessage().contains("Already Exists:")) {
         return;
       }
-      logger.error(String.format("embulk-out_bigquery: insert_table(%s, %s)", dataset, table));
+      logger.error(
+          String.format("embulk-out_bigquery: insert_table(%s:%s.%s)", project, dataset, table));
       throw new BigqueryException(
-          String.format("failed to create table %s.%s, response: %s", dataset, table, e));
+          String.format(
+              "failed to create table %s:%s.%s, response: %s", project, dataset, table, e));
     }
   }
 
@@ -205,10 +247,11 @@ public class BigqueryClient {
 
                   if (Files.exists(loadFile)) {
                     logger.info(
-                        "embulk-output-bigquery: Load job starting... job_id:[{}] {} => {}.{} in {}",
+                        "embulk-output-bigquery: Load job starting... job_id:[{}] {} => {}:{}.{} in {}",
                         jobId,
                         loadFile,
-                        dataset,
+                        destinationProject,
+                        destinationDataset,
                         table,
                         locationForLog);
                   } else {
@@ -219,7 +262,7 @@ public class BigqueryClient {
                     return null;
                   }
 
-                  TableId tableId = TableId.of(dataset, table);
+                  TableId tableId = TableId.of(destinationProject, destinationDataset, table);
                   WriteChannelConfiguration writeChannelConfiguration =
                       WriteChannelConfiguration.newBuilder(tableId)
                           .setFormatOptions(FormatOptions.json())
@@ -282,10 +325,25 @@ public class BigqueryClient {
   }
 
   public JobStatistics.CopyStatistics copy(
+      String sourceTable, String destinationTable, JobInfo.WriteDisposition writeDisposition)
+      throws BigqueryException {
+    return copy(sourceTable, destinationTable, destinationDataset, writeDisposition);
+  }
+
+  public JobStatistics.CopyStatistics copy(
       String sourceTable,
       String destinationTable,
       String destinationDataset,
       JobInfo.WriteDisposition writeDisposition)
+      throws BigqueryException {
+    return copy(
+        TableId.of(destinationProject, this.destinationDataset, sourceTable),
+        TableId.of(destinationProject, destinationDataset, destinationTable),
+        writeDisposition);
+  }
+
+  private JobStatistics.CopyStatistics copy(
+      TableId sourceTable, TableId destinationTable, JobInfo.WriteDisposition writeDisposition)
       throws BigqueryException {
     int retries = task.getRetries();
 
@@ -301,11 +359,9 @@ public class BigqueryClient {
                 public JobStatistics.CopyStatistics call() {
                   UUID uuid = UUID.randomUUID();
                   String jobId = String.format("embulk_load_job_%s", uuid);
-                  TableId destTableId = TableId.of(destinationDataset, destinationTable);
-                  TableId srcTableId = TableId.of(dataset, sourceTable);
 
                   CopyJobConfiguration copyJobConfiguration =
-                      CopyJobConfiguration.newBuilder(destTableId, srcTableId)
+                      CopyJobConfiguration.newBuilder(destinationTable, sourceTable)
                           .setWriteDisposition(writeDisposition)
                           .build();
 
@@ -361,12 +417,16 @@ public class BigqueryClient {
       String sourceTable, String targetTable, List<String> mergeKeys, List<String> mergeRule) {
     StringBuilder sb = new StringBuilder();
     sb.append("MERGE ");
-    sb.append(quoteIdentifier(dataset));
+    sb.append(quoteIdentifier(destinationProject));
+    sb.append(".");
+    sb.append(quoteIdentifier(destinationDataset));
     sb.append(".");
     sb.append(quoteIdentifier(targetTable));
     sb.append(" T");
     sb.append(" USING ");
-    sb.append(quoteIdentifier(dataset));
+    sb.append(quoteIdentifier(destinationProject));
+    sb.append(".");
+    sb.append(quoteIdentifier(destinationDataset));
     sb.append(".");
     sb.append(quoteIdentifier(sourceTable));
     sb.append(" S");
@@ -391,10 +451,14 @@ public class BigqueryClient {
         "SELECT"
             + " KCU.COLUMN_NAME "
             + "FROM "
-            + quoteIdentifier(dataset)
+            + quoteIdentifier(destinationProject)
+            + "."
+            + quoteIdentifier(destinationDataset)
             + ".INFORMATION_SCHEMA.KEY_COLUMN_USAGE KCU "
             + "JOIN "
-            + quoteIdentifier(dataset)
+            + quoteIdentifier(destinationProject)
+            + "."
+            + quoteIdentifier(destinationDataset)
             + ".INFORMATION_SCHEMA.TABLE_CONSTRAINTS TC "
             + "ON"
             + " KCU.CONSTRAINT_CATALOG = TC.CONSTRAINT_CATALOG AND"
@@ -609,28 +673,31 @@ public class BigqueryClient {
   }
 
   public boolean deleteTable(String table) {
-    return deleteTable(table, null);
+    return deleteTable(table, destinationDataset);
   }
 
-  public boolean deleteTable(String table, String dataset) {
-    if (dataset == null) {
-      dataset = this.dataset;
-    }
+  private boolean deleteTable(String table, String dataset) {
+    return deleteTable(table, dataset, destinationProject);
+  }
+
+  private boolean deleteTable(String table, String dataset, String project) {
     String chompedTable = BigqueryUtil.chompPartitionDecorator(table);
-    return deleteTableOrPartition(chompedTable, dataset);
+    return deleteTableOrPartition(chompedTable, dataset, project);
   }
 
   public boolean deleteTableOrPartition(String table) {
-    return deleteTableOrPartition(table, null);
+    return deleteTableOrPartition(table, destinationDataset);
+  }
+
+  private boolean deleteTableOrPartition(String table, String dataset) {
+    return deleteTableOrPartition(table, dataset, destinationProject);
   }
 
   //  if `table` with a partition decorator is given, a partition is deleted.
-  public boolean deleteTableOrPartition(String table, String dataset) {
-    if (dataset == null) {
-      dataset = this.dataset;
-    }
-    logger.info(String.format("embulk-output-bigquery: Delete table... %s.%s", dataset, table));
-    return bigquery.delete(TableId.of(dataset, table));
+  private boolean deleteTableOrPartition(String table, String dataset, String project) {
+    logger.info(
+        String.format("embulk-output-bigquery: Delete table... %s:%s.%s", project, dataset, table));
+    return bigquery.delete(TableId.of(project, dataset, table));
   }
 
   private JobStatistics waitForLoad(Job job) throws BigqueryException {
@@ -650,8 +717,7 @@ public class BigqueryClient {
     // TODO: support schema file
 
     if (task.getTemplateTable().isPresent()) {
-      TableId tableId = TableId.of(dataset, task.getTemplateTable().get());
-      Table table = bigquery.getTable(tableId);
+      Table table = getTable(destinationProject, destinationDataset, task.getTemplateTable().get());
       return table.getDefinition().getSchema();
     }
 

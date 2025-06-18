@@ -23,6 +23,14 @@ public interface PluginTask extends Task {
   @Config("json_keyfile")
   LocalFile getJsonKeyfile();
 
+  @Config("project")
+  @ConfigDefault("null")
+  Optional<String> getProject();
+
+  @Config("destination_project")
+  @ConfigDefault("null")
+  Optional<String> getDestinationProject();
+
   @Config("dataset")
   String getDataset();
 
