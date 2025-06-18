@@ -67,27 +67,28 @@ import org.slf4j.LoggerFactory;
 
 public class BigqueryClient {
   private final Logger logger = LoggerFactory.getLogger(BigqueryClient.class);
-  private BigQuery bigquery;
-  private String dataset;
-  private String location;
-  private String locationForLog;
-  private PluginTask task;
-  private Schema schema;
-  private List<BigqueryColumnOption> columnOptions;
+  private final BigQuery bigquery;
+  private final String dataset;
+  private final String location;
+  private final String locationForLog;
+  private final PluginTask task;
+  private final Schema schema;
+  private final List<BigqueryColumnOption> columnOptions;
 
   public BigqueryClient(PluginTask task, Schema schema) {
     this.task = task;
     this.schema = schema;
-    this.dataset = task.getDataset();
+    dataset = task.getDataset();
     if (task.getLocation().isPresent()) {
-      this.location = task.getLocation().get();
-      this.locationForLog = task.getLocation().get();
+      location = task.getLocation().get();
+      locationForLog = task.getLocation().get();
     } else {
-      this.locationForLog = "us/eu";
+      location = null;
+      locationForLog = "us/eu";
     }
-    this.columnOptions = this.task.getColumnOptions().orElse(Collections.emptyList());
+    columnOptions = task.getColumnOptions().orElse(Collections.emptyList());
     try {
-      this.bigquery = getClientWithJsonKey(this.task.getJsonKeyfile());
+      bigquery = getClientWithJsonKey(task.getJsonKeyfile());
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
@@ -102,8 +103,8 @@ public class BigqueryClient {
 
   public Dataset createDataset(String datasetId) {
     DatasetInfo.Builder builder = DatasetInfo.newBuilder(datasetId);
-    if (this.location != null) {
-      builder.setLocation(this.location);
+    if (location != null) {
+      builder.setLocation(location);
     }
     return bigquery.create(builder.build());
   }
@@ -113,15 +114,15 @@ public class BigqueryClient {
   }
 
   public Job getJob(JobId jobId) {
-    return this.bigquery.getJob(jobId);
+    return bigquery.getJob(jobId);
   }
 
   public Table getTable(String name) {
-    return getTable(TableId.of(this.dataset, name));
+    return getTable(TableId.of(dataset, name));
   }
 
   public Table getTable(TableId tableId) {
-    return this.bigquery.getTable(tableId);
+    return bigquery.getTable(tableId);
   }
 
   public void createTableIfNotExist(String table) {
@@ -129,18 +130,15 @@ public class BigqueryClient {
   }
 
   public void createTableIfNotExist(String table, String dataset) {
-    com.google.cloud.bigquery.Schema schema = buildSchema(this.schema, this.columnOptions);
     StandardTableDefinition.Builder tableDefinitionBuilder = StandardTableDefinition.newBuilder();
-    tableDefinitionBuilder.setSchema(schema);
-    if (this.task.getTimePartitioning().isPresent()) {
+    tableDefinitionBuilder.setSchema(buildSchema(schema, columnOptions));
+    if (task.getTimePartitioning().isPresent()) {
       tableDefinitionBuilder.setTimePartitioning(
-          buildTimePartitioning(this.task.getTimePartitioning().get()));
+          buildTimePartitioning(task.getTimePartitioning().get()));
     }
-    if (this.task.getClustering().isPresent()) {
+    if (task.getClustering().isPresent()) {
       tableDefinitionBuilder.setClustering(
-          Clustering.newBuilder()
-              .setFields(this.task.getClustering().get().getFields().get())
-              .build());
+          Clustering.newBuilder().setFields(task.getClustering().get().getFields().get()).build());
     }
     TableDefinition tableDefinition = tableDefinitionBuilder.build();
 
@@ -189,11 +187,7 @@ public class BigqueryClient {
   public JobStatistics.LoadStatistics load(
       Path loadFile, String table, JobInfo.WriteDisposition writeDisposition)
       throws BigqueryException {
-    String dataset = this.dataset;
-    int retries = this.task.getRetries();
-    PluginTask task = this.task;
-    Schema schema = this.schema;
-    List<BigqueryColumnOption> columnOptions = this.columnOptions;
+    int retries = task.getRetries();
 
     try {
       // https://cloud.google.com/bigquery/quotas#standard_tables
@@ -208,20 +202,20 @@ public class BigqueryClient {
                 @Override
                 public JobStatistics.LoadStatistics call() {
                   UUID uuid = UUID.randomUUID();
-                  String jobId = String.format("embulk_load_job_%s", uuid.toString());
+                  String jobId = String.format("embulk_load_job_%s", uuid);
 
                   if (Files.exists(loadFile)) {
                     logger.info(
                         "embulk-output-bigquery: Load job starting... job_id:[{}] {} => {}.{} in {}",
                         jobId,
-                        loadFile.toString(),
+                        loadFile,
                         dataset,
                         table,
                         locationForLog);
                   } else {
                     logger.info(
                         "embulk-output-bigquery: Load job starting... {} does not exist, skipped",
-                        loadFile.toString());
+                        loadFile);
                     // TODO: should throw error?
                     return null;
                   }
@@ -294,8 +288,7 @@ public class BigqueryClient {
       String destinationDataset,
       JobInfo.WriteDisposition writeDisposition)
       throws BigqueryException {
-    String dataset = this.dataset;
-    int retries = this.task.getRetries();
+    int retries = task.getRetries();
 
     try {
       return RetryExecutor.builder()
@@ -308,7 +301,7 @@ public class BigqueryClient {
                 @Override
                 public JobStatistics.CopyStatistics call() {
                   UUID uuid = UUID.randomUUID();
-                  String jobId = String.format("embulk_load_job_%s", uuid.toString());
+                  String jobId = String.format("embulk_load_job_%s", uuid);
                   TableId destTableId = TableId.of(destinationDataset, destinationTable);
                   TableId srcTableId = TableId.of(dataset, sourceTable);
 
@@ -548,8 +541,7 @@ public class BigqueryClient {
   }
 
   public JobStatistics.QueryStatistics executeQuery(String query) {
-    int retries = this.task.getRetries();
-    String location = this.location;
+    int retries = task.getRetries();
 
     try {
       return RetryExecutor.builder()
@@ -562,7 +554,7 @@ public class BigqueryClient {
                 @Override
                 public JobStatistics.QueryStatistics call() {
                   UUID uuid = UUID.randomUUID();
-                  String jobId = String.format("embulk_query_job_%s", uuid.toString());
+                  String jobId = String.format("embulk_query_job_%s", uuid);
 
                   QueryJobConfiguration queryConfig =
                       QueryJobConfiguration.newBuilder(query).setUseLegacySql(false).build();
@@ -639,28 +631,28 @@ public class BigqueryClient {
       dataset = this.dataset;
     }
     logger.info(String.format("embulk-output-bigquery: Delete table... %s.%s", dataset, table));
-    return this.bigquery.delete(TableId.of(dataset, table));
+    return bigquery.delete(TableId.of(dataset, table));
   }
 
   private JobStatistics waitForLoad(Job job) throws BigqueryException {
-    return new BigqueryJobWaiter(this.task, this, job).waitFor("Load");
+    return new BigqueryJobWaiter(task, this, job).waitFor("Load");
   }
 
   private JobStatistics waitForCopy(Job job) throws BigqueryException {
-    return new BigqueryJobWaiter(this.task, this, job).waitFor("Copy");
+    return new BigqueryJobWaiter(task, this, job).waitFor("Copy");
   }
 
   private JobStatistics waitForQuery(Job job) throws BigqueryException {
-    return new BigqueryJobWaiter(this.task, this, job).waitFor("Query");
+    return new BigqueryJobWaiter(task, this, job).waitFor("Query");
   }
 
-  protected com.google.cloud.bigquery.Schema buildSchema(
+  private com.google.cloud.bigquery.Schema buildSchema(
       Schema schema, List<BigqueryColumnOption> columnOptions) {
     // TODO: support schema file
 
-    if (this.task.getTemplateTable().isPresent()) {
-      TableId tableId = TableId.of(this.dataset, this.task.getTemplateTable().get());
-      Table table = this.bigquery.getTable(tableId);
+    if (task.getTemplateTable().isPresent()) {
+      TableId tableId = TableId.of(dataset, task.getTemplateTable().get());
+      Table table = bigquery.getTable(tableId);
       return table.getDefinition().getSchema();
     }
 
@@ -690,7 +682,7 @@ public class BigqueryClient {
     return com.google.cloud.bigquery.Schema.of(fields);
   }
 
-  protected Field.Builder createFieldBuilder(
+  private Field.Builder createFieldBuilder(
       PluginTask task, Column col, Optional<BigqueryColumnOption> columnOption) {
     StandardSQLTypeName sqlTypeName = getStandardSQLTypeNameByEmbulkType(col.getType());
     LegacySQLTypeName legacySQLTypeName = getLegacySQLTypeNameByEmbulkType(col.getType());
@@ -712,7 +704,7 @@ public class BigqueryClient {
     }
   }
 
-  protected StandardSQLTypeName getStandardSQLTypeNameByEmbulkType(Type type) {
+  private StandardSQLTypeName getStandardSQLTypeNameByEmbulkType(Type type) {
     if (type instanceof BooleanType) {
       return StandardSQLTypeName.BOOL;
     } else if (type instanceof LongType) {
@@ -730,7 +722,7 @@ public class BigqueryClient {
     }
   }
 
-  protected LegacySQLTypeName getLegacySQLTypeNameByEmbulkType(Type type) {
+  private LegacySQLTypeName getLegacySQLTypeNameByEmbulkType(Type type) {
     if (type instanceof BooleanType) {
       return LegacySQLTypeName.BOOLEAN;
     } else if (type instanceof LongType) {
