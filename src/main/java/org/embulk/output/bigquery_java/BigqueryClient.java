@@ -44,6 +44,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import org.embulk.config.ConfigException;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -83,7 +84,7 @@ public class BigqueryClient {
   public BigqueryClient(PluginTask task, Schema schema) {
     this.task = task;
     this.schema = schema;
-    project = task.getProject().orElse(getProjectIdFromJsonKeyfile());
+    project = task.getProject().orElseGet(this::getProjectIdFromJsonKeyfile);
     destinationProject = task.getDestinationProject().orElse(project);
     destinationDataset = task.getDataset();
     if (task.getLocation().isPresent()) {
@@ -102,9 +103,14 @@ public class BigqueryClient {
   }
 
   private String getProjectIdFromJsonKeyfile() {
-    return new JSONObject(
-            new JSONTokener(new ByteArrayInputStream(task.getJsonKeyfile().getContent())))
-        .getString("project_id");
+    String projectId =
+        new JSONObject(
+                new JSONTokener(new ByteArrayInputStream(task.getJsonKeyfile().getContent())))
+            .getString("project_id");
+    if (projectId == null) {
+      throw new ConfigException("Either project or project_id in json_keyfile is required");
+    }
+    return projectId;
   }
 
   private BigQuery getBigQueryService() throws IOException {
