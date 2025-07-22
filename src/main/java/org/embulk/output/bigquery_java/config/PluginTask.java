@@ -5,6 +5,7 @@ import java.util.Optional;
 import org.embulk.util.config.Config;
 import org.embulk.util.config.ConfigDefault;
 import org.embulk.util.config.Task;
+import org.embulk.util.config.units.LocalFile;
 
 public interface PluginTask extends Task {
 
@@ -20,7 +21,15 @@ public interface PluginTask extends Task {
   String getAuthMethod();
 
   @Config("json_keyfile")
-  String getJsonKeyfile();
+  LocalFile getJsonKeyfile();
+
+  @Config("project")
+  @ConfigDefault("null")
+  Optional<String> getProject();
+
+  @Config("destination_project")
+  @ConfigDefault("null")
+  Optional<String> getDestinationProject();
 
   @Config("dataset")
   String getDataset();

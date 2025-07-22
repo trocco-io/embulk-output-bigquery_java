@@ -1,7 +1,7 @@
 type: bigquery_java
 mode: replace
 auth_method: service_account
-json_keyfile: json_key.json
+json_keyfile: { content: "" }
 dataset: dataset
 table: table
 source_format: NEWLINE_DELIMITED_JSON
