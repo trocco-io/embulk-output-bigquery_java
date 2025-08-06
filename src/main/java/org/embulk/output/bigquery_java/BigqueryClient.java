@@ -723,7 +723,7 @@ public class BigqueryClient {
     // TODO: support schema file
 
     if (task.getTemplateTable().isPresent()) {
-      Table table = getTable(destinationProject, destinationDataset, task.getTemplateTable().get());
+      Table table = getTable(task.getTemplateTable().get());
       return table.getDefinition().getSchema();
     }
 
