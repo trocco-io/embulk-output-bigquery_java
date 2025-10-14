@@ -1,7 +1,8 @@
 type: bigquery_java
 mode: replace
 auth_method: service_account
-json_keyfile: json_key.json
+json_keyfile:
+  content: '{"project_id":"dummy","type":"service_account","client_id":"dummy","client_email":"test@example.com","private_key":"dummy","private_key_id":"dummy"}'
 dataset: dataset
 table: table
 source_format: NEWLINE_DELIMITED_JSON

@@ -25,13 +25,13 @@ import org.embulk.spi.OutputPlugin;
 import org.embulk.spi.ParserPlugin;
 import org.embulk.spi.Schema;
 import org.embulk.spi.type.Types;
-import org.embulk.test.EmbulkTests;
 import org.embulk.test.TestingEmbulk;
 import org.embulk.util.config.ConfigMapper;
 import org.embulk.util.config.ConfigMapperFactory;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.Mockito;
 
 public class TestBigqueryClient {
   protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
@@ -64,16 +64,26 @@ public class TestBigqueryClient {
           setupField1)
       throws NoSuchFieldException, IllegalAccessException, NoSuchMethodException,
           InvocationTargetException {
-    ConfigSource testConfig = EmbulkTests.config("EMBULK_OUTPUT_BIGQUERY_TEST_CONFIG");
-    TestBigqueryJavaOutputPlugin.TestTask testTask =
-        CONFIG_MAPPER.map(testConfig, TestBigqueryJavaOutputPlugin.TestTask.class);
     ConfigSource config = loadYamlResource(embulk, "takeover.yml");
-    config.set("json_keyfile", testTask.getJsonKeyfile());
-    config.set("dataset", testTask.getDataset());
-    config.set("table", testTask.getTable());
     PluginTask task = CONFIG_MAPPER.map(setupConfig.apply(config), PluginTask.class);
     Schema schema = Schema.builder().add("c0", Types.LONG).add("c1", Types.STRING).build();
-    BigqueryClient bigqueryClient = new BigqueryClient(task, schema);
+
+    // Create a partial mock that avoids BigQuery service initialization
+    BigqueryClient bigqueryClient = Mockito.mock(BigqueryClient.class);
+
+    // Set required fields for buildSchema method to work
+    Field taskField = BigqueryClient.class.getDeclaredField("task");
+    taskField.setAccessible(true);
+    taskField.set(bigqueryClient, task);
+
+    Field schemaField = BigqueryClient.class.getDeclaredField("schema");
+    schemaField.setAccessible(true);
+    schemaField.set(bigqueryClient, schema);
+
+    Field columnOptionsField = BigqueryClient.class.getDeclaredField("columnOptions");
+    columnOptionsField.setAccessible(true);
+    columnOptionsField.set(
+        bigqueryClient, task.getColumnOptions().orElse(java.util.Collections.emptyList()));
     Field field = BigqueryClient.class.getDeclaredField("cachedSrcFields");
     field.setAccessible(true);
     List<com.google.cloud.bigquery.Field> fieldList = new ArrayList<>();
@@ -84,10 +94,12 @@ public class TestBigqueryClient {
         setupField1.apply(
             com.google.cloud.bigquery.Field.newBuilder("c1", StandardSQLTypeName.STRING)));
     field.set(bigqueryClient, FieldList.of(fieldList));
-    Method method = BigqueryClient.class.getDeclaredMethod("buildSchema", Schema.class, List.class);
-    method.setAccessible(true);
+
+    Method buildSchemaMethod =
+        BigqueryClient.class.getDeclaredMethod("buildSchema", Schema.class, List.class);
+    buildSchemaMethod.setAccessible(true);
     return (com.google.cloud.bigquery.Schema)
-        method.invoke(bigqueryClient, schema, task.getColumnOptions().orElse(null));
+        buildSchemaMethod.invoke(bigqueryClient, schema, task.getColumnOptions().orElse(null));
   }
 
   private com.google.cloud.bigquery.Schema invokeRetainDescriptionBuildSchema(
