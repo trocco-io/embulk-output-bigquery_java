@@ -63,7 +63,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     }
     if (paths.isEmpty()) {
       logger.info("embulk-output-bigquery: Nothing for transfer");
-      client.createTableIfNotExist(task.getTable(), task.getDataset());
+      client.createTableIfNotExist(task.getTable());
 
       switch (task.getMode()) {
         case "merge":
@@ -119,6 +119,15 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       client.executeQuery(task.getBeforeLoad().get());
     }
 
+    if (task.getMode().equals("replace_backup")) {
+      if (task.getOldTable().isPresent()) {
+        client.copy(
+            task.getTable(),
+            task.getOldTable().get(),
+            task.getOldDataset().orElse(client.destinationDataset),
+            JobInfo.WriteDisposition.WRITE_TRUNCATE);
+      }
+    }
     if (task.getTempTable().isPresent()) {
       if (task.getMode().equals("merge")) {
         client.merge(
@@ -128,16 +137,10 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
             task.getMergeRule().orElse(Collections.emptyList()));
       } else if (task.getMode().equals("append")) {
         client.copy(
-            task.getTempTable().get(),
-            task.getTable(),
-            task.getDataset(),
-            JobInfo.WriteDisposition.WRITE_APPEND);
+            task.getTempTable().get(), task.getTable(), JobInfo.WriteDisposition.WRITE_APPEND);
       } else {
         client.copy(
-            task.getTempTable().get(),
-            task.getTable(),
-            task.getDataset(),
-            JobInfo.WriteDisposition.WRITE_TRUNCATE);
+            task.getTempTable().get(), task.getTable(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
       }
       client.deleteTable(task.getTempTable().get());
     }
@@ -177,22 +180,24 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
 
   protected void autoCreate(PluginTask task, BigqueryClient client) {
 
-    if (client.getDataset(task.getDataset()) == null) {
+    if (client.getDataset() == null) {
       if (task.getAutoCreateDataset()) {
-        client.createDataset(task.getDataset());
+        client.createDataset();
       } else {
-        throw new BigqueryException(String.format("dataset %s is not found", task.getDataset()));
+        throw new BigqueryException(
+            String.format("dataset %s is not found", client.destinationDataset));
       }
     }
 
     if (task.getMode().equals("replace_backup")
         && task.getOldDataset().isPresent()
-        && !task.getOldDataset().get().equals(task.getDataset())) {
+        && !task.getOldDataset().get().equals(client.destinationDataset)) {
       if (client.getDataset(task.getOldDataset().get()) == null) {
         if (task.getAutoCreateDataset()) {
-          client.createDataset(task.getDataset());
+          client.createDataset(task.getOldDataset().get());
         } else {
-          throw new BigqueryException(String.format("dataset %s is not found", task.getDataset()));
+          throw new BigqueryException(
+              String.format("dataset %s is not found", task.getOldDataset().get()));
         }
       }
     }
@@ -200,20 +205,20 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     switch (task.getMode()) {
       case "delete_in_advance":
         client.deleteTableOrPartition(task.getTable());
-        client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
+        client.createTableIfNotExist(task.getTempTable().get());
         break;
       case "replace":
-        client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
+        client.createTableIfNotExist(task.getTempTable().get());
         // TODO: create table to support partition
         break;
       case "append":
-        client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
+        client.createTableIfNotExist(task.getTempTable().get());
         // TODO: create table to support partition
         break;
       case "merge":
-        client.createTableIfNotExist(task.getTempTable().get(), task.getDataset());
-        client.createTableIfNotExist(
-            task.getTable()); // needs for when task['table'] is a partition
+        client.createTableIfNotExist(task.getTempTable().get());
+        // needs for when task['table'] is a partition
+        client.createTableIfNotExist(task.getTable());
         break;
       case "replace_backup":
         client.createTableIfNotExist(task.getTemplateTable().get());
@@ -223,14 +228,14 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
         break;
       case "append_direct":
         if (task.getAutoCreateTable()) {
-          client.createTableIfNotExist(task.getTable(), task.getDataset());
+          client.createTableIfNotExist(task.getTable());
         } else {
           Table table = client.getTable(task.getTable());
           if (table == null) {
             throw new BigqueryException(
                 String.format(
-                    "%s.%s not found, create table or enable auto_create_table",
-                    task.getDataset(), task.getTable()));
+                    "%s:%s.%s not found, create table or enable auto_create_table",
+                    client.destinationProject, client.destinationDataset, task.getTable()));
           }
         }
         break;

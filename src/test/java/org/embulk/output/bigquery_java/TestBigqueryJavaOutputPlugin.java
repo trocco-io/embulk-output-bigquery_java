@@ -26,6 +26,7 @@ import org.embulk.util.config.Config;
 import org.embulk.util.config.ConfigMapper;
 import org.embulk.util.config.ConfigMapperFactory;
 import org.embulk.util.config.Task;
+import org.embulk.util.config.units.LocalFile;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -85,7 +86,7 @@ public class TestBigqueryJavaOutputPlugin {
 
   public interface TestTask extends Task {
     @Config("json_keyfile")
-    String getJsonKeyfile();
+    LocalFile getJsonKeyfile();
 
     @Config("dataset")
     String getDataset();
