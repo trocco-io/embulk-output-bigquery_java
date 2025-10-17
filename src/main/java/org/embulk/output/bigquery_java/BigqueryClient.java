@@ -10,6 +10,7 @@ import com.google.cloud.bigquery.Dataset;
 import com.google.cloud.bigquery.DatasetId;
 import com.google.cloud.bigquery.DatasetInfo;
 import com.google.cloud.bigquery.Field;
+import com.google.cloud.bigquery.FieldList;
 import com.google.cloud.bigquery.FieldValue;
 import com.google.cloud.bigquery.FormatOptions;
 import com.google.cloud.bigquery.Job;
@@ -44,6 +45,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.validation.constraints.NotNull;
 import org.embulk.config.ConfigException;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
@@ -80,6 +82,7 @@ public class BigqueryClient {
   private final PluginTask task;
   private final Schema schema;
   private final List<BigqueryColumnOption> columnOptions;
+  private FieldList cachedSrcFields = null;
 
   public BigqueryClient(PluginTask task, Schema schema) {
     this.task = task;
@@ -100,6 +103,21 @@ public class BigqueryClient {
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  @NotNull
+  private FieldList getSrcFields() {
+    if (cachedSrcFields == null) {
+      cachedSrcFields = FieldList.of();
+      Table srcTable = getTable(task.getTable());
+      if (srcTable != null) {
+        com.google.cloud.bigquery.Schema srcSchema = srcTable.getDefinition().getSchema();
+        if (srcSchema != null) {
+          cachedSrcFields = srcSchema.getFields();
+        }
+      }
+    }
+    return cachedSrcFields;
   }
 
   private String getProjectIdFromJsonKeyfile() {
@@ -734,6 +752,22 @@ public class BigqueryClient {
       Optional<BigqueryColumnOption> columnOption =
           BigqueryUtil.findColumnOption(col.getName(), columnOptions);
       Field.Builder fieldBuilder = createFieldBuilder(task, col, columnOption);
+
+      if ((task.getMode().equals("replace")
+          && (task.getRetainColumnDescriptions() || task.getRetainColumnPolicyTags()))) {
+        getSrcFields().stream()
+            .filter(x -> x.getName().equals(col.getName()))
+            .findFirst()
+            .ifPresent(
+                field -> {
+                  if (task.getRetainColumnDescriptions()) {
+                    fieldBuilder.setDescription(field.getDescription());
+                  }
+                  if (task.getRetainColumnPolicyTags()) {
+                    fieldBuilder.setPolicyTags(field.getPolicyTags());
+                  }
+                });
+      }
 
       if (columnOption.isPresent()) {
         BigqueryColumnOption colOpt = columnOption.get();

@@ -1,0 +1,20 @@
+type: bigquery_java
+mode: replace
+auth_method: service_account
+json_keyfile:
+  content: '{"project_id":"dummy","type":"service_account","client_id":"dummy","client_email":"test@example.com","private_key":"dummy","private_key_id":"dummy"}'
+dataset: dataset
+table: table
+source_format: NEWLINE_DELIMITED_JSON
+compression: GZIP
+auto_create_dataset: false
+auto_create_table: true
+path_prefix: /tmp/bq_compress/bq_
+column_options:
+- name: c0
+  type: INTEGER
+  mode: NULLABLE
+  description: c0
+- name: c1
+  type: STRING
+  mode: NULLABLE

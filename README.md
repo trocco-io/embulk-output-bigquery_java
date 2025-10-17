@@ -61,6 +61,8 @@ Under construction
 |  auto_create_gcs_bucket (x)              | boolean     | optional   | false                    | See [GCS Bucket](#gcs-bucket) |
 |  progress_log_interval  (x)            | float       | optional   | nil (Disabled)           | Progress log interval. The progress log is disabled by nil (default). NOTE: This option may be removed in a future because a filter plugin can achieve the same goal |
 |  before_load          | string       | optional   | nil            |  if set, this SQL will be executed before loading all records in append mode. In replace mode, SQL is not executed. |
+|  retain_column_descriptions          | boolean     | optional   | false                    | In case of replace mode, the column's descriptions are taken over. |
+|  retain_column_policy_tags          | boolean     | optional   | false                    | In case of replace mode, the table policy tags are taken over. |
 
 
 Client or request options
