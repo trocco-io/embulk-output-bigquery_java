@@ -45,7 +45,6 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
-import javax.validation.constraints.NotNull;
 import org.embulk.config.ConfigException;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
@@ -105,18 +104,24 @@ public class BigqueryClient {
     }
   }
 
-  @NotNull
-  private FieldList getSrcFields() {
-    if (cachedSrcFields == null) {
-      cachedSrcFields = FieldList.of();
-      Table srcTable = getTable(task.getTable());
-      if (srcTable != null) {
-        com.google.cloud.bigquery.Schema srcSchema = srcTable.getDefinition().getSchema();
-        if (srcSchema != null) {
-          cachedSrcFields = srcSchema.getFields();
-        }
-      }
+  public static boolean isNeedUpdateTable(PluginTask task) {
+    return task.getMode().equals("replace")
+        && (task.getRetainColumnDescriptions() || task.getRetainColumnPolicyTags());
+  }
+
+  public FieldList storeCachedSrcFieldsIfNeed() {
+    if (!isNeedUpdateTable(task)) {
+      return null;
     }
+    Table srcTable = getTable(task.getTable());
+    if (srcTable == null) {
+      return null;
+    }
+    com.google.cloud.bigquery.Schema srcSchema = srcTable.getDefinition().getSchema();
+    if (srcSchema == null) {
+      return null;
+    }
+    cachedSrcFields = srcSchema.getFields();
     return cachedSrcFields;
   }
 
@@ -217,6 +222,54 @@ public class BigqueryClient {
           String.format(
               "failed to create table %s:%s.%s, response: %s", project, dataset, table, e));
     }
+  }
+
+  public void updateTableIfNeed() {
+    Table table = this.getTable(task.getTable());
+    com.google.cloud.bigquery.Schema schema = table.getDefinition().getSchema();
+    if (schema == null) {
+      return;
+    }
+    com.google.cloud.bigquery.Schema patchSchema =
+        buildPatchSchema(task, schema.getFields(), cachedSrcFields);
+    if (patchSchema == null) {
+      return;
+    }
+    bigquery.update(
+        TableInfo.newBuilder(
+                table.getTableId(),
+                StandardTableDefinition.newBuilder().setSchema(patchSchema).build())
+            .build());
+  }
+
+  public static com.google.cloud.bigquery.Schema buildPatchSchema(
+      PluginTask task, FieldList currentFields, FieldList dstFields) {
+    if (!isNeedUpdateTable(task) || dstFields == null) {
+      return null;
+    }
+
+    List<Field> updatedFields = new ArrayList<>();
+    for (Field field : currentFields) {
+      Field.Builder fieldBuilder = field.toBuilder();
+      dstFields.stream()
+          .filter(x -> x.getName().equals(field.getName()))
+          .findFirst()
+          .ifPresent(
+              srcField -> {
+                if (task.getRetainColumnDescriptions()) {
+                  fieldBuilder.setDescription(srcField.getDescription());
+                }
+                if (task.getRetainColumnPolicyTags()) {
+                  fieldBuilder.setPolicyTags(srcField.getPolicyTags());
+                }
+              });
+      task.getColumnOptions()
+          .flatMap(columnOptions -> BigqueryUtil.findColumnOption(field.getName(), columnOptions))
+          .flatMap(BigqueryColumnOption::getDescription)
+          .ifPresent(fieldBuilder::setDescription);
+      updatedFields.add(fieldBuilder.build());
+    }
+    return com.google.cloud.bigquery.Schema.of(updatedFields);
   }
 
   public TimePartitioning buildTimePartitioning(BigqueryTimePartitioning bigqueryTimePartitioning) {
@@ -753,22 +806,6 @@ public class BigqueryClient {
           BigqueryUtil.findColumnOption(col.getName(), columnOptions);
       Field.Builder fieldBuilder = createFieldBuilder(task, col, columnOption);
 
-      if ((task.getMode().equals("replace")
-          && (task.getRetainColumnDescriptions() || task.getRetainColumnPolicyTags()))) {
-        getSrcFields().stream()
-            .filter(x -> x.getName().equals(col.getName()))
-            .findFirst()
-            .ifPresent(
-                field -> {
-                  if (task.getRetainColumnDescriptions()) {
-                    fieldBuilder.setDescription(field.getDescription());
-                  }
-                  if (task.getRetainColumnPolicyTags()) {
-                    fieldBuilder.setPolicyTags(field.getPolicyTags());
-                  }
-                });
-      }
-
       if (columnOption.isPresent()) {
         BigqueryColumnOption colOpt = columnOption.get();
         if (!colOpt.getMode().isEmpty()) {
@@ -776,6 +813,8 @@ public class BigqueryClient {
         }
         fieldBuilder.setMode(fieldMode);
 
+        // CAUTION: If isNeedUpdateTable() is true, description may be overwritten by
+        // updateTableIfNeed().
         if (colOpt.getDescription().isPresent()) {
           fieldBuilder.setDescription(colOpt.getDescription().get());
         }

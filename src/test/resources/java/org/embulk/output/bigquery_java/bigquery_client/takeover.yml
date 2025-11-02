@@ -14,7 +14,7 @@ column_options:
 - name: c0
   type: INTEGER
   mode: NULLABLE
-  description: c0
+  description: d0
 - name: c1
   type: STRING
   mode: NULLABLE
