@@ -34,6 +34,8 @@ import org.slf4j.LoggerFactory;
 public class WorkloadIdentityFederationAuth {
   private static final Logger logger =
       LoggerFactory.getLogger(WorkloadIdentityFederationAuth.class);
+  private static final int TOKEN_LIFETIME_SECONDS = 3600;
+
   private final String awsAccessKeyId;
   private final String awsSecretAccessKey;
   private final String awsRegion;
@@ -63,7 +65,8 @@ public class WorkloadIdentityFederationAuth {
     Map<String, Object> awsRequest = createAwsSignedRequest();
     String federatedToken = exchangeTokenForGoogleAccessToken(awsRequest);
     String accessToken = impersonateServiceAccount(federatedToken);
-    java.util.Date expirationTime = new java.util.Date(System.currentTimeMillis() + 3600 * 1000);
+    java.util.Date expirationTime =
+        new java.util.Date(System.currentTimeMillis() + TOKEN_LIFETIME_SECONDS * 1000);
     return new AccessToken(accessToken, expirationTime);
   }
 
@@ -211,6 +214,15 @@ public class WorkloadIdentityFederationAuth {
     logger.info("Token exchange succeeded");
 
     JSONObject responseJson = new JSONObject(responseBody);
+    if (responseJson.has("expires_in")) {
+      logger.debug("Token expires_in: {}", responseJson.get("expires_in"));
+    }
+    if (responseJson.has("token_type")) {
+      logger.debug("Token type: {}", responseJson.getString("token_type"));
+    }
+    if (responseJson.has("issued_token_type")) {
+      logger.debug("Issued token type: {}", responseJson.getString("issued_token_type"));
+    }
     return responseJson.getString("access_token");
   }
 
@@ -231,13 +243,8 @@ public class WorkloadIdentityFederationAuth {
     conn.setDoOutput(true);
 
     JSONObject requestBody = new JSONObject();
-    requestBody.put(
-        "scope",
-        new String[] {
-          "https://www.googleapis.com/auth/bigquery",
-          "https://www.googleapis.com/auth/devstorage.read_write"
-        });
-    requestBody.put("lifetime", "3600s");
+    requestBody.put("scope", new String[] {"https://www.googleapis.com/auth/bigquery"});
+    requestBody.put("lifetime", TOKEN_LIFETIME_SECONDS + "s");
 
     try (OutputStream os = conn.getOutputStream()) {
       os.write(requestBody.toString().getBytes(StandardCharsets.UTF_8));
@@ -263,6 +270,9 @@ public class WorkloadIdentityFederationAuth {
     logger.info("Service account impersonation succeeded");
 
     JSONObject responseJson = new JSONObject(responseBody);
+    if (responseJson.has("expireTime")) {
+      logger.debug("Access token expire time: {}", responseJson.getString("expireTime"));
+    }
     return responseJson.getString("accessToken");
   }
 
