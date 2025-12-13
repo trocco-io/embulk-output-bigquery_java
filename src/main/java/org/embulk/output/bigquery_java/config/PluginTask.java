@@ -21,7 +21,12 @@ public interface PluginTask extends Task {
   String getAuthMethod();
 
   @Config("json_keyfile")
-  LocalFile getJsonKeyfile();
+  @ConfigDefault("null")
+  Optional<LocalFile> getJsonKeyfile();
+
+  @Config("access_token")
+  @ConfigDefault("null")
+  Optional<String> getAccessToken();
 
   @Config("project")
   @ConfigDefault("null")

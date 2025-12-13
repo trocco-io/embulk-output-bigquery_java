@@ -36,8 +36,9 @@ Under construction
 | name     (x) is unsupported                            | type        | required?  | default                  | description            |
 |:-------------------------------------|:------------|:-----------|:-------------------------|:-----------------------|
 |  mode (replace, append is supported)                                | string      | optional   | "append"                 | See [Mode](#mode)      |
-|  auth_method (service_account is supported)                        | string      | optional   | "application\_default"   | See [Authentication](#authentication) |
+|  auth_method (service_account and access_token are supported)| string      | optional   | "application\_default"   | See [Authentication](#authentication) |
 |  json_keyfile                        | string      | optional   |                          | keyfile path or `content` |
+|  access_token                        | string      | optional   |                          | access token for authentication |
 |  project  (x)                           | string      | required unless service\_account's `json_keyfile` is given. | | project\_id |
 |  dataset                             | string      | required   |                          | dataset |
 |  location                            | string      | optional   | nil                      | geographic location of dataset. See [Location](#location) |
