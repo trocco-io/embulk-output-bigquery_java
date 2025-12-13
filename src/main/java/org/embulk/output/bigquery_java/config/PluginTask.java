@@ -24,10 +24,6 @@ public interface PluginTask extends Task {
   @ConfigDefault("null")
   Optional<LocalFile> getJsonKeyfile();
 
-  @Config("access_token")
-  @ConfigDefault("null")
-  Optional<String> getAccessToken();
-
   @Config("workload_identity_federation")
   @ConfigDefault("null")
   Optional<WorkloadIdentityFederationConfig> getWorkloadIdentityFederation();

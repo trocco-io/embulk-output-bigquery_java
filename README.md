@@ -36,9 +36,8 @@ Under construction
 | name     (x) is unsupported                            | type        | required?  | default                  | description            |
 |:-------------------------------------|:------------|:-----------|:-------------------------|:-----------------------|
 |  mode (replace, append is supported)                                | string      | optional   | "append"                 | See [Mode](#mode)      |
-|  auth_method (service_account, access_token, workload_identity_federation are supported)| string      | optional   | "application\_default"   | See [Authentication](#authentication) |
+|  auth_method (service_account, workload_identity_federation are supported)| string      | optional   | "application\_default"   | See [Authentication](#authentication) |
 |  json_keyfile                        | string      | optional   |                          | keyfile path or `content` |
-|  access_token                        | string      | optional   |                          | access token for authentication |
 |  workload_identity_federation        | hash        | optional   |                          | Workload Identity Federation config. See below |
 |  project  (x)                           | string      | required unless service\_account's `json_keyfile` is given. | | project\_id |
 |  dataset                             | string      | required   |                          | dataset |
