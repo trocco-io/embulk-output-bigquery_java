@@ -28,6 +28,10 @@ public interface PluginTask extends Task {
   @ConfigDefault("null")
   Optional<String> getAccessToken();
 
+  @Config("workload_identity_federation")
+  @ConfigDefault("null")
+  Optional<WorkloadIdentityFederationConfig> getWorkloadIdentityFederation();
+
   @Config("project")
   @ConfigDefault("null")
   Optional<String> getProject();

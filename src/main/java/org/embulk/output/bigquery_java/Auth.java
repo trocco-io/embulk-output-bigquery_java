@@ -11,17 +11,20 @@ import java.io.IOException;
 import java.io.InputStream;
 import org.embulk.config.ConfigException;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.config.WorkloadIdentityFederationConfig;
 import org.embulk.util.config.units.LocalFile;
 
 public class Auth {
   private final String authMethod;
   private final LocalFile jsonKeyFile;
   private final String accessToken;
+  private final WorkloadIdentityFederationConfig workloadIdentityFederationConfig;
 
   public Auth(PluginTask task) {
     authMethod = task.getAuthMethod();
     jsonKeyFile = task.getJsonKeyfile().orElse(null);
     accessToken = task.getAccessToken().orElse(null);
+    workloadIdentityFederationConfig = task.getWorkloadIdentityFederation().orElse(null);
   }
 
   public Credentials getCredentials(String... scopes) throws IOException {
@@ -39,6 +42,8 @@ public class Auth {
       return GoogleCredentials.getApplicationDefault();
     } else if ("access_token".equalsIgnoreCase(authMethod)) {
       return GoogleCredentials.create(new AccessToken(getAccessToken(), null));
+    } else if ("workload_identity_federation".equalsIgnoreCase(authMethod)) {
+      return getWorkloadIdentityFederationCredentials();
     } else {
       throw new ConfigException("Unknown auth method: " + authMethod);
     }
@@ -57,5 +62,16 @@ public class Auth {
       throw new ConfigException("access_token is required");
     }
     return accessToken;
+  }
+
+  private WorkloadIdentityFederationCredentials getWorkloadIdentityFederationCredentials()
+      throws IOException {
+    if (workloadIdentityFederationConfig == null) {
+      throw new ConfigException(
+          "workload_identity_federation config is required when auth_method is 'workload_identity_federation'");
+    }
+    WorkloadIdentityFederationAuth wifAuth =
+        new WorkloadIdentityFederationAuth(workloadIdentityFederationConfig);
+    return wifAuth.getCredentials();
   }
 }
