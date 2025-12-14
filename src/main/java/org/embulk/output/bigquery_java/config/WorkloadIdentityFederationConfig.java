@@ -6,8 +6,8 @@ import org.embulk.util.config.Task;
 import org.embulk.util.config.units.LocalFile;
 
 public interface WorkloadIdentityFederationConfig extends Task {
-  @Config("json_keyfile")
-  LocalFile getJsonKeyfile();
+  @Config("config")
+  LocalFile getConfig();
 
   @Config("aws_access_key_id")
   String getAwsAccessKeyId();

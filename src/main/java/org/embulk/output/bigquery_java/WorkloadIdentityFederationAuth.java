@@ -50,7 +50,7 @@ public class WorkloadIdentityFederationAuth {
 
     JSONObject jsonConfig =
         new JSONObject(
-            new JSONTokener(new ByteArrayInputStream(config.getJsonKeyfile().getContent())));
+            new JSONTokener(new ByteArrayInputStream(config.getConfig().getContent())));
     this.audience = jsonConfig.getString("audience");
     this.serviceAccountImpersonationUrl = jsonConfig.getString("service_account_impersonation_url");
     this.tokenUrl = jsonConfig.optString("token_url", "https://sts.googleapis.com/v1/token");

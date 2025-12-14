@@ -119,7 +119,7 @@ Workload Identity Federation allows authentication using AWS credentials to acce
 
 | name                                 | type        | required?  | default           | description            |
 |:-------------------------------------|:------------|:-----------|:------------------|:-----------------------|
-| workload_identity_federation.json_keyfile | string | required   |                   | Path to the Workload Identity Federation JSON config file |
+| workload_identity_federation.config | string | required   |                   | Path to the Workload Identity Federation JSON config file |
 | workload_identity_federation.aws_access_key_id | string | required |                | AWS Access Key ID |
 | workload_identity_federation.aws_secret_access_key | string | required |            | AWS Secret Access Key |
 | workload_identity_federation.aws_region | string | optional   | "ap-northeast-1"  | AWS Region |
@@ -131,7 +131,7 @@ out:
   type: bigquery_java
   auth_method: workload_identity_federation
   workload_identity_federation:
-    json_keyfile: /path/to/workload-identity-federation-config.json
+    config: /path/to/workload-identity-federation-config.json
     aws_access_key_id: AKIAXXXXXXXXXXXXXXXX
     aws_secret_access_key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
     aws_region: ap-northeast-1
@@ -141,7 +141,7 @@ out:
   source_format: NEWLINE_DELIMITED_JSON
 ```
 
-The `json_keyfile` should contain the Workload Identity Federation configuration from Google Cloud:
+The `config` should contain the Workload Identity Federation configuration from Google Cloud:
 
 ```json
 {
