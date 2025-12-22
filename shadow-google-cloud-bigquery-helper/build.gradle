@@ -19,6 +19,16 @@ description = "A helper library for Bigquery output for embulk"
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
 
+// https://github.com/google/guava/issues/6612#issuecomment-1614992368
+sourceSets.all {
+    configurations.getByName(runtimeClasspathConfigurationName) {
+        attributes.attribute(Attribute.of("org.gradle.jvm.environment", String), "standard-jvm")
+    }
+    configurations.getByName(compileClasspathConfigurationName) {
+        attributes.attribute(Attribute.of("org.gradle.jvm.environment", String), "standard-jvm")
+    }
+}
+
 configurations {
     runtimeClasspath {
         resolutionStrategy.activateDependencyLocking()
@@ -38,11 +48,19 @@ dependencies {
     compile("org.slf4j:jcl-over-slf4j:1.7.12") {
         exclude group: "org.slf4j", module: "slf4j-api"
     }
+
+    // Newer google-auth-library for AwsCredentials, ImpersonatedCredentials support
+    compile "com.google.auth:google-auth-library-oauth2-http:1.41.0"
+    compile "com.google.http-client:google-http-client-gson:1.45.3"
 }
 
 // Relocate Guava and Jackson packages since they are incompatible from Embulk's.
 shadowJar {
+    mergeServiceFiles()
     relocate "com.google.common", "embulk.bigquery.com.google.common"
     relocate "com.google.thirdparty.publicsuffix", "embulk.bigquery.com.google.thirdparty.publicsuffix"
     relocate "com.fasterxml.jackson", "embulk.bigquery.com.fasterxml.jackson"
+    // OpenCensus and gRPC - internal dependencies
+    relocate "io.opencensus", "embulk.bigquery.io.opencensus"
+    relocate "io.grpc", "embulk.bigquery.io.grpc"
 }

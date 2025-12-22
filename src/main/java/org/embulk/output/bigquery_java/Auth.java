@@ -8,6 +8,9 @@ import com.google.auth.oauth2.UserCredentials;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import org.embulk.config.ConfigException;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.config.WorkloadIdentityFederationConfig;
@@ -25,10 +28,10 @@ public class Auth {
   }
 
   public Credentials getCredentials(String... scopes) throws IOException {
-    return getGoogleCredentials().createScoped(scopes);
+    return getGoogleCredentials(scopes).createScoped(scopes);
   }
 
-  private GoogleCredentials getGoogleCredentials() throws IOException {
+  private GoogleCredentials getGoogleCredentials(String... scopes) throws IOException {
     if ("authorized_user".equalsIgnoreCase(authMethod)) {
       return UserCredentials.fromStream(getCredentialsStream());
     } else if ("service_account".equalsIgnoreCase(authMethod)) {
@@ -38,7 +41,7 @@ public class Auth {
     } else if ("application_default".equalsIgnoreCase(authMethod)) {
       return GoogleCredentials.getApplicationDefault();
     } else if ("workload_identity_federation".equalsIgnoreCase(authMethod)) {
-      return getWorkloadIdentityFederationCredentials();
+      return getWorkloadIdentityFederationCredentials(scopes);
     } else {
       throw new ConfigException("Unknown auth method: " + authMethod);
     }
@@ -52,14 +55,14 @@ public class Auth {
     return new ByteArrayInputStream(jsonKeyFile.getContent());
   }
 
-  private WorkloadIdentityFederationCredentials getWorkloadIdentityFederationCredentials()
-      throws IOException {
+  private WorkloadIdentityFederationCredentials getWorkloadIdentityFederationCredentials(
+      String... scopes) throws IOException {
     if (workloadIdentityFederationConfig == null) {
       throw new ConfigException(
           "workload_identity_federation config is required when auth_method is 'workload_identity_federation'");
     }
-    WorkloadIdentityFederationAuth wifAuth =
-        new WorkloadIdentityFederationAuth(workloadIdentityFederationConfig);
-    return wifAuth.getCredentials();
+    Set<String> scopeSet = new HashSet<>(Arrays.asList(scopes));
+    return WorkloadIdentityFederationCredentials.getOrCreateByFetchingToken(
+        workloadIdentityFederationConfig, scopeSet);
   }
 }
