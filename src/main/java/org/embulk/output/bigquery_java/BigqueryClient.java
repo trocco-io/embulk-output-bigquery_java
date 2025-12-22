@@ -235,11 +235,22 @@ public class BigqueryClient {
     if (patchSchema == null) {
       return;
     }
-    bigquery.update(
-        TableInfo.newBuilder(
-                table.getTableId(),
-                StandardTableDefinition.newBuilder().setSchema(patchSchema).build())
-            .build());
+    try {
+      bigquery.update(
+          TableInfo.newBuilder(
+                  table.getTableId(),
+                  StandardTableDefinition.newBuilder().setSchema(patchSchema).build())
+              .build());
+    } catch (BigQueryException e) {
+      logger.error(
+          String.format(
+              "embulk-output-bigquery: update_table(%s:%s.%s)",
+              destinationProject, destinationDataset, task.getTable()));
+      throw new BigqueryException(
+          String.format(
+              "failed to update table %s:%s.%s, response: %s",
+              destinationProject, destinationDataset, task.getTable(), e));
+    }
   }
 
   public static com.google.cloud.bigquery.Schema buildPatchSchema(
