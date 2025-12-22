@@ -50,6 +50,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     BigqueryTaskBuilder.build(task);
     BigqueryClient client = new BigqueryClient(task, schema);
     autoCreate(task, client);
+    client.storeCachedSrcFieldsIfNeed();
 
     control.run(task.dump());
     this.writers.values().forEach(BigqueryFileWriter::close);
@@ -144,6 +145,8 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       }
       client.deleteTable(task.getTempTable().get());
     }
+
+    client.updateTableIfNeed();
 
     if (task.getDeleteFromLocalWhenJobEnd()) {
       paths.forEach(p -> p.toFile().delete());

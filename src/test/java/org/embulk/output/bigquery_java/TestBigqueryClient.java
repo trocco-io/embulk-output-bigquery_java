@@ -2,29 +2,31 @@ package org.embulk.output.bigquery_java;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
+import com.google.cloud.bigquery.Field;
 import com.google.cloud.bigquery.FieldList;
 import com.google.cloud.bigquery.PolicyTags;
+import com.google.cloud.bigquery.Schema;
 import com.google.cloud.bigquery.StandardSQLTypeName;
-import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
+import com.google.cloud.bigquery.Table;
+import com.google.cloud.bigquery.TableDefinition;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
+import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.FileInputPlugin;
 import org.embulk.spi.OutputPlugin;
 import org.embulk.spi.ParserPlugin;
-import org.embulk.spi.Schema;
-import org.embulk.spi.type.Types;
 import org.embulk.test.TestingEmbulk;
 import org.embulk.util.config.ConfigMapper;
 import org.embulk.util.config.ConfigMapperFactory;
@@ -56,115 +58,153 @@ public class TestBigqueryClient {
 
   @Rule public TemporaryFolder testFolder = new TemporaryFolder();
 
-  private com.google.cloud.bigquery.Schema invokeTakeoverBuildSchema(
-      Function<ConfigSource, ConfigSource> setupConfig,
-      Function<com.google.cloud.bigquery.Field.Builder, com.google.cloud.bigquery.Field>
-          setupField0,
-      Function<com.google.cloud.bigquery.Field.Builder, com.google.cloud.bigquery.Field>
-          setupField1)
-      throws NoSuchFieldException, IllegalAccessException, NoSuchMethodException,
-          InvocationTargetException {
-    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
-    PluginTask task = CONFIG_MAPPER.map(setupConfig.apply(config), PluginTask.class);
-    Schema schema = Schema.builder().add("c0", Types.LONG).add("c1", Types.STRING).build();
-
-    // Create a partial mock that avoids BigQuery service initialization
-    BigqueryClient bigqueryClient = Mockito.mock(BigqueryClient.class);
-
-    // Set required fields for buildSchema method to work
-    Field taskField = BigqueryClient.class.getDeclaredField("task");
-    taskField.setAccessible(true);
-    taskField.set(bigqueryClient, task);
-
-    Field schemaField = BigqueryClient.class.getDeclaredField("schema");
-    schemaField.setAccessible(true);
-    schemaField.set(bigqueryClient, schema);
-
-    Field columnOptionsField = BigqueryClient.class.getDeclaredField("columnOptions");
-    columnOptionsField.setAccessible(true);
-    columnOptionsField.set(
-        bigqueryClient, task.getColumnOptions().orElse(java.util.Collections.emptyList()));
-    Field field = BigqueryClient.class.getDeclaredField("cachedSrcFields");
-    field.setAccessible(true);
-    List<com.google.cloud.bigquery.Field> fieldList = new ArrayList<>();
-    fieldList.add(
-        setupField0.apply(
-            com.google.cloud.bigquery.Field.newBuilder("c0", StandardSQLTypeName.INT64)));
-    fieldList.add(
-        setupField1.apply(
-            com.google.cloud.bigquery.Field.newBuilder("c1", StandardSQLTypeName.STRING)));
-    field.set(bigqueryClient, FieldList.of(fieldList));
-
-    Method buildSchemaMethod =
-        BigqueryClient.class.getDeclaredMethod("buildSchema", Schema.class, List.class);
-    buildSchemaMethod.setAccessible(true);
-    return (com.google.cloud.bigquery.Schema)
-        buildSchemaMethod.invoke(bigqueryClient, schema, task.getColumnOptions().orElse(null));
+  private static StandardSQLTypeName toBQType(BigqueryColumnOption column) {
+    Map<String, StandardSQLTypeName> bqTypeMap = new HashMap<>();
+    bqTypeMap.put("INTEGER", StandardSQLTypeName.INT64);
+    bqTypeMap.put("STRING", StandardSQLTypeName.STRING);
+    return bqTypeMap.getOrDefault(column.getType().orElse("STRING"), StandardSQLTypeName.STRING);
   }
 
-  private com.google.cloud.bigquery.Schema invokeRetainDescriptionBuildSchema(
-      String mode, Boolean retainColumnDescriptions, String d0, String d1)
-      throws IOException, NoSuchFieldException, InvocationTargetException, IllegalAccessException,
-          NoSuchMethodException {
+  @Test
+  public void TestIsNeedUpdateTable() {
+    ConfigSource baseConfig = loadYamlResource(embulk, "takeover.yml");
+
+    // Helper function to create config and test isNeedUpdateTable
+    Function<String, Function<Boolean, Function<Boolean, Boolean>>> testIsNeedUpdate =
+        mode ->
+            retainPolicyTags ->
+                retainDescriptions ->
+                    BigqueryClient.isNeedUpdateTable(
+                        CONFIG_MAPPER.map(
+                            baseConfig
+                                .set("mode", mode)
+                                .set("retain_column_policy_tags", retainPolicyTags)
+                                .set("retain_column_descriptions", retainDescriptions),
+                            PluginTask.class));
+
+    // Test cases
+    assertTrue(testIsNeedUpdate.apply("replace").apply(false).apply(true));
+    assertTrue(testIsNeedUpdate.apply("replace").apply(true).apply(false));
+    assertFalse(testIsNeedUpdate.apply("replace").apply(false).apply(false));
+    assertFalse(testIsNeedUpdate.apply("insert").apply(true).apply(true));
+  }
+
+  private Schema invokeTakeoverBuildSchema(
+      Function<ConfigSource, ConfigSource> setupConfig,
+      Function<Field.Builder, Field> setupField0,
+      Function<Field.Builder, Field> setupField1) {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask baseTask = CONFIG_MAPPER.map(config, PluginTask.class);
+    PluginTask task = CONFIG_MAPPER.map(setupConfig.apply(config), PluginTask.class);
+
+    List<Field> currentFields =
+        baseTask.getColumnOptions().orElse(java.util.Collections.emptyList()).stream()
+            .map(column -> Field.newBuilder(column.getName(), toBQType(column)).build())
+            .collect(Collectors.toList());
+
+    HashMap<String, Function<Field.Builder, Field>> setups = new HashMap<>();
+    setups.put("c0", setupField0);
+    setups.put("c1", setupField1);
+
+    List<Field> fieldList =
+        baseTask.getColumnOptions().orElse(java.util.Collections.emptyList()).stream()
+            .map(c -> setups.get(c.getName()).apply(Field.newBuilder(c.getName(), toBQType(c))))
+            .collect(Collectors.toList());
+
+    return BigqueryClient.buildPatchSchema(
+        task, FieldList.of(currentFields), FieldList.of(fieldList));
+  }
+
+  private Schema invokeRetainDescriptionBuildSchema(
+      String mode, Boolean retainColumnDescriptions, String d0, String d1) {
+    return invokeRetainDescriptionBuildSchema(
+        configSource -> configSource, mode, retainColumnDescriptions, d0, d1);
+  }
+
+  private Schema invokeRetainDescriptionBuildSchema(
+      Function<ConfigSource, ConfigSource> setupConfig,
+      String mode,
+      Boolean retainColumnDescriptions,
+      String d0,
+      String d1) {
     return invokeTakeoverBuildSchema(
         configSource ->
-            configSource
-                .set("mode", mode)
-                .set("retain_column_descriptions", retainColumnDescriptions),
+            setupConfig.apply(
+                configSource
+                    .set("mode", mode)
+                    .set("retain_column_policy_tags", true)
+                    .set("retain_column_descriptions", retainColumnDescriptions)),
         builder -> builder.setDescription(d0).build(),
         builder -> builder.setDescription(d1).build());
   }
 
   @Test
-  public void testRetainDescriptionTrue()
-      throws NoSuchMethodException, NoSuchFieldException, IllegalAccessException,
-          InvocationTargetException, IOException {
-    com.google.cloud.bigquery.Schema schema =
-        invokeRetainDescriptionBuildSchema("replace", true, "prev_c0", "prev_c1");
-    assertEquals("c0", schema.getFields().get(0).getDescription());
+  public void testRetainDescriptionTrue() {
+    Schema schema = invokeRetainDescriptionBuildSchema("replace", true, "prev_c0", "prev_c1");
+    assertEquals("d0", schema.getFields().get(0).getDescription());
     assertEquals("prev_c1", schema.getFields().get(1).getDescription());
   }
 
   @Test
-  public void testRetainDescriptionFalse()
-      throws NoSuchMethodException, NoSuchFieldException, IllegalAccessException,
-          InvocationTargetException, IOException {
-    com.google.cloud.bigquery.Schema schema =
-        invokeRetainDescriptionBuildSchema("replace", false, "prev_c0", "prev_c1");
-    assertEquals("c0", schema.getFields().get(0).getDescription());
+  public void testRetainDescriptionFalse() {
+    Schema schema = invokeRetainDescriptionBuildSchema("replace", false, "prev_c0", "prev_c1");
+    assertEquals("d0", schema.getFields().get(0).getDescription());
     assertNull(schema.getFields().get(1).getDescription());
   }
 
   @Test
-  public void testRetainDescriptionTrueButNotModeReplace()
-      throws NoSuchMethodException, NoSuchFieldException, IllegalAccessException,
-          InvocationTargetException, IOException {
-    com.google.cloud.bigquery.Schema schema =
-        invokeRetainDescriptionBuildSchema("insert", true, "prev_c0", "prev_c1");
-    assertEquals("c0", schema.getFields().get(0).getDescription());
+  public void testRetainDescriptionTrueWithColumnOptionNull() {
+    Schema schema =
+        invokeRetainDescriptionBuildSchema(
+            c -> c.set("column_options", null), "replace", true, "prev_c0", "prev_c1");
+    assertEquals("prev_c0", schema.getFields().get(0).getDescription());
+    assertEquals("prev_c1", schema.getFields().get(1).getDescription());
+  }
+
+  @Test
+  public void testRetainDescriptionFalseWithColumnOptionNull() {
+    Schema schema =
+        invokeRetainDescriptionBuildSchema(
+            c -> c.set("column_options", null), "replace", false, "prev_c0", "prev_c1");
+    assertNull(schema.getFields().get(0).getDescription());
     assertNull(schema.getFields().get(1).getDescription());
   }
 
-  private com.google.cloud.bigquery.Schema invokeRetainPolicyTagsBuildSchema(
-      String mode, Boolean retainPolicyTags, String[] tags0, String[] tags1)
-      throws IOException, NoSuchFieldException, InvocationTargetException, IllegalAccessException,
-          NoSuchMethodException {
+  @Test
+  public void testRetainDescriptionTrueButNotModeReplace() {
+    Schema schema = invokeRetainDescriptionBuildSchema("insert", true, "prev_c0", "prev_c1");
+    assertNull(schema);
+  }
+
+  private Schema invokeRetainPolicyTagsBuildSchema(
+      Function<ConfigSource, ConfigSource> setupConfig,
+      String mode,
+      Boolean retainPolicyTags,
+      String[] tags0,
+      String[] tags1) {
     List<String> n0 = Arrays.stream(tags0).collect(Collectors.toList());
     List<String> n1 = Arrays.stream(tags1).collect(Collectors.toList());
     PolicyTags p0 = PolicyTags.newBuilder().setNames(n0).build();
     PolicyTags p1 = PolicyTags.newBuilder().setNames(n1).build();
     return invokeTakeoverBuildSchema(
         configSource ->
-            configSource.set("mode", mode).set("retain_column_policy_tags", retainPolicyTags),
+            setupConfig.apply(
+                configSource
+                    .set("mode", mode)
+                    .set("retain_column_policy_tags", retainPolicyTags)
+                    .set("retain_column_descriptions", true)),
         builder -> builder.setPolicyTags(p0).build(),
         builder -> builder.setPolicyTags(p1).build());
   }
 
+  private Schema invokeRetainPolicyTagsBuildSchema(
+      String mode, Boolean retainPolicyTags, String[] tags0, String[] tags1) {
+    return invokeRetainPolicyTagsBuildSchema(c -> c, mode, retainPolicyTags, tags0, tags1);
+  }
+
   @Test
-  public void testRetainColumnPolicyTagsTrue()
-      throws NoSuchMethodException, NoSuchFieldException, IllegalAccessException,
-          InvocationTargetException, IOException {
-    com.google.cloud.bigquery.Schema schema =
+  public void testRetainColumnPolicyTagsTrue() {
+    Schema schema =
         invokeRetainPolicyTagsBuildSchema(
             "replace", true, new String[] {"c0"}, new String[] {"c10", "c11"});
     assertArrayEquals(
@@ -176,10 +216,8 @@ public class TestBigqueryClient {
   }
 
   @Test
-  public void testRetainColumnPolicyTagsFalse()
-      throws NoSuchMethodException, NoSuchFieldException, IllegalAccessException,
-          InvocationTargetException, IOException {
-    com.google.cloud.bigquery.Schema schema =
+  public void testRetainColumnPolicyTagsFalse() {
+    Schema schema =
         invokeRetainPolicyTagsBuildSchema(
             "replace", false, new String[] {"c0"}, new String[] {"c10", "c11"});
     assertNull(schema.getFields().get(0).getPolicyTags());
@@ -187,13 +225,74 @@ public class TestBigqueryClient {
   }
 
   @Test
-  public void testRetainColumnPolicyTagsTrueButNotModeReplace()
-      throws NoSuchMethodException, NoSuchFieldException, IllegalAccessException,
-          InvocationTargetException, IOException {
-    com.google.cloud.bigquery.Schema schema =
+  public void testRetainColumnPolicyTagsTrueButNotModeReplace() {
+    Schema schema =
         invokeRetainPolicyTagsBuildSchema(
             "insert", true, new String[] {"c0"}, new String[] {"c10", "c11"});
-    assertNull(schema.getFields().get(0).getPolicyTags());
-    assertNull(schema.getFields().get(1).getPolicyTags());
+    assertNull(schema);
+  }
+
+  @Test
+  public void testStoreCachedSrcFieldsIfNeed() throws NoSuchFieldException, IllegalAccessException {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+
+    // Test case 1: Mode is "replace" with retainColumnDescriptions = true
+    PluginTask replaceTask =
+        CONFIG_MAPPER.map(
+            config
+                .set("mode", "replace")
+                .set("retain_column_descriptions", true)
+                .set("retain_column_policy_tags", false),
+            PluginTask.class);
+
+    BigqueryClient client = Mockito.mock(BigqueryClient.class);
+    Table mockTable = Mockito.mock(Table.class);
+    TableDefinition mockTableDef = Mockito.mock(TableDefinition.class);
+
+    Schema mockSchema = Schema.of(Field.newBuilder("field1", StandardSQLTypeName.STRING).build());
+
+    Mockito.when(client.getTable(Mockito.anyString())).thenReturn(mockTable);
+    Mockito.when(mockTable.getDefinition()).thenReturn(mockTableDef);
+    Mockito.when(mockTableDef.getSchema()).thenReturn(mockSchema);
+    Mockito.when(client.storeCachedSrcFieldsIfNeed()).thenCallRealMethod();
+
+    // Set task field
+    java.lang.reflect.Field taskField = BigqueryClient.class.getDeclaredField("task");
+    taskField.setAccessible(true);
+    taskField.set(client, replaceTask);
+
+    assertEquals(client.storeCachedSrcFieldsIfNeed(), mockSchema.getFields());
+
+    // Test case 2: Mode is "insert" - should return null
+    PluginTask insertTask =
+        CONFIG_MAPPER.map(
+            config
+                .set("mode", "insert")
+                .set("retain_column_descriptions", true)
+                .set("retain_column_policy_tags", true),
+            PluginTask.class);
+
+    taskField.set(client, insertTask);
+
+    assertNull(client.storeCachedSrcFieldsIfNeed());
+
+    // Test case 3: Table doesn't exist - should return null
+    Mockito.when(client.getTable(Mockito.anyString())).thenReturn(null);
+
+    taskField.set(client, replaceTask);
+
+    assertNull(client.storeCachedSrcFieldsIfNeed());
+
+    // Test case 4: Schema is null - should return null
+    Table nullSchemaTable = Mockito.mock(Table.class);
+    TableDefinition nullSchemaTableDef = Mockito.mock(TableDefinition.class);
+
+    Mockito.when(client.getTable(Mockito.anyString())).thenReturn(nullSchemaTable);
+    Mockito.when(nullSchemaTable.getDefinition()).thenReturn(nullSchemaTableDef);
+    Mockito.when(nullSchemaTableDef.getSchema()).thenReturn(null);
+
+    taskField.set(client, replaceTask);
+
+    assertNull(client.storeCachedSrcFieldsIfNeed());
   }
 }
