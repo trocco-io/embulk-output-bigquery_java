@@ -21,7 +21,12 @@ public interface PluginTask extends Task {
   String getAuthMethod();
 
   @Config("json_keyfile")
-  LocalFile getJsonKeyfile();
+  @ConfigDefault("null")
+  Optional<LocalFile> getJsonKeyfile();
+
+  @Config("workload_identity_federation")
+  @ConfigDefault("null")
+  Optional<WorkloadIdentityFederationConfig> getWorkloadIdentityFederation();
 
   @Config("project")
   @ConfigDefault("null")

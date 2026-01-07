@@ -126,9 +126,12 @@ public class BigqueryClient {
   }
 
   private String getProjectIdFromJsonKeyfile() {
+    if (!task.getJsonKeyfile().isPresent()) {
+      throw new ConfigException("Either project or project_id in json_keyfile is required");
+    }
     String projectId =
         new JSONObject(
-                new JSONTokener(new ByteArrayInputStream(task.getJsonKeyfile().getContent())))
+                new JSONTokener(new ByteArrayInputStream(task.getJsonKeyfile().get().getContent())))
             .getString("project_id");
     if (projectId == null) {
       throw new ConfigException("Either project or project_id in json_keyfile is required");

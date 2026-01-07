@@ -36,8 +36,9 @@ Under construction
 | name     (x) is unsupported                            | type        | required?  | default                  | description            |
 |:-------------------------------------|:------------|:-----------|:-------------------------|:-----------------------|
 |  mode (replace, append is supported)                                | string      | optional   | "append"                 | See [Mode](#mode)      |
-|  auth_method (service_account is supported)                        | string      | optional   | "application\_default"   | See [Authentication](#authentication) |
+|  auth_method (service_account, workload_identity_federation are supported)| string      | optional   | "application\_default"   | See [Authentication](#authentication) |
 |  json_keyfile                        | string      | optional   |                          | keyfile path or `content` |
+|  workload_identity_federation        | hash        | optional   |                          | Workload Identity Federation config. See below |
 |  project  (x)                           | string      | required unless service\_account's `json_keyfile` is given. | | project\_id |
 |  dataset                             | string      | required   |                          | dataset |
 |  location                            | string      | optional   | nil                      | geographic location of dataset. See [Location](#location) |
@@ -111,6 +112,85 @@ Following options are same as [bq command-line tools](https://cloud.google.com/b
 |  clustering.fields  (x)               | array    | required  | nil     | One or more fields on which data should be clustered. The order of the specified columns determines the sort order of the data. |
 |  schema_update_options  (x)           | array    | optional  | nil     | (Experimental) List of `ALLOW_FIELD_ADDITION` or `ALLOW_FIELD_RELAXATION` or both. See [jobs#configuration.load.schemaUpdateOptions](https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.schemaUpdateOptions). NOTE for the current status: `schema_update_options` does not work for `copy` job, that is, is not effective for most of modes such as `append`, `replace` and `replace_backup`. `delete_in_advance` deletes origin table so does not need to update schema. Only `append_direct` can utilize schema update. |
 
+
+### Workload Identity Federation
+
+Workload Identity Federation allows authentication using AWS credentials to access Google Cloud resources.
+
+| name                                 | type        | required?  | default           | description            |
+|:-------------------------------------|:------------|:-----------|:------------------|:-----------------------|
+| workload_identity_federation.config | string | required   |                   | Path to the Workload Identity Federation JSON config file |
+| workload_identity_federation.aws_access_key_id | string | required |                | AWS Access Key ID |
+| workload_identity_federation.aws_secret_access_key | string | required |            | AWS Secret Access Key |
+| workload_identity_federation.aws_session_token | string | optional |                | AWS Session Token (for temporary credentials) |
+| workload_identity_federation.aws_region | string | optional   | "ap-northeast-1"  | AWS Region |
+
+Example)
+
+```yaml
+out:
+  type: bigquery_java
+  auth_method: workload_identity_federation
+  workload_identity_federation:
+    config: /path/to/workload-identity-federation-config.json
+    aws_access_key_id: AKIAXXXXXXXXXXXXXXXX
+    aws_secret_access_key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    # aws_session_token: xxxxxxxx  # optional, for temporary credentials
+    aws_region: ap-northeast-1
+  project: my-project
+  dataset: my_dataset
+  table: my_table
+  source_format: NEWLINE_DELIMITED_JSON
+```
+
+The `config` should contain the Workload Identity Federation configuration from Google Cloud.
+
+#### Service Account Impersonation (recommended)
+
+Use a service account to access BigQuery. The federated identity impersonates a service account that has the necessary permissions.
+
+```json
+{
+  "universe_domain": "googleapis.com",
+  "type": "external_account",
+  "audience": "//iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID",
+  "subject_token_type": "urn:ietf:params:aws:token-type:aws4_request",
+  "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/SERVICE_ACCOUNT@PROJECT.iam.gserviceaccount.com:generateAccessToken",
+  "token_url": "https://sts.googleapis.com/v1/token",
+  "credential_source": {
+    "environment_id": "aws1",
+    "region_url": "http://169.254.169.254/latest/meta-data/placement/availability-zone",
+    "url": "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+    "regional_cred_verification_url": "https://sts.{region}.amazonaws.com?Action=GetCallerIdentity&Version=2011-06-15"
+  }
+}
+```
+
+#### Direct Resource Access
+
+Access BigQuery directly without service account impersonation. Omit `service_account_impersonation_url` from the config file. You must grant IAM permissions directly to the federated principal.
+
+```json
+{
+  "universe_domain": "googleapis.com",
+  "type": "external_account",
+  "audience": "//iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID",
+  "subject_token_type": "urn:ietf:params:aws:token-type:aws4_request",
+  "token_url": "https://sts.googleapis.com/v1/token",
+  "credential_source": {
+    "environment_id": "aws1",
+    "region_url": "http://169.254.169.254/latest/meta-data/placement/availability-zone",
+    "url": "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+    "regional_cred_verification_url": "https://sts.{region}.amazonaws.com?Action=GetCallerIdentity&Version=2011-06-15"
+  }
+}
+```
+
+To use direct resource access, grant BigQuery permissions to the federated principal:
+
+```
+principal://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/subject/SUBJECT
+```
 
 ### Column Options (NOT fully supported)
 
