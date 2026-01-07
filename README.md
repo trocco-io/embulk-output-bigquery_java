@@ -143,7 +143,11 @@ out:
   source_format: NEWLINE_DELIMITED_JSON
 ```
 
-The `config` should contain the Workload Identity Federation configuration from Google Cloud:
+The `config` should contain the Workload Identity Federation configuration from Google Cloud.
+
+#### Service Account Impersonation (recommended)
+
+Use a service account to access BigQuery. The federated identity impersonates a service account that has the necessary permissions.
 
 ```json
 {
@@ -160,6 +164,32 @@ The `config` should contain the Workload Identity Federation configuration from 
     "regional_cred_verification_url": "https://sts.{region}.amazonaws.com?Action=GetCallerIdentity&Version=2011-06-15"
   }
 }
+```
+
+#### Direct Resource Access
+
+Access BigQuery directly without service account impersonation. Omit `service_account_impersonation_url` from the config file. You must grant IAM permissions directly to the federated principal.
+
+```json
+{
+  "universe_domain": "googleapis.com",
+  "type": "external_account",
+  "audience": "//iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/providers/PROVIDER_ID",
+  "subject_token_type": "urn:ietf:params:aws:token-type:aws4_request",
+  "token_url": "https://sts.googleapis.com/v1/token",
+  "credential_source": {
+    "environment_id": "aws1",
+    "region_url": "http://169.254.169.254/latest/meta-data/placement/availability-zone",
+    "url": "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+    "regional_cred_verification_url": "https://sts.{region}.amazonaws.com?Action=GetCallerIdentity&Version=2011-06-15"
+  }
+}
+```
+
+To use direct resource access, grant BigQuery permissions to the federated principal:
+
+```
+principal://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL_ID/subject/SUBJECT
 ```
 
 ### Column Options (NOT fully supported)

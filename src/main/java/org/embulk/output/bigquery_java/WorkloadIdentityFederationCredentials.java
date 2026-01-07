@@ -103,6 +103,10 @@ public class WorkloadIdentityFederationCredentials extends GoogleCredentials {
     logger.info("creating credentials by fetching token");
     String tokenUrl =
         jsonConfig.has("token_url") ? jsonConfig.get("token_url").getAsString() : null;
+    String serviceAccountImpersonationUrl =
+        jsonConfig.has("service_account_impersonation_url")
+            ? jsonConfig.get("service_account_impersonation_url").getAsString()
+            : null;
     WorkloadIdentityFederationAuth auth =
         new WorkloadIdentityFederationAuth(
             awsAccessKeyId,
@@ -110,7 +114,7 @@ public class WorkloadIdentityFederationCredentials extends GoogleCredentials {
             awsSessionToken,
             awsRegion,
             jsonConfig.get("audience").getAsString(),
-            jsonConfig.get("service_account_impersonation_url").getAsString(),
+            serviceAccountImpersonationUrl,
             tokenUrl,
             scopes);
     AccessToken token = auth.fetchAccessToken();

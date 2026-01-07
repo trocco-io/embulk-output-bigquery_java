@@ -49,6 +49,12 @@ public class WorkloadIdentityFederationAuth {
 
   public AccessToken fetchAccessToken() throws IOException {
     AccessToken federatedToken = fetchFederatedToken();
+
+    // Direct resource access (no service account impersonation)
+    if (serviceAccountImpersonationUrl == null || serviceAccountImpersonationUrl.isEmpty()) {
+      return federatedToken;
+    }
+
     return impersonateServiceAccount(federatedToken);
   }
 
