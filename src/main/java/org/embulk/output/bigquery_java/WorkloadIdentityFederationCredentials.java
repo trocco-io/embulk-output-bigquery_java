@@ -24,13 +24,13 @@ public class WorkloadIdentityFederationCredentials extends GoogleCredentials {
   private final WorkloadIdentityFederationAuth auth;
 
   private static class CacheKey {
-    private final String awsAccessKeyId;
+    private final String awsRoleArn;
     private final String awsRegion;
     private final String audience;
     private final Set<String> scopes;
 
-    CacheKey(String awsAccessKeyId, String awsRegion, String audience, Set<String> scopes) {
-      this.awsAccessKeyId = awsAccessKeyId;
+    CacheKey(String awsRoleArn, String awsRegion, String audience, Set<String> scopes) {
+      this.awsRoleArn = awsRoleArn;
       this.awsRegion = awsRegion;
       this.audience = audience;
       this.scopes = scopes;
@@ -41,7 +41,7 @@ public class WorkloadIdentityFederationCredentials extends GoogleCredentials {
       if (this == o) return true;
       if (o == null || getClass() != o.getClass()) return false;
       CacheKey cacheKey = (CacheKey) o;
-      return Objects.equals(awsAccessKeyId, cacheKey.awsAccessKeyId)
+      return Objects.equals(awsRoleArn, cacheKey.awsRoleArn)
           && Objects.equals(awsRegion, cacheKey.awsRegion)
           && Objects.equals(audience, cacheKey.audience)
           && Objects.equals(scopes, cacheKey.scopes);
@@ -49,39 +49,39 @@ public class WorkloadIdentityFederationCredentials extends GoogleCredentials {
 
     @Override
     public int hashCode() {
-      return Objects.hash(awsAccessKeyId, awsRegion, audience, scopes);
+      return Objects.hash(awsRoleArn, awsRegion, audience, scopes);
     }
 
     @Override
     public String toString() {
       return String.format(
-          "%s:%s:%s:%s", awsAccessKeyId, awsRegion, audience, String.join(",", scopes));
+          "%s:%s:%s:%s", awsRoleArn, awsRegion, audience, String.join(",", scopes));
     }
   }
 
   public static WorkloadIdentityFederationCredentials getOrCreateByFetchingToken(
       WorkloadIdentityFederationConfig wifConfig, Set<String> scopes) throws IOException {
     JsonObject jsonConfig = parseConfig(wifConfig);
+    String audience = jsonConfig.get("audience").getAsString();
+
     CacheKey cacheKey =
-        new CacheKey(
-            wifConfig.getAwsAccessKeyId(),
-            wifConfig.getAwsRegion(),
-            jsonConfig.get("audience").getAsString(),
-            scopes);
+        new CacheKey(wifConfig.getAwsRoleArn(), wifConfig.getAwsRegion(), audience, scopes);
+
     WorkloadIdentityFederationCredentials cached = cache.get(cacheKey);
     if (cached != null) {
       logger.debug("cache hit for cacheKey: {}", cacheKey);
       return cached;
     }
     logger.debug("cache miss for cacheKey: {}", cacheKey);
+
     WorkloadIdentityFederationCredentials credentials =
         createByFetchingToken(
-            wifConfig.getAwsAccessKeyId(),
-            wifConfig.getAwsSecretAccessKey(),
-            wifConfig.getAwsSessionToken().orElse(null),
+            wifConfig.getAwsRoleArn(),
+            wifConfig.getAwsRoleSessionName(),
             wifConfig.getAwsRegion(),
             jsonConfig,
             scopes);
+
     cache.put(cacheKey, credentials);
     return credentials;
   }
@@ -93,25 +93,27 @@ public class WorkloadIdentityFederationCredentials extends GoogleCredentials {
   }
 
   private static WorkloadIdentityFederationCredentials createByFetchingToken(
-      String awsAccessKeyId,
-      String awsSecretAccessKey,
-      String awsSessionToken,
+      String awsRoleArn,
+      String awsRoleSessionName,
       String awsRegion,
       JsonObject jsonConfig,
       Set<String> scopes)
       throws IOException {
-    logger.info("creating credentials by fetching token");
+    logger.info("creating credentials using AssumeRole with role: {}", awsRoleArn);
     String tokenUrl =
         jsonConfig.has("token_url") ? jsonConfig.get("token_url").getAsString() : null;
     String serviceAccountImpersonationUrl =
         jsonConfig.has("service_account_impersonation_url")
             ? jsonConfig.get("service_account_impersonation_url").getAsString()
             : null;
+
+    // Create the AWS role credentials supplier that handles AssumeRole and auto-refresh
+    AwsRoleCredentialsSupplier awsRoleCredentialsSupplier =
+        new AwsRoleCredentialsSupplier(awsRoleArn, awsRoleSessionName, awsRegion);
+
     WorkloadIdentityFederationAuth auth =
         new WorkloadIdentityFederationAuth(
-            awsAccessKeyId,
-            awsSecretAccessKey,
-            awsSessionToken,
+            awsRoleCredentialsSupplier,
             awsRegion,
             jsonConfig.get("audience").getAsString(),
             serviceAccountImpersonationUrl,
@@ -131,5 +133,10 @@ public class WorkloadIdentityFederationCredentials extends GoogleCredentials {
   public AccessToken refreshAccessToken() throws IOException {
     logger.info("refreshing access token");
     return auth.fetchAccessToken();
+  }
+
+  /** Clear the cache. Useful for testing. */
+  public static void clearCache() {
+    cache.clear();
   }
 }

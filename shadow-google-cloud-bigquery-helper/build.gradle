@@ -52,6 +52,14 @@ dependencies {
     // Newer google-auth-library for AwsCredentials, ImpersonatedCredentials support
     compile "com.google.auth:google-auth-library-oauth2-http:1.41.0"
     compile "com.google.http-client:google-http-client-gson:1.45.3"
+
+    // AWS SDK for STS (AssumeRole for Role Chaining)
+    compile platform("software.amazon.awssdk:bom:2.29.51")
+    compile ("software.amazon.awssdk:sts") {
+        exclude group: "software.amazon.awssdk", module: "netty-nio-client"
+        exclude group: "software.amazon.awssdk", module: "apache-client"
+    }
+    compile "software.amazon.awssdk:url-connection-client"
 }
 
 // Relocate Guava and Jackson packages since they are incompatible from Embulk's.
