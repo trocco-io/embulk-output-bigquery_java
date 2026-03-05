@@ -1,9 +1,12 @@
 package org.embulk.output.bigquery_java.converter;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
+import org.embulk.output.bigquery_java.BigqueryUtil;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
+import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryNotSupportedTypeException;
 import org.embulk.output.bigquery_java.exception.BigqueryTypeCastException;
 import org.embulk.util.timestamp.TimestampFormatter;
@@ -15,7 +18,8 @@ public class BigqueryStringConverter {
       String name,
       String src,
       BigqueryColumnOptionType bigqueryColumnOptionType,
-      BigqueryColumnOption columnOption) {
+      BigqueryColumnOption columnOption,
+      PluginTask task) {
     TimestampFormatter timestampFormat;
     String pattern;
     String timezone;
@@ -121,6 +125,24 @@ public class BigqueryStringConverter {
             node.putNull(name);
           } else {
             node.put(name, src);
+          }
+        }
+        break;
+      case RECORD:
+        if (src == null) {
+          node.putNull(name);
+        } else {
+          try {
+            JsonNode parsed = BigqueryUtil.getObjectMapper().readTree(src);
+            if (columnOption != null && columnOption.getFields().isPresent() && task != null) {
+              parsed =
+                  BigqueryRecordConverter.convertRecordValue(
+                      parsed, columnOption.getFields().get(), task);
+            }
+            node.set(name, parsed);
+          } catch (Exception e) {
+            throw new BigqueryTypeCastException(
+                String.format("%s cannot be converted to RECORD: %s", src, e.getMessage()));
           }
         }
         break;

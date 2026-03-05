@@ -1,5 +1,6 @@
 package org.embulk.output.bigquery_java.config;
 
+import java.util.List;
 import java.util.Optional;
 import org.embulk.util.config.Config;
 import org.embulk.util.config.ConfigDefault;
@@ -49,5 +50,7 @@ public interface BigqueryColumnOption extends Task {
   @ConfigDefault("9")
   public int getScale();
 
-  // TODO: fields
+  @Config("fields")
+  @ConfigDefault("null")
+  Optional<List<BigqueryFieldOption>> getFields();
 }

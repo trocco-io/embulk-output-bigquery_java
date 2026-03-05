@@ -13,8 +13,10 @@ public class BigqueryValueConverter {
       String name,
       String src,
       BigqueryColumnOptionType bigqueryColumnOptionType,
-      BigqueryColumnOption columnOption) {
-    BigqueryStringConverter.convertAndSet(node, name, src, bigqueryColumnOptionType, columnOption);
+      BigqueryColumnOption columnOption,
+      PluginTask task) {
+    BigqueryStringConverter.convertAndSet(
+        node, name, src, bigqueryColumnOptionType, columnOption, task);
   }
 
   @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
