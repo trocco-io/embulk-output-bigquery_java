@@ -227,6 +227,34 @@ public class TestBigqueryRecordConverter {
   }
 
   @Test
+  public void testConvertJsonField() throws Exception {
+    ObjectNode data = OBJECT_MAPPER.createObjectNode();
+    ObjectNode jsonValue = OBJECT_MAPPER.createObjectNode();
+    jsonValue.put("key", "value");
+    jsonValue.put("num", 123);
+    data.set("metadata", jsonValue);
+
+    List<BigqueryFieldOption> fields = new ArrayList<>();
+    fields.add(createFieldOption("metadata", "JSON"));
+
+    JsonNode result = BigqueryRecordConverter.convertRecordValue(data, fields, task);
+    assertEquals("value", result.get("metadata").get("key").asText());
+    assertEquals(123, result.get("metadata").get("num").asInt());
+  }
+
+  @Test
+  public void testConvertNumericField() throws Exception {
+    ObjectNode data = OBJECT_MAPPER.createObjectNode();
+    data.put("price", 99.99);
+
+    List<BigqueryFieldOption> fields = new ArrayList<>();
+    fields.add(createFieldOption("price", "NUMERIC"));
+
+    JsonNode result = BigqueryRecordConverter.convertRecordValue(data, fields, task);
+    assertEquals(99.99, result.get("price").asDouble(), 0.001);
+  }
+
+  @Test
   public void testNullInput() {
     List<BigqueryFieldOption> fields = new ArrayList<>();
     fields.add(createFieldOption("name", "STRING"));
