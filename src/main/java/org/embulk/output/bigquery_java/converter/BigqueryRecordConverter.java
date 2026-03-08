@@ -60,9 +60,9 @@ public class BigqueryRecordConverter {
     String type = field.getType().toUpperCase();
     switch (type) {
       case "STRING":
-        case "JSON":
-        case "NUMERIC":
-            return value;
+      case "JSON":
+      case "NUMERIC":
+        return value;
       case "BOOLEAN":
         return convertToBoolean(value);
       case "INTEGER":
