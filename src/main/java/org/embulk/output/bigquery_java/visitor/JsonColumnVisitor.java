@@ -1,5 +1,6 @@
 package org.embulk.output.bigquery_java.visitor;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -9,6 +10,7 @@ import org.embulk.output.bigquery_java.BigqueryValueConverter;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.converter.BigqueryRecordConverter;
 import org.embulk.spi.Column;
 import org.embulk.spi.PageReader;
 
@@ -109,7 +111,8 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
           column.getName(),
           reader.getString(column),
           bigqueryColumnOptionType,
-          bigqueryColumnOption);
+          bigqueryColumnOption,
+          this.task);
     }
   }
 
@@ -146,7 +149,25 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
     if (reader.isNull(column)) {
       node.putNull(column.getName());
     } else {
-      node.put(column.getName(), reader.getJson(column).toJson());
+      String jsonStr = reader.getJson(column).toJson();
+      Optional<BigqueryColumnOption> columnOption =
+          BigqueryUtil.findColumnOption(column.getName(), this.columnOptions);
+      if (columnOption.isPresent()
+          && columnOption.get().getType().isPresent()
+          && columnOption.get().getType().get().equals("RECORD")
+          && columnOption.get().getFields().isPresent()) {
+        try {
+          JsonNode parsed = BigqueryUtil.getObjectMapper().readTree(jsonStr);
+          JsonNode converted =
+              BigqueryRecordConverter.convertRecordValue(
+                  parsed, columnOption.get().getFields().get(), this.task);
+          node.set(column.getName(), converted);
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      } else {
+        node.put(column.getName(), jsonStr);
+      }
     }
   }
 }

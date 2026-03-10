@@ -47,6 +47,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.embulk.config.ConfigException;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.BigqueryFieldOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
@@ -818,7 +819,22 @@ public class BigqueryClient {
       Field.Mode fieldMode = Field.Mode.NULLABLE;
       Optional<BigqueryColumnOption> columnOption =
           BigqueryUtil.findColumnOption(col.getName(), columnOptions);
-      Field.Builder fieldBuilder = createFieldBuilder(task, col, columnOption);
+
+      Field.Builder fieldBuilder;
+      if (columnOption.isPresent() && columnOption.get().getFields().isPresent()) {
+        BigqueryColumnOption colOpt = columnOption.get();
+        FieldList subFields = buildSubFields(colOpt.getFields().get());
+        String typeName = colOpt.getType().orElse("RECORD");
+        if (task.getEnableStandardSQL()) {
+          fieldBuilder =
+              Field.newBuilder(col.getName(), StandardSQLTypeName.valueOf(typeName), subFields);
+        } else {
+          fieldBuilder =
+              Field.newBuilder(col.getName(), LegacySQLTypeName.valueOf(typeName), subFields);
+        }
+      } else {
+        fieldBuilder = createFieldBuilder(task, col, columnOption);
+      }
 
       if (columnOption.isPresent()) {
         BigqueryColumnOption colOpt = columnOption.get();
@@ -833,7 +849,6 @@ public class BigqueryClient {
           fieldBuilder.setDescription(colOpt.getDescription().get());
         }
       }
-      //  TODO:: support field for JSON type
       Field field = fieldBuilder.build();
       fields.add(field);
     }
@@ -860,6 +875,47 @@ public class BigqueryClient {
     } else {
       return Field.newBuilder(col.getName(), legacySQLTypeName);
     }
+  }
+
+  private FieldList buildSubFields(List<BigqueryFieldOption> fieldOptions) {
+    List<Field> subFields = new ArrayList<>();
+    for (BigqueryFieldOption fieldOption : fieldOptions) {
+      Field.Builder fb;
+      if (fieldOption.getFields().isPresent()) {
+        FieldList nestedFields = buildSubFields(fieldOption.getFields().get());
+        if (task.getEnableStandardSQL()) {
+          fb =
+              Field.newBuilder(
+                  fieldOption.getName(),
+                  StandardSQLTypeName.valueOf(fieldOption.getType()),
+                  nestedFields);
+        } else {
+          fb =
+              Field.newBuilder(
+                  fieldOption.getName(),
+                  LegacySQLTypeName.valueOf(fieldOption.getType()),
+                  nestedFields);
+        }
+      } else {
+        if (task.getEnableStandardSQL()) {
+          fb =
+              Field.newBuilder(
+                  fieldOption.getName(), StandardSQLTypeName.valueOf(fieldOption.getType()));
+        } else {
+          fb =
+              Field.newBuilder(
+                  fieldOption.getName(), LegacySQLTypeName.valueOf(fieldOption.getType()));
+        }
+      }
+      if (!fieldOption.getMode().isEmpty()) {
+        fb.setMode(Field.Mode.valueOf(fieldOption.getMode()));
+      }
+      if (fieldOption.getDescription().isPresent()) {
+        fb.setDescription(fieldOption.getDescription().get());
+      }
+      subFields.add(fb.build());
+    }
+    return FieldList.of(subFields);
   }
 
   private StandardSQLTypeName getStandardSQLTypeNameByEmbulkType(Type type) {

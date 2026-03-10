@@ -54,7 +54,7 @@ public class TestBigqueryStringConverter {
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
     BigqueryStringConverter.convertAndSet(
-        node, "key", "data", BigqueryColumnOptionType.STRING, columnOption);
+        node, "key", "data", BigqueryColumnOptionType.STRING, columnOption, task);
 
     assertEquals("data", node.get("key").asText());
   }
@@ -73,7 +73,7 @@ public class TestBigqueryStringConverter {
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
     BigqueryStringConverter.convertAndSet(
-        node, "key", "1", BigqueryColumnOptionType.INTEGER, columnOption);
+        node, "key", "1", BigqueryColumnOptionType.INTEGER, columnOption, task);
 
     assertEquals(1, node.get("key").asInt());
   }
@@ -92,7 +92,7 @@ public class TestBigqueryStringConverter {
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
     BigqueryStringConverter.convertAndSet(
-        node, "key", "1.0", BigqueryColumnOptionType.FLOAT, columnOption);
+        node, "key", "1.0", BigqueryColumnOptionType.FLOAT, columnOption, task);
 
     assertEquals(1.0, node.get("key").asDouble(), 0);
   }
@@ -112,14 +112,14 @@ public class TestBigqueryStringConverter {
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
     BigqueryStringConverter.convertAndSet(
-        node, "key", "2020/05/01", BigqueryColumnOptionType.DATE, columnOption);
+        node, "key", "2020/05/01", BigqueryColumnOptionType.DATE, columnOption, task);
     assertEquals("2020-05-01", node.get("key").asText());
 
     assertThrows(
         BigqueryTypeCastException.class,
         () -> {
           BigqueryStringConverter.convertAndSet(
-              node, "key", "20200501", BigqueryColumnOptionType.DATE, columnOption);
+              node, "key", "20200501", BigqueryColumnOptionType.DATE, columnOption, task);
         });
   }
 
@@ -137,11 +137,11 @@ public class TestBigqueryStringConverter {
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
     BigqueryStringConverter.convertAndSet(
-        node, "key", "2020-05-01", BigqueryColumnOptionType.DATE, columnOption);
+        node, "key", "2020-05-01", BigqueryColumnOptionType.DATE, columnOption, task);
     assertEquals("2020-05-01", node.get("key").asText());
 
     BigqueryStringConverter.convertAndSet(
-        node, "key", "2020/05/01", BigqueryColumnOptionType.DATE, columnOption);
+        node, "key", "2020/05/01", BigqueryColumnOptionType.DATE, columnOption, task);
     assertEquals("2020/05/01", node.get("key").asText());
   }
 
@@ -160,7 +160,7 @@ public class TestBigqueryStringConverter {
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
     BigqueryStringConverter.convertAndSet(
-        node, "key", "2020/05/01 00:00:00", BigqueryColumnOptionType.DATETIME, columnOption);
+        node, "key", "2020/05/01 00:00:00", BigqueryColumnOptionType.DATETIME, columnOption, task);
 
     assertEquals("2020-05-01 00:00:00.000000", node.get("key").asText());
   }
@@ -179,11 +179,21 @@ public class TestBigqueryStringConverter {
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
     BigqueryStringConverter.convertAndSet(
-        node, "key", "2020-05-01 00:00:00.000000", BigqueryColumnOptionType.DATETIME, columnOption);
+        node,
+        "key",
+        "2020-05-01 00:00:00.000000",
+        BigqueryColumnOptionType.DATETIME,
+        columnOption,
+        task);
     assertEquals("2020-05-01 00:00:00.000000", node.get("key").asText());
 
     BigqueryStringConverter.convertAndSet(
-        node, "key", "2020/05/01 00:00:00.000000", BigqueryColumnOptionType.DATETIME, columnOption);
+        node,
+        "key",
+        "2020/05/01 00:00:00.000000",
+        BigqueryColumnOptionType.DATETIME,
+        columnOption,
+        task);
     assertEquals("2020/05/01 00:00:00.000000", node.get("key").asText());
   }
 
@@ -202,7 +212,7 @@ public class TestBigqueryStringConverter {
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
 
     BigqueryStringConverter.convertAndSet(
-        node, "key", "2020/05/01 00:00:00", BigqueryColumnOptionType.TIMESTAMP, columnOption);
+        node, "key", "2020/05/01 00:00:00", BigqueryColumnOptionType.TIMESTAMP, columnOption, task);
 
     assertEquals("2020-05-01 00:00:00.000000 +00:00", node.get("key").asText());
   }
@@ -225,7 +235,8 @@ public class TestBigqueryStringConverter {
         "key",
         "2020-05-01 00:00:00.000000 +09:00",
         BigqueryColumnOptionType.TIMESTAMP,
-        columnOption);
+        columnOption,
+        task);
     assertEquals("2020-05-01 00:00:00.000000 +09:00", node.get("key").asText());
 
     BigqueryStringConverter.convertAndSet(
@@ -233,7 +244,8 @@ public class TestBigqueryStringConverter {
         "key",
         "2020/05/01 00:00:00.000000 +09:00",
         BigqueryColumnOptionType.TIMESTAMP,
-        columnOption);
+        columnOption,
+        task);
     assertEquals("2020/05/01 00:00:00.000000 +09:00", node.get("key").asText());
   }
 
@@ -250,7 +262,7 @@ public class TestBigqueryStringConverter {
     BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
     BigqueryStringConverter.convertAndSet(
-        node, "key", "123.456", BigqueryColumnOptionType.NUMERIC, columnOption);
+        node, "key", "123.456", BigqueryColumnOptionType.NUMERIC, columnOption, task);
 
     assertTrue(node.get("key").isBigDecimal());
     assertEquals(123.456, node.get("key").asDouble(), 0);
