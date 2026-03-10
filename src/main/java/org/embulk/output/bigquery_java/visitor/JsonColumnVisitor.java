@@ -162,8 +162,6 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
               BigqueryRecordConverter.convertRecordValue(
                   parsed, columnOption.get().getFields().get(), this.task);
           node.set(column.getName(), converted);
-        } catch (RuntimeException e) {
-          throw e;
         } catch (Exception e) {
           throw new RuntimeException(e);
         }
