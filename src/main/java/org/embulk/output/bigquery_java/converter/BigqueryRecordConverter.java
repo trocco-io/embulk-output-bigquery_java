@@ -60,7 +60,6 @@ public class BigqueryRecordConverter {
     String type = field.getType().toUpperCase();
     switch (type) {
       case "STRING":
-        return convertToString(value);
       case "JSON":
       case "NUMERIC":
         return value;
@@ -85,13 +84,6 @@ public class BigqueryRecordConverter {
         throw new BigqueryNotSupportedTypeException(
             String.format("Unsupported field type: %s", type));
     }
-  }
-
-  private static JsonNode convertToString(JsonNode value) {
-    if (value.isObject() || value.isArray()) {
-      return BigqueryUtil.getObjectMapper().getNodeFactory().textNode(value.toString());
-    }
-    return value;
   }
 
   private static JsonNode convertToBoolean(JsonNode value) {
