@@ -227,6 +227,43 @@ public class TestBigqueryRecordConverter {
   }
 
   @Test
+  public void testConvertStringFieldWithJsonObjectValue() throws Exception {
+    ObjectNode data = OBJECT_MAPPER.createObjectNode();
+    ObjectNode jsonValue = OBJECT_MAPPER.createObjectNode();
+    jsonValue.put("key", "value");
+    ArrayNode nested = OBJECT_MAPPER.createArrayNode();
+    nested.add(1);
+    nested.add(2);
+    nested.add(3);
+    jsonValue.set("nested", nested);
+    data.set("v", jsonValue);
+
+    List<BigqueryFieldOption> fields = new ArrayList<>();
+    fields.add(createFieldOption("v", "STRING"));
+
+    JsonNode result = BigqueryRecordConverter.convertRecordValue(data, fields, task);
+    assertTrue(result.get("v").isTextual());
+    assertEquals("{\"key\":\"value\",\"nested\":[1,2,3]}", result.get("v").asText());
+  }
+
+  @Test
+  public void testConvertStringFieldWithArrayValue() throws Exception {
+    ObjectNode data = OBJECT_MAPPER.createObjectNode();
+    ArrayNode arrayValue = OBJECT_MAPPER.createArrayNode();
+    arrayValue.add("a");
+    arrayValue.add("b");
+    arrayValue.add("c");
+    data.set("v", arrayValue);
+
+    List<BigqueryFieldOption> fields = new ArrayList<>();
+    fields.add(createFieldOption("v", "STRING"));
+
+    JsonNode result = BigqueryRecordConverter.convertRecordValue(data, fields, task);
+    assertTrue(result.get("v").isTextual());
+    assertEquals("[\"a\",\"b\",\"c\"]", result.get("v").asText());
+  }
+
+  @Test
   public void testConvertJsonField() throws Exception {
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     ObjectNode jsonValue = OBJECT_MAPPER.createObjectNode();
