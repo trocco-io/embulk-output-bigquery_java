@@ -182,4 +182,10 @@ public interface PluginTask extends Task {
   @Config("retain_column_policy_tags")
   @ConfigDefault("false")
   Boolean getRetainColumnPolicyTags();
+
+  // Test-only seam: when set, redirects the BigQuery client at this host (e.g. a local
+  // MockWebServer) instead of the real BigQuery API, bypassing credential setup entirely.
+  @Config("test_host")
+  @ConfigDefault("null")
+  Optional<String> getTestHost();
 }
