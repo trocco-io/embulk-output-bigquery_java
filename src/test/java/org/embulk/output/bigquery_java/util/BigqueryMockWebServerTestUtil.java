@@ -296,6 +296,19 @@ public final class BigqueryMockWebServerTestUtil {
         "[{\"name\":\"c0\",\"type\":\"STRING\",\"mode\":\"NULLABLE\"}]");
   }
 
+  // A table with numRows set, e.g. the temp table row count
+  // BigqueryJavaOutputPlugin#getTransactionReport() reads when is_skip_job_result_check is false.
+  public static MockResponse tableResponseWithNumRows(long numRows) {
+    return new MockResponse()
+        .setResponseCode(200)
+        .setBody(
+            "{\"kind\":\"bigquery#table\",\"type\":\"TABLE\",\"tableReference\":"
+                + "{\"projectId\":\"project\",\"datasetId\":\"dataset\",\"tableId\":\"x\"},"
+                + "\"numRows\":\""
+                + numRows
+                + "\"}");
+  }
+
   public static MockResponse deleteResponse() {
     return new MockResponse().setResponseCode(204);
   }
@@ -324,6 +337,19 @@ public final class BigqueryMockWebServerTestUtil {
   // errorReason makes waitFor throw the exception matching that reason.
   public static MockResponse jobResponse(
       String jobId, String configKey, String configBody, String state, String errorReason) {
+    return jobResponse(jobId, configKey, configBody, state, errorReason, null);
+  }
+
+  // Like the 5-arg jobResponse() above, but statisticsFields, if non-null, is merged into the
+  // job's statistics object (e.g. a load job's outputRows, read by
+  // BigqueryJavaOutputPlugin#getTransactionReport() when is_skip_job_result_check is false).
+  private static MockResponse jobResponse(
+      String jobId,
+      String configKey,
+      String configBody,
+      String state,
+      String errorReason,
+      String statisticsFields) {
     StringBuilder status = new StringBuilder("{\"state\":\"").append(state).append("\"");
     if (errorReason != null) {
       status
@@ -335,6 +361,10 @@ public final class BigqueryMockWebServerTestUtil {
           .append("\",\"message\":\"boom\"}]");
     }
     status.append("}");
+    String statistics =
+        "{\"creationTime\":\"0\",\"startTime\":\"0\",\"endTime\":\"0\""
+            + (statisticsFields != null ? "," + statisticsFields : "")
+            + "}";
     return new MockResponse()
         .setResponseCode(200)
         .setBody(
@@ -349,7 +379,9 @@ public final class BigqueryMockWebServerTestUtil {
                 + "},"
                 + "\"status\":"
                 + status
-                + ",\"statistics\":{\"creationTime\":\"0\",\"startTime\":\"0\",\"endTime\":\"0\"}}");
+                + ",\"statistics\":"
+                + statistics
+                + "}");
   }
 
   // A completed job, as returned both by the jobs.insert response (test_host branch of
@@ -360,11 +392,14 @@ public final class BigqueryMockWebServerTestUtil {
   }
 
   private static MockResponse loadJobDoneResponse(String jobId) {
-    return jobDoneResponse(
+    return jobResponse(
         jobId,
         "load",
         "{\"destinationTable\":"
-            + "{\"projectId\":\"project\",\"datasetId\":\"dataset\",\"tableId\":\"table\"}}");
+            + "{\"projectId\":\"project\",\"datasetId\":\"dataset\",\"tableId\":\"table\"}}",
+        "DONE",
+        null,
+        "\"load\":{\"outputRows\":\"1\"}");
   }
 
   // The response to jobs.insert when creating the load job.
