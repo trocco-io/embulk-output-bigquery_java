@@ -491,7 +491,9 @@ public class TestBigqueryJavaOutputPlugin {
     // destination via a query job, then delete the temp table.
     List<RecordedRequest> requests =
         runWithMockServer(
-            c -> c.set("mode", "merge"),
+            // merge_keys is set explicitly to avoid merge mode issuing an extra
+            // INFORMATION_SCHEMA query job to discover merge keys when none are configured.
+            c -> c.set("mode", "merge").set("merge_keys", Arrays.asList("c0")),
             datasetResponse(),
             tableResponse(),
             tableResponse(),
