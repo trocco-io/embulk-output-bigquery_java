@@ -1,6 +1,7 @@
 package org.embulk.output.bigquery_java;
 
 import com.google.cloud.NoCredentials;
+import com.google.cloud.ServiceOptions;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.BigQueryOptions;
 import com.google.cloud.bigquery.FormatOptions;
@@ -12,6 +13,7 @@ import com.google.cloud.bigquery.Schema;
 import com.google.cloud.bigquery.TableId;
 import java.util.Collections;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.threeten.bp.Duration;
 
 // Test-only seam: TableDataWriteChannel's resumable upload session (used by BigqueryClient#load()
 // in the normal path) hardcodes the real BigQuery host regardless of test_host (a
@@ -20,17 +22,24 @@ import org.embulk.output.bigquery_java.config.PluginTask;
 final class BigqueryTestHostSupport {
   private BigqueryTestHostSupport() {}
 
+  // Also requires the TEST_HOST_ENABLED environment variable (set by the `test` task in
+  // build.gradle) so a plugin config alone can't redirect a real embulk run at an arbitrary host.
   static boolean isEnabled(PluginTask task) {
-    return task.getTestHost().isPresent();
+    return task.getTestHost().isPresent() && "true".equals(System.getenv("TEST_HOST_ENABLED"));
   }
 
-  static BigQuery getBigQueryService(PluginTask task, String project) {
+  static BigQueryOptions.Builder getBigQueryOptionsBuilder(PluginTask task) {
     return BigQueryOptions.newBuilder()
-        .setProjectId(project)
         .setHost(task.getTestHost().get())
         .setCredentials(NoCredentials.getInstance())
-        .build()
-        .getService();
+        .setRetrySettings(
+            ServiceOptions.getDefaultRetrySettings()
+                .toBuilder()
+                .setInitialRetryDelay(Duration.ofMillis(1))
+                .setMaxRetryDelay(Duration.ofMillis(1))
+                .setRetryDelayMultiplier(1.0)
+                .setTotalTimeout(Duration.ofSeconds(1))
+                .build());
   }
 
   // Submits the load job configuration directly via jobs.insert instead of streaming the file

@@ -141,11 +141,10 @@ public class BigqueryClient {
   }
 
   private BigQuery getBigQueryService() throws IOException {
-    if (BigqueryTestHostSupport.isEnabled(task)) {
-      return BigqueryTestHostSupport.getBigQueryService(task, project);
-    }
-    return BigQueryOptions.newBuilder()
-        .setCredentials(new Auth(task).getCredentials(BigqueryScopes.BIGQUERY))
+    return (BigqueryTestHostSupport.isEnabled(task)
+            ? BigqueryTestHostSupport.getBigQueryOptionsBuilder(task)
+            : BigQueryOptions.newBuilder()
+                .setCredentials(new Auth(task).getCredentials(BigqueryScopes.BIGQUERY)))
         .setProjectId(project)
         .build()
         .getService();
