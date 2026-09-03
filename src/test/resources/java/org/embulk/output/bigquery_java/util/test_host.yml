@@ -1,0 +1,15 @@
+type: bigquery_java
+mode: replace
+auth_method: compute_engine
+project: project
+dataset: dataset
+table: table
+source_format: NEWLINE_DELIMITED_JSON
+compression: GZIP
+auto_create_dataset: false
+auto_create_table: true
+is_skip_job_result_check: true
+# Avoids merge mode issuing an extra INFORMATION_SCHEMA query job to discover merge keys when
+# none are configured.
+merge_keys: [c0]
+retries: 5
