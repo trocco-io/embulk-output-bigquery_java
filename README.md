@@ -254,3 +254,9 @@ Real bigquery connection tests are normally disabled. To enable them, set the EM
 ```
 $ EMBULK_OUTPUT_BIGQUERY_TEST_CONFIG="example/test.yml" ./gradlew test # Create example/test.yml based on example/test.yml.example
 ```
+
+### test_host (internal, test-only)
+
+`test_host` is an internal, undocumented-for-users config option used by this plugin's own test suite (`TestBigqueryClientWithMockServer`, `TestBigqueryJavaOutputPluginWithMockServer`) to redirect all BigQuery API calls to a local `MockWebServer` instead of the real BigQuery API, and to bypass credential setup entirely (`NoCredentials`). It is not intended for use outside of tests, and is a no-op unless the `TEST_HOST_ENABLED` environment variable is also set to `true` (as the `test` task in `build.gradle` does), so a plugin config alone can't redirect a real embulk run at an arbitrary host.
+
+When set, `BigqueryClient#load()` also takes a different code path: instead of `TableDataWriteChannel`'s resumable upload session (which `google-cloud-bigquery:2.14.0` hardcodes to the real `googleapis.com` host regardless of `test_host`), it submits the load job configuration directly via `jobs.insert`, without actually streaming the file content. This lets tests observe and assert on load job requests (e.g. the destination table, schema, write disposition) through `MockWebServer`, at the cost of not exercising the real resumable-upload code path.

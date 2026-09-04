@@ -141,8 +141,10 @@ public class BigqueryClient {
   }
 
   private BigQuery getBigQueryService() throws IOException {
-    return BigQueryOptions.newBuilder()
-        .setCredentials(new Auth(task).getCredentials(BigqueryScopes.BIGQUERY))
+    return (BigqueryTestHostSupport.isEnabled(task)
+            ? BigqueryTestHostSupport.getBigQueryOptionsBuilder(task)
+            : BigQueryOptions.newBuilder()
+                .setCredentials(new Auth(task).getCredentials(BigqueryScopes.BIGQUERY)))
         .setProjectId(project)
         .build()
         .getService();
@@ -355,6 +357,17 @@ public class BigqueryClient {
                   }
 
                   TableId tableId = TableId.of(destinationProject, destinationDataset, table);
+                  if (BigqueryTestHostSupport.isEnabled(task)) {
+                    Job job =
+                        BigqueryTestHostSupport.createLoadJob(
+                            bigquery,
+                            task,
+                            tableId,
+                            jobId,
+                            writeDisposition,
+                            buildSchema(schema, columnOptions));
+                    return (JobStatistics.LoadStatistics) waitForLoad(job);
+                  }
                   WriteChannelConfiguration writeChannelConfiguration =
                       WriteChannelConfiguration.newBuilder(tableId)
                           .setFormatOptions(FormatOptions.json())
