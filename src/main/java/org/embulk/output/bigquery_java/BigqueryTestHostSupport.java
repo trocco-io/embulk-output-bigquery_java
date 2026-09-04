@@ -17,8 +17,10 @@ import org.threeten.bp.Duration;
 
 // Test-only seam: TableDataWriteChannel's resumable upload session (used by BigqueryClient#load()
 // in the normal path) hardcodes the real BigQuery host regardless of test_host (a
-// google-cloud-bigquery:2.14.0 limitation), so it can't be exercised against a MockWebServer.
-// BigqueryClient routes through here instead whenever task_host is present.
+// google-cloud-bigquery:2.14.0 limitation:
+// https://github.com/googleapis/java-bigquery/blob/v2.14.0/google-cloud-bigquery/src/main/java/com/google/cloud/bigquery/spi/v2/HttpBigQueryRpc.java#L726),
+// so it can't be exercised against a MockWebServer. BigqueryClient routes through here instead
+// whenever task_host is present.
 final class BigqueryTestHostSupport {
   private BigqueryTestHostSupport() {}
 
