@@ -206,7 +206,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     switch (task.getMode()) {
       case "delete_in_advance":
         client.deleteTableOrPartition(task.getTable());
-        client.createTableIfNotExist(task.getTempTable().get());
+        client.createTableIfNotExist(task.getTable());
         break;
       case "replace":
         client.createTableIfNotExist(task.getTempTable().get());

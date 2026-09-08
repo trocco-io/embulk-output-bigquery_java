@@ -430,9 +430,10 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
 
   @Test
   public void testRunDeleteInAdvanceMode() throws Exception {
-    // autoCreate() deletes the destination table (or partition) before creating the temp table;
-    // load into the temp table, copy (WRITE_TRUNCATE) to the destination, delete the temp table.
-    // TODO: avoid going through a temp table.
+    // autoCreate() deletes the destination table (or partition), then immediately recreates the
+    // same (now empty) destination table, and load uploads straight into it: no temp table, no
+    // copy/merge step, matching ruby (and avoiding the destination table being left deleted if a
+    // later step fails).
     List<RecordedRequest> requests =
         runWithMockServer(
             c -> c.set("mode", "delete_in_advance"),
@@ -441,40 +442,25 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
             tableResponse(),
             createLoadJobResponse("testjob"),
             waitForLoadJobResponse("testjob"),
-            tableResponseWithNumRows(1),
-            createCopyJobResponse("testjob"),
-            waitForCopyJobResponse("testjob"),
-            tableResponse(),
-            deleteResponse());
+            tableResponse());
 
-    assertEquals(10, requests.size());
+    assertEquals(6, requests.size());
 
     assertGetDataset(requests.get(0));
 
     assertDeleteTable(requests.get(1), "table");
 
     assertPostTables(requests.get(2));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(2)), "tableReference");
-    assertMatches(tempTableId, "LOAD_TEMP_.*_table");
+    assertEquals("table", tableIdOf(requestBodyJson(requests.get(2)), "tableReference"));
 
     assertPostJobs(requests.get(3));
-    assertEquals(tempTableId, tableIdOf(jobConfig(requests.get(3), "load"), "destinationTable"));
+    JSONObject loadConfig = jobConfig(requests.get(3), "load");
+    assertEquals("table", tableIdOf(loadConfig, "destinationTable"));
+    assertEquals("WRITE_APPEND", loadConfig.getString("writeDisposition"));
 
     assertGetJobStatus(requests.get(4), "testjob");
 
-    assertGetTable(requests.get(5), tempTableId); // getTransactionReport()
-
-    assertPostJobs(requests.get(6));
-    JSONObject copyConfig = jobConfig(requests.get(6), "copy");
-    assertEquals(tempTableId, firstSourceTableId(copyConfig));
-    assertEquals("table", tableIdOf(copyConfig, "destinationTable"));
-    assertEquals("WRITE_TRUNCATE", copyConfig.getString("writeDisposition"));
-
-    assertGetJobStatus(requests.get(7), "testjob");
-
-    assertGetTable(requests.get(8), "table"); // updateTableIfNeed()
-
-    assertDeleteTable(requests.get(9), tempTableId);
+    assertGetTable(requests.get(5), "table"); // updateTableIfNeed()
   }
 
   @Test
