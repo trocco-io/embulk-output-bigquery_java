@@ -34,6 +34,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
 import okhttp3.mockwebserver.MockResponse;
@@ -391,6 +392,38 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
 
     assertGetTable(requests.get(2), "table"); // storeCachedSrcFieldsIfNeed(), fails with "boom"
+
+    assertDeleteTable(requests.get(3), tempTableId);
+  }
+
+  @Test
+  public void testRunReplaceModeDeletesTempTableWhenPathsAreEmpty() throws Exception {
+    // With zero input records, BigqueryPageOutput#add() is never called, so no writer is ever
+    // registered and no intermediate file gets created: paths.isEmpty() is true, and transaction()
+    // returns right after creating the destination table, before ever reaching the load/copy
+    // logic. The temp table (already created by autoCreate()) must still be deleted via the
+    // guaranteed finally block.
+    List<RecordedRequest> requests =
+        BigqueryMockWebServerTestUtil.runWithMockServer(
+            embulk,
+            testFolder,
+            loadTestHostConfig(embulk, c -> c.set("mode", "replace")),
+            Collections.singletonList("c0:string"),
+            datasetResponse(),
+            tableResponse(),
+            tableResponse(),
+            deleteResponse());
+
+    assertEquals(4, requests.size());
+
+    assertGetDataset(requests.get(0));
+
+    assertPostTables(requests.get(1));
+    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
+    assertMatches(tempTableId, "LOAD_TEMP_.*_table");
+
+    assertPostTables(requests.get(2));
+    assertEquals("table", tableIdOf(requestBodyJson(requests.get(2)), "tableReference"));
 
     assertDeleteTable(requests.get(3), tempTableId);
   }
