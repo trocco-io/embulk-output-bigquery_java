@@ -300,6 +300,38 @@ public class TestBigqueryClientWithMockServer {
         server -> updateTableInMode(server, "append", true), COLUMN_OPTION_DESCRIPTION, null);
   }
 
+  // Reproduces a first-run scenario: the destination table doesn't exist yet when
+  // storeCachedSrcFieldsIfNeed() runs (e.g. append mode, where autoCreate() only creates the temp
+  // table), so getTable() 404s and cachedSrcFields stays null. isNeedUpdateTable() is still true
+  // because of column_options[].description alone, so updateTableIfNeed() should still PATCH the
+  // description in once the destination table exists (e.g. created later by the copy job) --
+  // buildPatchSchema()'s column_options[].description path doesn't need cachedSrcFields at all.
+  @Test
+  public void
+      testUpdateTableIfNeedPatchesColumnOptionDescriptionInAppendModeWhenDestinationTableDidNotExistYet()
+          throws Exception {
+    List<RecordedRequest> requests =
+        runWithMockServer(
+            server -> updateTableInMode(server, "append", true),
+            // storeCachedSrcFieldsIfNeed(): destination table not found yet.
+            errorResponse(404, "Not found: Table project:dataset.table", "notFound"),
+            // updateTableIfNeed(): the table now exists (e.g. created by the copy job), with no
+            // description yet.
+            tableResponseWithNullableC0(),
+            tableResponseWithSchemaFields("[{\"name\":\"c0\",\"type\":\"STRING\"}]"));
+
+    assertEquals(3, requests.size());
+
+    assertGetTable(requests.get(0), "table"); // storeCachedSrcFieldsIfNeed(), table not found
+
+    assertGetTable(requests.get(1), "table"); // updateTableIfNeed()
+
+    RecordedRequest patchRequest = requests.get(2);
+    assertPatchTable(patchRequest, "table");
+    assertFieldDescriptionAndPolicyTag(
+        firstSchemaField(requestBodyJson(patchRequest)), COLUMN_OPTION_DESCRIPTION, null);
+  }
+
   @Test
   public void testUpdateTableIfNeedDoesNotPatchInAppendDirectMode() throws Exception {
     assertNoPatch(server -> updateTableInMode(server, "append_direct", false));
