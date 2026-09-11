@@ -346,18 +346,23 @@ public class BigqueryClient {
 
   public static com.google.cloud.bigquery.Schema buildPatchSchema(
       PluginTask task, FieldList currentFields, FieldList dstFields) {
-    if (!isNeedUpdateTable(task) || dstFields == null) {
+    if (!isNeedUpdateTable(task)) {
       return null;
     }
 
-    boolean retainColumnAttributes = needRetainColumnAttributes(task);
+    // dstFields (the previous table's schema) is only needed for the retain-from-previous-table
+    // copy, which only ever applies in mode:replace. It can be null here (e.g. the destination
+    // table didn't exist yet when storeCachedSrcFieldsIfNeed() ran), in which case
+    // column_options[].description can still be applied below.
     List<Field> updatedFields = new ArrayList<>();
     for (Field field : currentFields) {
       Field srcField =
-          dstFields.stream()
-              .filter(x -> x.getName().equals(field.getName()))
-              .findFirst()
-              .orElse(null);
+          dstFields == null
+              ? null
+              : dstFields.stream()
+                  .filter(x -> x.getName().equals(field.getName()))
+                  .findFirst()
+                  .orElse(null);
       Optional<BigqueryColumnOption> columnOption =
           task.getColumnOptions()
               .flatMap(
@@ -366,10 +371,9 @@ public class BigqueryClient {
           patchField(
               field,
               srcField,
-              retainColumnAttributes,
               task,
-              columnOption.flatMap(BigqueryColumnOption::getDescription),
-              columnOption.flatMap(BigqueryColumnOption::getFields)));
+              columnOption.flatMap(BigqueryColumnOption::getDescription).orElse(null),
+              columnOption.flatMap(BigqueryColumnOption::getFields).orElse(null)));
     }
     return com.google.cloud.bigquery.Schema.of(updatedFields);
   }
@@ -377,16 +381,16 @@ public class BigqueryClient {
   // Patches a single field, recursing into RECORD sub-fields so that both the
   // retain-from-previous-table copy and column_options[].fields[].description apply at any
   // nesting depth, matching hasColumnOptionDescription()'s recursion (used by
-  // isNeedUpdateTable() above).
+  // isNeedUpdateTable() above). description/nestedFieldOptions are nullable rather than Optional
+  // since they're plain inputs here, not return values.
   private static Field patchField(
       Field field,
       Field srcField,
-      boolean retainColumnAttributes,
       PluginTask task,
-      Optional<String> description,
-      Optional<List<BigqueryFieldOption>> nestedFieldOptions) {
+      String description,
+      List<BigqueryFieldOption> nestedFieldOptions) {
     Field.Builder fieldBuilder = field.toBuilder();
-    if (retainColumnAttributes && srcField != null) {
+    if (needRetainColumnAttributes(task) && srcField != null) {
       if (task.getRetainColumnDescriptions()) {
         fieldBuilder.setDescription(srcField.getDescription());
       }
@@ -397,7 +401,9 @@ public class BigqueryClient {
     // column_options[].description is applied regardless of mode or the retain_column_*
     // flags, unlike the retain-from-previous-table copy above which only makes sense for
     // mode:replace.
-    description.ifPresent(fieldBuilder::setDescription);
+    if (description != null) {
+      fieldBuilder.setDescription(description);
+    }
 
     if (field.getSubFields() != null) {
       FieldList srcSubFields = srcField == null ? null : srcField.getSubFields();
@@ -410,16 +416,17 @@ public class BigqueryClient {
                     .filter(x -> x.getName().equals(subField.getName()))
                     .findFirst()
                     .orElse(null);
-        Optional<BigqueryFieldOption> subFieldOption =
-            nestedFieldOptions.flatMap(options -> findFieldOption(subField.getName(), options));
+        BigqueryFieldOption subFieldOption =
+            nestedFieldOptions == null
+                ? null
+                : findFieldOption(subField.getName(), nestedFieldOptions).orElse(null);
         patchedSubFields.add(
             patchField(
                 subField,
                 matchingSrcSubField,
-                retainColumnAttributes,
                 task,
-                subFieldOption.flatMap(BigqueryFieldOption::getDescription),
-                subFieldOption.flatMap(BigqueryFieldOption::getFields)));
+                subFieldOption == null ? null : subFieldOption.getDescription().orElse(null),
+                subFieldOption == null ? null : subFieldOption.getFields().orElse(null)));
       }
       fieldBuilder.setType(field.getType(), FieldList.of(patchedSubFields));
     }
