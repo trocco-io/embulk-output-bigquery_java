@@ -198,13 +198,13 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
 
 - **column_options**: advanced: an array of options for columns
   - **name**: column name
-  - **type**: BigQuery type such as `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD`, and `NUMERIC`. See belows for supported conversion type.
+  - **type**: BigQuery type such as `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD`, `JSON`, and `NUMERIC`. See belows for supported conversion type.
     - boolean (x):   `BOOLEAN`, `STRING` (default: `BOOLEAN`)
     - long (x):      `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `INTEGER`)
     - double (x):    `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `FLOAT`)
     - string:    `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD` (default: `STRING`)
     - timestamp (x): `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE` (default: `TIMESTAMP`)
-    - json (x):      `STRING`,  `RECORD` (default: `STRING`)
+    - json (x):      `STRING`,  `RECORD`, `JSON` (default: `STRING`)
     - numeric (x): `STRING`
   - **mode**: BigQuery mode such as `NULLABLE`, `REQUIRED`, and `REPEATED` (string, default: `NULLABLE`)
   - **fields (x) **: Describes the nested schema fields if the type property is set to RECORD. Please note that this is **required** for `RECORD` column.
