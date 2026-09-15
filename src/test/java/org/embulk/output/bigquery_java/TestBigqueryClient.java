@@ -17,6 +17,7 @@ import com.google.cloud.bigquery.Table;
 import com.google.cloud.bigquery.TableDefinition;
 import com.google.cloud.http.HttpTransportOptions;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,7 @@ import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.util.PluginTaskUtil;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.FileInputPlugin;
 import org.embulk.spi.OutputPlugin;
@@ -69,27 +71,188 @@ public class TestBigqueryClient {
   }
 
   @Test
-  public void TestIsNeedUpdateTable() {
-    ConfigSource baseConfig = loadYamlResource(embulk, "takeover.yml");
-
-    // Helper function to create config and test isNeedUpdateTable
-    Function<String, Function<Boolean, Function<Boolean, Boolean>>> testIsNeedUpdate =
-        mode ->
+  public void testIsNeedUpdateTableReplaceModeAllCombinations() {
+    Function<String, Function<Boolean, Function<Boolean, Boolean>>> isNeedUpdate =
+        columnOptionDescription ->
             retainPolicyTags ->
                 retainDescriptions ->
                     BigqueryClient.isNeedUpdateTable(
-                        CONFIG_MAPPER.map(
-                            baseConfig
-                                .set("mode", mode)
-                                .set("retain_column_policy_tags", retainPolicyTags)
-                                .set("retain_column_descriptions", retainDescriptions),
-                            PluginTask.class));
+                        PluginTaskUtil.buildTaskWithIntegerColumnOptionForReplaceMode(
+                            embulk, columnOptionDescription, retainPolicyTags, retainDescriptions));
 
-    // Test cases
-    assertTrue(testIsNeedUpdate.apply("replace").apply(false).apply(true));
-    assertTrue(testIsNeedUpdate.apply("replace").apply(true).apply(false));
-    assertFalse(testIsNeedUpdate.apply("replace").apply(false).apply(false));
-    assertFalse(testIsNeedUpdate.apply("insert").apply(true).apply(true));
+    assertFalse(isNeedUpdate.apply(null).apply(false).apply(false));
+    assertTrue(isNeedUpdate.apply(null).apply(false).apply(true));
+    assertTrue(isNeedUpdate.apply(null).apply(true).apply(false));
+    assertTrue(isNeedUpdate.apply(null).apply(true).apply(true));
+    assertTrue(isNeedUpdate.apply("d0").apply(false).apply(false));
+    assertTrue(isNeedUpdate.apply("d0").apply(false).apply(true));
+    assertTrue(isNeedUpdate.apply("d0").apply(true).apply(false));
+    assertTrue(isNeedUpdate.apply("d0").apply(true).apply(true));
+  }
+
+  @Test
+  public void testIsNeedUpdateTableNonReplaceModesDescriptionOnly() {
+    Function<String, Function<String, Boolean>> isNeedUpdate =
+        mode ->
+            columnOptionDescription ->
+                BigqueryClient.isNeedUpdateTable(
+                    PluginTaskUtil.buildTaskWithIntegerColumnOptionForMode(
+                        embulk, mode, columnOptionDescription));
+
+    assertFalse(isNeedUpdate.apply("delete_in_advance").apply(null));
+    assertFalse(isNeedUpdate.apply("append").apply(null));
+    assertFalse(isNeedUpdate.apply("merge").apply(null));
+    assertFalse(isNeedUpdate.apply("replace_backup").apply(null));
+    assertFalse(isNeedUpdate.apply("append_direct").apply(null));
+
+    assertTrue(isNeedUpdate.apply("delete_in_advance").apply("d0"));
+    assertTrue(isNeedUpdate.apply("append").apply("d0"));
+    assertTrue(isNeedUpdate.apply("merge").apply("d0"));
+    assertTrue(isNeedUpdate.apply("replace_backup").apply("d0"));
+    assertTrue(isNeedUpdate.apply("append_direct").apply("d0"));
+  }
+
+  @Test
+  public void testColumnOptionPresent() {
+    Schema schema = invokeColumnOptionBuildSchema("d0");
+
+    assertEquals("d0", schema.getFields().get(0).getDescription());
+  }
+
+  @Test
+  public void testColumnOptionAbsent() {
+    Schema schema = invokeColumnOptionBuildSchema(null);
+
+    assertNull(schema);
+  }
+
+  private Schema invokeColumnOptionBuildSchema(String columnOptionDescription) {
+    PluginTask task =
+        PluginTaskUtil.buildTaskWithIntegerColumnOptionForReplaceMode(
+            embulk, columnOptionDescription, false, false);
+    Field field = Field.newBuilder("c0", StandardSQLTypeName.INT64).build();
+
+    return BigqueryClient.buildPatchSchema(task, FieldList.of(field), FieldList.of(field));
+  }
+
+  @Test
+  public void testNestedRecordColumnOptionPresent() {
+    Map<String, String> nestedColumnOptionDescription = new HashMap<>();
+    nestedColumnOptionDescription.put("c000", "d000");
+    nestedColumnOptionDescription.put("c00", "d00");
+    nestedColumnOptionDescription.put("c01", "d01");
+    Schema schema = invokeNestedRecordBuildSchema(nestedColumnOptionDescription);
+
+    Field c0 = schema.getFields().get(0);
+    Field c00 = c0.getSubFields().get(0);
+    Field c000 = c00.getSubFields().get(0);
+    Field c01 = c0.getSubFields().get(1);
+    Field c1 = schema.getFields().get(1);
+
+    assertNull(c0.getDescription());
+    assertEquals("d00", c00.getDescription());
+    assertEquals("d000", c000.getDescription());
+    assertEquals("d01", c01.getDescription());
+    assertNull(c1.getDescription());
+  }
+
+  @Test
+  public void testNestedRecordRetainPolicyTagsTrue() {
+    PolicyTags c000Tags =
+        PolicyTags.newBuilder().setNames(Collections.singletonList("p000")).build();
+    PolicyTags c01Tags = PolicyTags.newBuilder().setNames(Collections.singletonList("p01")).build();
+
+    Field c000Cur = Field.newBuilder("c000", StandardSQLTypeName.STRING).build();
+    Field c00Cur = Field.newBuilder("c00", StandardSQLTypeName.STRUCT, c000Cur).build();
+    Field c01Cur = Field.newBuilder("c01", StandardSQLTypeName.STRING).build();
+    Field c0Cur = Field.newBuilder("c0", StandardSQLTypeName.STRUCT, c00Cur, c01Cur).build();
+    Field c1Cur = Field.newBuilder("c1", StandardSQLTypeName.STRING).build();
+
+    Field c000Dst =
+        Field.newBuilder("c000", StandardSQLTypeName.STRING).setPolicyTags(c000Tags).build();
+    Field c00Dst = Field.newBuilder("c00", StandardSQLTypeName.STRUCT, c000Dst).build();
+    Field c01Dst =
+        Field.newBuilder("c01", StandardSQLTypeName.STRING).setPolicyTags(c01Tags).build();
+    Field c0Dst = Field.newBuilder("c0", StandardSQLTypeName.STRUCT, c00Dst, c01Dst).build();
+    Field c1Dst = Field.newBuilder("c1", StandardSQLTypeName.STRING).build();
+
+    PluginTask task =
+        PluginTaskUtil.buildTaskRecordNestedColumnOption(
+            embulk, "replace", Collections.emptyMap(), true, false);
+
+    Schema schema =
+        BigqueryClient.buildPatchSchema(
+            task, FieldList.of(c0Cur, c1Cur), FieldList.of(c0Dst, c1Dst));
+
+    Field c0 = schema.getFields().get(0);
+    Field c00 = c0.getSubFields().get(0);
+    Field c000 = c00.getSubFields().get(0);
+    Field c01 = c0.getSubFields().get(1);
+    Field c1 = schema.getFields().get(1);
+
+    assertNull(c0.getPolicyTags());
+    assertNull(c00.getPolicyTags());
+    assertEquals(c000Tags, c000.getPolicyTags());
+    assertEquals(c01Tags, c01.getPolicyTags());
+    assertNull(c1.getPolicyTags());
+  }
+
+  @Test
+  public void testNestedRecordRetainDescriptionTrue() {
+    Field c000Cur = Field.newBuilder("c000", StandardSQLTypeName.STRING).build();
+    Field c00Cur = Field.newBuilder("c00", StandardSQLTypeName.STRUCT, c000Cur).build();
+    Field c01Cur = Field.newBuilder("c01", StandardSQLTypeName.STRING).build();
+    Field c0Cur = Field.newBuilder("c0", StandardSQLTypeName.STRUCT, c00Cur, c01Cur).build();
+    Field c1Cur = Field.newBuilder("c1", StandardSQLTypeName.STRING).build();
+
+    Field c000Dst =
+        Field.newBuilder("c000", StandardSQLTypeName.STRING).setDescription("prev_c000").build();
+    Field c00Dst = Field.newBuilder("c00", StandardSQLTypeName.STRUCT, c000Dst).build();
+    Field c01Dst =
+        Field.newBuilder("c01", StandardSQLTypeName.STRING).setDescription("prev_c01").build();
+    Field c0Dst = Field.newBuilder("c0", StandardSQLTypeName.STRUCT, c00Dst, c01Dst).build();
+    Field c1Dst = Field.newBuilder("c1", StandardSQLTypeName.STRING).build();
+
+    PluginTask task =
+        PluginTaskUtil.buildTaskRecordNestedColumnOption(
+            embulk, "replace", Collections.emptyMap(), false, true);
+
+    Schema schema =
+        BigqueryClient.buildPatchSchema(
+            task, FieldList.of(c0Cur, c1Cur), FieldList.of(c0Dst, c1Dst));
+
+    Field c0 = schema.getFields().get(0);
+    Field c00 = c0.getSubFields().get(0);
+    Field c000 = c00.getSubFields().get(0);
+    Field c01 = c0.getSubFields().get(1);
+    Field c1 = schema.getFields().get(1);
+
+    assertNull(c0.getDescription());
+    assertNull(c00.getDescription());
+    assertEquals("prev_c000", c000.getDescription());
+    assertEquals("prev_c01", c01.getDescription());
+    assertNull(c1.getDescription());
+  }
+
+  @Test
+  public void testNestedRecordNoUpdateNeeded() {
+    Schema schema = invokeNestedRecordBuildSchema(Collections.emptyMap());
+
+    assertNull(schema);
+  }
+
+  private Schema invokeNestedRecordBuildSchema(Map<String, String> nestedColumnOptionDescription) {
+    PluginTask task =
+        PluginTaskUtil.buildTaskRecordNestedColumnOption(
+            embulk, "replace", nestedColumnOptionDescription, false, false);
+    Field c000Field = Field.newBuilder("c000", StandardSQLTypeName.STRING).build();
+    Field c00Field = Field.newBuilder("c00", StandardSQLTypeName.STRUCT, c000Field).build();
+    Field c01Field = Field.newBuilder("c01", StandardSQLTypeName.STRING).build();
+    Field c0Field = Field.newBuilder("c0", StandardSQLTypeName.STRUCT, c00Field, c01Field).build();
+    Field c1Field = Field.newBuilder("c1", StandardSQLTypeName.STRING).build();
+
+    FieldList fields = FieldList.of(c0Field, c1Field);
+    return BigqueryClient.buildPatchSchema(task, fields, fields);
   }
 
   private Schema invokeTakeoverBuildSchema(
@@ -101,7 +264,7 @@ public class TestBigqueryClient {
     PluginTask task = CONFIG_MAPPER.map(setupConfig.apply(config), PluginTask.class);
 
     List<Field> currentFields =
-        baseTask.getColumnOptions().orElse(java.util.Collections.emptyList()).stream()
+        baseTask.getColumnOptions().orElse(Collections.emptyList()).stream()
             .map(column -> Field.newBuilder(column.getName(), toBQType(column)).build())
             .collect(Collectors.toList());
 
@@ -110,7 +273,7 @@ public class TestBigqueryClient {
     setups.put("c1", setupField1);
 
     List<Field> fieldList =
-        baseTask.getColumnOptions().orElse(java.util.Collections.emptyList()).stream()
+        baseTask.getColumnOptions().orElse(Collections.emptyList()).stream()
             .map(c -> setups.get(c.getName()).apply(Field.newBuilder(c.getName(), toBQType(c))))
             .collect(Collectors.toList());
 
@@ -159,7 +322,11 @@ public class TestBigqueryClient {
   public void testRetainDescriptionTrueWithColumnOptionNull() {
     Schema schema =
         invokeRetainDescriptionBuildSchema(
-            c -> c.set("column_options", null), "replace", true, "prev_c0", "prev_c1");
+            c -> c.set("column_options", null), // clear takeover.yml's c0 description
+            "replace",
+            true,
+            "prev_c0",
+            "prev_c1");
     assertEquals("prev_c0", schema.getFields().get(0).getDescription());
     assertEquals("prev_c1", schema.getFields().get(1).getDescription());
   }
@@ -168,20 +335,20 @@ public class TestBigqueryClient {
   public void testRetainDescriptionFalseWithColumnOptionNull() {
     Schema schema =
         invokeRetainDescriptionBuildSchema(
-            c -> c.set("column_options", null), "replace", false, "prev_c0", "prev_c1");
+            c -> c.set("column_options", null), // clear takeover.yml's c0 description
+            "replace",
+            false,
+            "prev_c0",
+            "prev_c1");
     assertNull(schema.getFields().get(0).getDescription());
     assertNull(schema.getFields().get(1).getDescription());
   }
 
   @Test
   public void testRetainDescriptionTrueButNotModeReplace() {
-    // Ruby applies `column_options[].description` (here, c0's "d0" from takeover.yml) on every
-    // run regardless of mode. Java only reflects it when isNeedUpdateTable() is true (mode:
-    // replace with a retain flag on), so for any other mode buildPatchSchema() returns null and
-    // the configured description is never applied, even though it's set here.
-    // TODO: apply `column_options[].description` regardless of mode, like ruby does.
     Schema schema = invokeRetainDescriptionBuildSchema("insert", true, "prev_c0", "prev_c1");
-    assertNull(schema);
+    assertEquals("d0", schema.getFields().get(0).getDescription());
+    assertNull(schema.getFields().get(1).getDescription());
   }
 
   private Schema invokeRetainPolicyTagsBuildSchema(
@@ -237,7 +404,9 @@ public class TestBigqueryClient {
     Schema schema =
         invokeRetainPolicyTagsBuildSchema(
             "insert", true, new String[] {"c0"}, new String[] {"c10", "c11"});
-    assertNull(schema);
+    assertEquals("d0", schema.getFields().get(0).getDescription());
+    assertNull(schema.getFields().get(0).getPolicyTags());
+    assertNull(schema.getFields().get(1).getPolicyTags());
   }
 
   @Test
@@ -264,18 +433,18 @@ public class TestBigqueryClient {
     Mockito.when(mockTableDef.getSchema()).thenReturn(mockSchema);
     Mockito.when(client.storeCachedSrcFieldsIfNeed()).thenCallRealMethod();
 
-    // Set task field
     java.lang.reflect.Field taskField = BigqueryClient.class.getDeclaredField("task");
     taskField.setAccessible(true);
     taskField.set(client, replaceTask);
 
     assertEquals(client.storeCachedSrcFieldsIfNeed(), mockSchema.getFields());
 
-    // Test case 2: Mode is "insert" - should return null
+    // Test case 2: Mode is "insert" with no column_options[].description - should return null
     PluginTask insertTask =
         CONFIG_MAPPER.map(
             config
                 .set("mode", "insert")
+                .set("column_options", null) // clear takeover.yml's c0 description
                 .set("retain_column_descriptions", true)
                 .set("retain_column_policy_tags", true),
             PluginTask.class);

@@ -111,8 +111,32 @@ public class BigqueryClient {
   }
 
   public static boolean isNeedUpdateTable(PluginTask task) {
+    return needRetainColumnAttributes(task) || hasColumnOptionDescription(task);
+  }
+
+  private static boolean needRetainColumnAttributes(PluginTask task) {
     return task.getMode().equals("replace")
         && (task.getRetainColumnDescriptions() || task.getRetainColumnPolicyTags());
+  }
+
+  private static boolean hasColumnOptionDescription(PluginTask task) {
+    return task.getColumnOptions()
+        .map(
+            options ->
+                options.stream()
+                    .anyMatch(
+                        o -> o.getDescription().isPresent() || hasFieldDescription(o.getFields())))
+        .orElse(false);
+  }
+
+  private static boolean hasFieldDescription(Optional<List<BigqueryFieldOption>> fields) {
+    return fields
+        .map(
+            list ->
+                list.stream()
+                    .anyMatch(
+                        f -> f.getDescription().isPresent() || hasFieldDescription(f.getFields())))
+        .orElse(false);
   }
 
   public FieldList storeCachedSrcFieldsIfNeed() {
@@ -322,32 +346,97 @@ public class BigqueryClient {
 
   public static com.google.cloud.bigquery.Schema buildPatchSchema(
       PluginTask task, FieldList currentFields, FieldList dstFields) {
-    if (!isNeedUpdateTable(task) || dstFields == null) {
+    if (!isNeedUpdateTable(task)) {
       return null;
     }
 
+    // dstFields (the previous table's schema) is only needed for the retain-from-previous-table
+    // copy, which only ever applies in mode:replace. It can be null here (e.g. the destination
+    // table didn't exist yet when storeCachedSrcFieldsIfNeed() ran), in which case
+    // column_options[].description can still be applied below.
     List<Field> updatedFields = new ArrayList<>();
     for (Field field : currentFields) {
-      Field.Builder fieldBuilder = field.toBuilder();
-      dstFields.stream()
-          .filter(x -> x.getName().equals(field.getName()))
-          .findFirst()
-          .ifPresent(
-              srcField -> {
-                if (task.getRetainColumnDescriptions()) {
-                  fieldBuilder.setDescription(srcField.getDescription());
-                }
-                if (task.getRetainColumnPolicyTags()) {
-                  fieldBuilder.setPolicyTags(srcField.getPolicyTags());
-                }
-              });
-      task.getColumnOptions()
-          .flatMap(columnOptions -> BigqueryUtil.findColumnOption(field.getName(), columnOptions))
-          .flatMap(BigqueryColumnOption::getDescription)
-          .ifPresent(fieldBuilder::setDescription);
-      updatedFields.add(fieldBuilder.build());
+      Field srcField =
+          dstFields == null
+              ? null
+              : dstFields.stream()
+                  .filter(x -> x.getName().equals(field.getName()))
+                  .findFirst()
+                  .orElse(null);
+      Optional<BigqueryColumnOption> columnOption =
+          task.getColumnOptions()
+              .flatMap(
+                  columnOptions -> BigqueryUtil.findColumnOption(field.getName(), columnOptions));
+      updatedFields.add(
+          patchField(
+              field,
+              srcField,
+              task,
+              columnOption.flatMap(BigqueryColumnOption::getDescription).orElse(null),
+              columnOption.flatMap(BigqueryColumnOption::getFields).orElse(null)));
     }
     return com.google.cloud.bigquery.Schema.of(updatedFields);
+  }
+
+  // Patches a single field, recursing into RECORD sub-fields so that both the
+  // retain-from-previous-table copy and column_options[].fields[].description apply at any
+  // nesting depth, matching hasColumnOptionDescription()'s recursion (used by
+  // isNeedUpdateTable() above). description/nestedFieldOptions are nullable rather than Optional
+  // since they're plain inputs here, not return values.
+  private static Field patchField(
+      Field field,
+      Field srcField,
+      PluginTask task,
+      String description,
+      List<BigqueryFieldOption> nestedFieldOptions) {
+    Field.Builder fieldBuilder = field.toBuilder();
+    if (needRetainColumnAttributes(task) && srcField != null) {
+      if (task.getRetainColumnDescriptions()) {
+        fieldBuilder.setDescription(srcField.getDescription());
+      }
+      if (task.getRetainColumnPolicyTags()) {
+        fieldBuilder.setPolicyTags(srcField.getPolicyTags());
+      }
+    }
+    // column_options[].description is applied regardless of mode or the retain_column_*
+    // flags, unlike the retain-from-previous-table copy above which only makes sense for
+    // mode:replace.
+    if (description != null) {
+      fieldBuilder.setDescription(description);
+    }
+
+    if (field.getSubFields() != null) {
+      FieldList srcSubFields = srcField == null ? null : srcField.getSubFields();
+      List<Field> patchedSubFields = new ArrayList<>();
+      for (Field subField : field.getSubFields()) {
+        Field matchingSrcSubField =
+            srcSubFields == null
+                ? null
+                : srcSubFields.stream()
+                    .filter(x -> x.getName().equals(subField.getName()))
+                    .findFirst()
+                    .orElse(null);
+        BigqueryFieldOption subFieldOption =
+            nestedFieldOptions == null
+                ? null
+                : findFieldOption(subField.getName(), nestedFieldOptions).orElse(null);
+        patchedSubFields.add(
+            patchField(
+                subField,
+                matchingSrcSubField,
+                task,
+                subFieldOption == null ? null : subFieldOption.getDescription().orElse(null),
+                subFieldOption == null ? null : subFieldOption.getFields().orElse(null)));
+      }
+      fieldBuilder.setType(field.getType(), FieldList.of(patchedSubFields));
+    }
+
+    return fieldBuilder.build();
+  }
+
+  private static Optional<BigqueryFieldOption> findFieldOption(
+      String fieldName, List<BigqueryFieldOption> fieldOptions) {
+    return fieldOptions.stream().filter(f -> f.getName().equals(fieldName)).findFirst();
   }
 
   public TimePartitioning buildTimePartitioning(BigqueryTimePartitioning bigqueryTimePartitioning) {

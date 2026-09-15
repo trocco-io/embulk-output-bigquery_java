@@ -199,10 +199,10 @@ public class TestBigqueryClientWithMockServer {
             .set("description", COLUMN_OPTION_DESCRIPTION));
   }
 
-  // mode: replace is the only mode isNeedUpdateTable() ever allows through, so this is the only
-  // one where retainDescriptions/retainPolicyTags can affect the outcome. When
-  // `columnOptionDescription` is true, c0 gets a COLUMN_OPTION_DESCRIPTION column_options
-  // description, letting callers check how it interacts with the retained fields.
+  // retainDescriptions/retainPolicyTags only ever take effect in mode:replace, so this helper is
+  // the only place that can exercise them. When `columnOptionDescription` is true, c0 gets a
+  // COLUMN_OPTION_DESCRIPTION column_options description, letting callers check how it interacts
+  // with the retained fields.
   private void updateTableInReplaceMode(
       MockWebServer server,
       boolean retainDescriptions,
@@ -224,9 +224,9 @@ public class TestBigqueryClientWithMockServer {
     client.updateTableIfNeed();
   }
 
-  // For any other mode, isNeedUpdateTable() is false regardless of the retain flags, so only
-  // `mode` (and, to double-check, `columnOptionDescription`) is worth varying here; the retain
-  // flags are left at their (false) config default.
+  // column_options[].description applies regardless of mode, so isNeedUpdateTable() is true here
+  // whenever `columnOptionDescription` is set, even outside mode:replace. The retain flags are
+  // left at their (false) config default since they only take effect in mode:replace.
   private void updateTableInMode(
       MockWebServer server, String mode, boolean columnOptionDescription) {
     BigqueryClient client =
@@ -284,44 +284,114 @@ public class TestBigqueryClientWithMockServer {
     assertGetTable(requests.get(0), "table"); // updateTableIfNeed()
   }
 
-  // With the retain flags left at their false default, isNeedUpdateTable() is false regardless of
-  // mode or column_options[].description, so updateTableIfNeed() never PATCHes in any valid mode.
+  // With no column_options[].description and the retain flags left at their false default,
+  // isNeedUpdateTable() is false regardless of mode, so updateTableIfNeed() never PATCHes.
+  // When column_options[].description is set, it applies regardless of mode (retain flags never
+  // take effect outside mode:replace, so neither field ends up with a policy tag here).
 
   @Test
   public void testUpdateTableIfNeedDoesNotPatchInAppendMode() throws Exception {
     assertNoPatch(server -> updateTableInMode(server, "append", false));
-    assertNoPatch(server -> updateTableInMode(server, "append", true));
+  }
+
+  @Test
+  public void testUpdateTableIfNeedPatchesColumnOptionDescriptionInAppendMode() throws Exception {
+    assertPatchedField(
+        server -> updateTableInMode(server, "append", true), COLUMN_OPTION_DESCRIPTION, null);
+  }
+
+  // Reproduces a first-run scenario: the destination table doesn't exist yet when
+  // storeCachedSrcFieldsIfNeed() runs (e.g. append mode, where autoCreate() only creates the temp
+  // table), so getTable() 404s and cachedSrcFields stays null. isNeedUpdateTable() is still true
+  // because of column_options[].description alone, so updateTableIfNeed() should still PATCH the
+  // description in once the destination table exists (e.g. created later by the copy job) --
+  // buildPatchSchema()'s column_options[].description path doesn't need cachedSrcFields at all.
+  @Test
+  public void
+      testUpdateTableIfNeedPatchesColumnOptionDescriptionInAppendModeWhenDestinationTableDidNotExistYet()
+          throws Exception {
+    List<RecordedRequest> requests =
+        runWithMockServer(
+            server -> updateTableInMode(server, "append", true),
+            // storeCachedSrcFieldsIfNeed(): destination table not found yet.
+            errorResponse(404, "Not found: Table project:dataset.table", "notFound"),
+            // updateTableIfNeed(): the table now exists (e.g. created by the copy job), with no
+            // description yet.
+            tableResponseWithNullableC0(),
+            tableResponseWithSchemaFields("[{\"name\":\"c0\",\"type\":\"STRING\"}]"));
+
+    assertEquals(3, requests.size());
+
+    assertGetTable(requests.get(0), "table"); // storeCachedSrcFieldsIfNeed(), table not found
+
+    assertGetTable(requests.get(1), "table"); // updateTableIfNeed()
+
+    RecordedRequest patchRequest = requests.get(2);
+    assertPatchTable(patchRequest, "table");
+    assertFieldDescriptionAndPolicyTag(
+        firstSchemaField(requestBodyJson(patchRequest)), COLUMN_OPTION_DESCRIPTION, null);
   }
 
   @Test
   public void testUpdateTableIfNeedDoesNotPatchInAppendDirectMode() throws Exception {
     assertNoPatch(server -> updateTableInMode(server, "append_direct", false));
-    assertNoPatch(server -> updateTableInMode(server, "append_direct", true));
+  }
+
+  @Test
+  public void testUpdateTableIfNeedPatchesColumnOptionDescriptionInAppendDirectMode()
+      throws Exception {
+    assertPatchedField(
+        server -> updateTableInMode(server, "append_direct", true),
+        COLUMN_OPTION_DESCRIPTION,
+        null);
   }
 
   @Test
   public void testUpdateTableIfNeedDoesNotPatchInDeleteInAdvanceMode() throws Exception {
     assertNoPatch(server -> updateTableInMode(server, "delete_in_advance", false));
-    assertNoPatch(server -> updateTableInMode(server, "delete_in_advance", true));
+  }
+
+  @Test
+  public void testUpdateTableIfNeedPatchesColumnOptionDescriptionInDeleteInAdvanceMode()
+      throws Exception {
+    assertPatchedField(
+        server -> updateTableInMode(server, "delete_in_advance", true),
+        COLUMN_OPTION_DESCRIPTION,
+        null);
   }
 
   @Test
   public void testUpdateTableIfNeedDoesNotPatchInMergeMode() throws Exception {
     assertNoPatch(server -> updateTableInMode(server, "merge", false));
-    assertNoPatch(server -> updateTableInMode(server, "merge", true));
   }
 
-  // isNeedUpdateTable() (mode: replace with a retain flag on) gates whether updateTableIfNeed()
-  // PATCHes at all; retainDescriptions/retainPolicyTags separately control whether each retained
-  // field is restored; column_options[].description, when present, is applied after the retained
+  @Test
+  public void testUpdateTableIfNeedPatchesColumnOptionDescriptionInMergeMode() throws Exception {
+    assertPatchedField(
+        server -> updateTableInMode(server, "merge", true), COLUMN_OPTION_DESCRIPTION, null);
+  }
+
+  // isNeedUpdateTable() (mode: replace with a retain flag on, or column_options[].description set
+  // regardless of mode) gates whether updateTableIfNeed() PATCHes at all; retainDescriptions/
+  // retainPolicyTags separately control whether each retained field is restored, but only in
+  // mode:replace; column_options[].description, when present, is applied after the retained
   // description and so wins over it.
 
   @Test
   public void testUpdateTableIfNeedDoesNotPatchWhenRetainFlagsFalse() throws Exception {
     assertNoPatch(server -> updateTableInMode(server, "replace", false));
-    assertNoPatch(server -> updateTableInMode(server, "replace", true));
     assertNoPatch(server -> updateTableInReplaceMode(server, false, false, false));
-    assertNoPatch(server -> updateTableInReplaceMode(server, false, false, true));
+  }
+
+  @Test
+  public void testUpdateTableIfNeedPatchesColumnOptionDescriptionInReplaceModeWithRetainFlagsFalse()
+      throws Exception {
+    assertPatchedField(
+        server -> updateTableInMode(server, "replace", true), COLUMN_OPTION_DESCRIPTION, null);
+    assertPatchedField(
+        server -> updateTableInReplaceMode(server, false, false, true),
+        COLUMN_OPTION_DESCRIPTION,
+        null);
   }
 
   @Test
