@@ -6,6 +6,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.google.api.gax.retrying.RetrySettings;
+import com.google.cloud.TransportOptions;
 import com.google.cloud.bigquery.Field;
 import com.google.cloud.bigquery.FieldList;
 import com.google.cloud.bigquery.PolicyTags;
@@ -13,6 +15,7 @@ import com.google.cloud.bigquery.Schema;
 import com.google.cloud.bigquery.StandardSQLTypeName;
 import com.google.cloud.bigquery.Table;
 import com.google.cloud.bigquery.TableDefinition;
+import com.google.cloud.http.HttpTransportOptions;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -299,5 +302,36 @@ public class TestBigqueryClient {
     taskField.set(client, replaceTask);
 
     assertNull(client.storeCachedSrcFieldsIfNeed());
+  }
+
+  @Test
+  public void testBuildRetrySettingsReflectsConfiguredRetries() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task = CONFIG_MAPPER.map(config.set("retries", 1), PluginTask.class);
+
+    RetrySettings retrySettings = BigqueryClient.buildRetrySettings(task);
+
+    // +1: task.getRetries() means "number of retries", so 1 retry means 2 total attempts.
+    assertEquals(2, retrySettings.getMaxAttempts());
+  }
+
+  @Test
+  public void testBuildTransportOptionsReflectsConfiguredTimeouts() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config
+                .set("open_timeout_sec", 12)
+                .set("read_timeout_sec", 34)
+                .set("send_timeout_sec", 56),
+            PluginTask.class);
+
+    TransportOptions transportOptions = BigqueryClient.buildTransportOptions(task);
+
+    assertTrue(transportOptions instanceof HttpTransportOptions);
+    HttpTransportOptions httpTransportOptions = (HttpTransportOptions) transportOptions;
+    assertEquals(12 * 1000, httpTransportOptions.getConnectTimeout());
+    // See README.md for why send_timeout_sec folds into read_timeout_sec here.
+    assertEquals((34 + 56) * 1000, httpTransportOptions.getReadTimeout());
   }
 }

@@ -60,6 +60,15 @@ test {
     // Lets BigqueryTestHostSupport honor PluginTask#getTestHost() only inside `./gradlew test`,
     // so a plugin config can't redirect a real embulk run at an arbitrary host.
     environment "TEST_HOST_ENABLED", "true"
+
+    // Speeds up BigqueryClient's retry/job-retry backoff (see buildRetrySettings()/
+    // buildJobRetryExecutor()) so tests don't incur real wait time; unset for a real embulk run.
+    environment "BIGQUERY_OUTPUT_OPTION_RETRY_INITIAL_DELAY_MS", "1"
+    environment "BIGQUERY_OUTPUT_OPTION_RETRY_MAX_DELAY_MS", "1"
+    environment "BIGQUERY_OUTPUT_OPTION_RETRY_DELAY_MULTIPLIER", "1.0"
+    environment "BIGQUERY_OUTPUT_OPTION_RETRY_TOTAL_TIMEOUT_MS", "1000"
+    environment "BIGQUERY_OUTPUT_OPTION_JOB_RETRY_INITIAL_WAIT_MS", "1"
+    environment "BIGQUERY_OUTPUT_OPTION_JOB_RETRY_MAX_WAIT_MS", "1"
 }
 
 embulkPlugin {
