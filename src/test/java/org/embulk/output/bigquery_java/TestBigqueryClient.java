@@ -3,11 +3,15 @@ package org.embulk.output.bigquery_java;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.cloud.TransportOptions;
+import com.google.cloud.bigquery.BigQuery;
+import com.google.cloud.bigquery.BigQueryException;
 import com.google.cloud.bigquery.Field;
 import com.google.cloud.bigquery.FieldList;
 import com.google.cloud.bigquery.PolicyTags;
@@ -15,6 +19,7 @@ import com.google.cloud.bigquery.Schema;
 import com.google.cloud.bigquery.StandardSQLTypeName;
 import com.google.cloud.bigquery.Table;
 import com.google.cloud.bigquery.TableDefinition;
+import com.google.cloud.bigquery.TableInfo;
 import com.google.cloud.http.HttpTransportOptions;
 import java.util.Arrays;
 import java.util.Collections;
@@ -27,6 +32,7 @@ import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.util.PluginTaskUtil;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.FileInputPlugin;
@@ -38,7 +44,9 @@ import org.embulk.util.config.ConfigMapperFactory;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.slf4j.Logger;
 
 public class TestBigqueryClient {
   protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
@@ -195,6 +203,128 @@ public class TestBigqueryClient {
     assertEquals(c000Tags, c000.getPolicyTags());
     assertEquals(c01Tags, c01.getPolicyTags());
     assertNull(c1.getPolicyTags());
+  }
+
+  @Test
+  public void testClearPolicyTagsFromFieldsAppliesRecursively() {
+    PolicyTags c000Tags =
+        PolicyTags.newBuilder().setNames(Collections.singletonList("p000")).build();
+    PolicyTags c01Tags = PolicyTags.newBuilder().setNames(Collections.singletonList("p01")).build();
+
+    Field c000 =
+        Field.newBuilder("c000", StandardSQLTypeName.STRING)
+            .setDescription("d000")
+            .setPolicyTags(c000Tags)
+            .build();
+    Field c00 = Field.newBuilder("c00", StandardSQLTypeName.STRUCT, c000).build();
+    Field c01 =
+        Field.newBuilder("c01", StandardSQLTypeName.STRING)
+            .setDescription("d01")
+            .setPolicyTags(c01Tags)
+            .build();
+    Field c0 = Field.newBuilder("c0", StandardSQLTypeName.STRUCT, c00, c01).build();
+    Field c1 = Field.newBuilder("c1", StandardSQLTypeName.STRING).build();
+
+    List<Field> cleared = BigqueryClient.clearPolicyTagsFromFields(FieldList.of(c0, c1));
+
+    Field clearedC0 = cleared.get(0);
+    Field clearedC00 = clearedC0.getSubFields().get(0);
+    Field clearedC000 = clearedC00.getSubFields().get(0);
+    Field clearedC01 = clearedC0.getSubFields().get(1);
+    Field clearedC1 = cleared.get(1);
+
+    // Nested fields with a policy tag get it replaced with an explicit empty names list (not
+    // left null), matching BigQuery's PATCH semantics for actually clearing an existing tag.
+    assertTrue(clearedC000.getPolicyTags().getNames().isEmpty());
+    assertTrue(clearedC01.getPolicyTags().getNames().isEmpty());
+    // Fields that never had a policy tag are left untouched.
+    assertNull(clearedC0.getPolicyTags());
+    assertNull(clearedC00.getPolicyTags());
+    assertNull(clearedC1.getPolicyTags());
+    // Other field properties (description) survive the rebuild.
+    assertEquals("d000", clearedC000.getDescription());
+    assertEquals("d01", clearedC01.getDescription());
+  }
+
+  // Builds a BigqueryClient without going through the constructor (which requires real
+  // credentials), sets its private fields via reflection instead, and stubs getTable() to return
+  // a table whose schema has a single policy-tagged field "c0".
+  private BigqueryClient mockClientForClearPolicyTags(BigQuery bigQuery, Logger logger)
+      throws NoSuchFieldException, IllegalAccessException {
+    BigqueryClient client = Mockito.mock(BigqueryClient.class);
+    Mockito.doCallRealMethod().when(client).clearPolicyTags(Mockito.anyString());
+
+    PolicyTags tag = PolicyTags.newBuilder().setNames(Collections.singletonList("p0")).build();
+    Field taggedField =
+        Field.newBuilder("c0", StandardSQLTypeName.STRING).setPolicyTags(tag).build();
+    Table mockTable = Mockito.mock(Table.class);
+    TableDefinition mockTableDef = Mockito.mock(TableDefinition.class);
+    Mockito.when(client.getTable(Mockito.anyString())).thenReturn(mockTable);
+    Mockito.when(mockTable.getDefinition()).thenReturn(mockTableDef);
+    Mockito.when(mockTableDef.getSchema()).thenReturn(Schema.of(taggedField));
+
+    setField(client, "bigquery", bigQuery);
+    setField(client, "destinationProject", "project");
+    setField(client, "destinationDataset", "dataset");
+    setField(client, "logger", logger);
+    return client;
+  }
+
+  private static void setField(Object target, String name, Object value)
+      throws NoSuchFieldException, IllegalAccessException {
+    java.lang.reflect.Field field = BigqueryClient.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(target, value);
+  }
+
+  @Test
+  public void testClearPolicyTagsSuccessUpdatesTableAndDoesNotLog()
+      throws NoSuchFieldException, IllegalAccessException {
+    BigQuery mockBigQuery = Mockito.mock(BigQuery.class);
+    Logger mockLogger = Mockito.mock(Logger.class);
+    BigqueryClient client = mockClientForClearPolicyTags(mockBigQuery, mockLogger);
+
+    client.clearPolicyTags("temp_table");
+
+    ArgumentCaptor<TableInfo> captor = ArgumentCaptor.forClass(TableInfo.class);
+    Mockito.verify(mockBigQuery).update(captor.capture());
+    Field patchedField = captor.getValue().getDefinition().getSchema().getFields().get(0);
+    assertTrue(patchedField.getPolicyTags().getNames().isEmpty());
+
+    Mockito.verify(mockLogger, Mockito.never()).error(Mockito.anyString());
+  }
+
+  @Test
+  public void testClearPolicyTagsFailureLogsAndThrowsMessageReflectingTheFailure()
+      throws NoSuchFieldException, IllegalAccessException {
+    BigQuery mockBigQuery = Mockito.mock(BigQuery.class);
+    Logger mockLogger = Mockito.mock(Logger.class);
+    BigqueryClient client = mockClientForClearPolicyTags(mockBigQuery, mockLogger);
+    Mockito.when(mockBigQuery.update(Mockito.any(TableInfo.class)))
+        .thenThrow(new BigQueryException(403, "insufficient permission on c0"));
+
+    BigqueryException thrown =
+        assertThrows(BigqueryException.class, () -> client.clearPolicyTags("temp_table_1"));
+
+    assertTrue(thrown.getMessage().contains("project"));
+    assertTrue(thrown.getMessage().contains("dataset"));
+    assertTrue(thrown.getMessage().contains("temp_table_1"));
+    assertTrue(thrown.getMessage().contains("insufficient permission on c0"));
+    Mockito.verify(mockLogger).error(Mockito.contains("temp_table_1"));
+
+    // A second, unrelated target/failure produces a message reflecting that failure, not a
+    // static hardcoded string, confirming the message is actually built from the inputs.
+    Mockito.reset(mockBigQuery);
+    Mockito.when(mockBigQuery.update(Mockito.any(TableInfo.class)))
+        .thenThrow(new BigQueryException(403, "insufficient permission on c1"));
+
+    BigqueryException thrown2 =
+        assertThrows(BigqueryException.class, () -> client.clearPolicyTags("temp_table_2"));
+
+    assertTrue(thrown2.getMessage().contains("temp_table_2"));
+    assertTrue(thrown2.getMessage().contains("insufficient permission on c1"));
+    Mockito.verify(mockLogger).error(Mockito.contains("temp_table_2"));
+    assertNotEquals(thrown.getMessage(), thrown2.getMessage());
   }
 
   @Test
