@@ -70,13 +70,14 @@ Client or request options
 
 | name                                 | type        | required?  | default                  | description            |
 |:-------------------------------------|:------------|:-----------|:-------------------------|:-----------------------|
-|  open_timeout_sec  (x)                  | integer     | optional   | 300                      | Seconds to wait for the connection to open |
-|  timeout_sec       (x)                  | integer     | optional   | 300                      | Seconds to wait for one block to be read (google-api-ruby-client < v0.11.0) |
-|  send_timeout_sec   (x)                 | integer     | optional   | 300                      | Seconds to wait to send a request (google-api-ruby-client >= v0.11.0) |
-|  read_timeout_sec   (x)                 | integer     | optional   | 300                      | Seconds to wait to read a response (google-api-ruby-client >= v0.11.0) |
-|  retries                            | integer     | optional   | 5                        | Number of retries |
+|  open_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait for the connection to open |
+|  send_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait to send a request. The underlying HTTP transport has no timeout for the send phase itself, so this value is added onto `read_timeout_sec` instead for config compatibility with the ruby plugin. This is expected to change to something based on the java library's own settings in the future |
+|  read_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait to read a response. The effective timeout applied is `read_timeout_sec + send_timeout_sec`. See `send_timeout_sec` |
+|  retries                            | integer     | optional   | 5                        | Number of retries. Used for both individual BigQuery API call retries and job-level retries (a fresh job resubmission after a completed-but-errored job), matching the ruby plugin's behavior of using the same value for both |
 |  application_name   (x)                  | string      | optional   | "Embulk BigQuery plugin" | User-Agent |
 |  sdk_log_level      (x)                 | string      | optional   | nil (WARN)               | Log level of google api client library |
+
+The plugin config above only exposes the timeout/retry options that already exist in the ruby plugin, for config compatibility. Finer retry backoff tuning is available only via environment variables for now, not plugin config: `BIGQUERY_OUTPUT_OPTION_RETRY_INITIAL_DELAY_MS`, `BIGQUERY_OUTPUT_OPTION_RETRY_MAX_DELAY_MS`, `BIGQUERY_OUTPUT_OPTION_RETRY_DELAY_MULTIPLIER`, `BIGQUERY_OUTPUT_OPTION_RETRY_TOTAL_TIMEOUT_MS` for individual BigQuery API call retries, and `BIGQUERY_OUTPUT_OPTION_JOB_RETRY_INITIAL_WAIT_MS`, `BIGQUERY_OUTPUT_OPTION_JOB_RETRY_MAX_WAIT_MS` for job-level retries (see `retries` above). This is expected to be replaced by a proper java-native config interface in the future.
 
 
 Options for intermediate local files
