@@ -1,7 +1,6 @@
 package org.embulk.output.bigquery_java;
 
 import com.google.cloud.NoCredentials;
-import com.google.cloud.ServiceOptions;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.BigQueryOptions;
 import com.google.cloud.bigquery.FormatOptions;
@@ -13,7 +12,6 @@ import com.google.cloud.bigquery.Schema;
 import com.google.cloud.bigquery.TableId;
 import java.util.Collections;
 import org.embulk.output.bigquery_java.config.PluginTask;
-import org.threeten.bp.Duration;
 
 // Test-only seam: TableDataWriteChannel's resumable upload session (used by BigqueryClient#load()
 // in the normal path) hardcodes the real BigQuery host regardless of test_host (a
@@ -33,15 +31,7 @@ final class BigqueryTestHostSupport {
   static BigQueryOptions.Builder getBigQueryOptionsBuilder(PluginTask task) {
     return BigQueryOptions.newBuilder()
         .setHost(task.getTestHost().get())
-        .setCredentials(NoCredentials.getInstance())
-        .setRetrySettings(
-            ServiceOptions.getDefaultRetrySettings()
-                .toBuilder()
-                .setInitialRetryDelay(Duration.ofMillis(1))
-                .setMaxRetryDelay(Duration.ofMillis(1))
-                .setRetryDelayMultiplier(1.0)
-                .setTotalTimeout(Duration.ofSeconds(1))
-                .build());
+        .setCredentials(NoCredentials.getInstance());
   }
 
   // Submits the load job configuration directly via jobs.insert instead of streaming the file
