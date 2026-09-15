@@ -84,7 +84,7 @@ public class TestJsonColumnVisitor {
     assertNull(visitColumn(null, JsonColumnVisitor::timestampColumn));
 
     assertEquals(
-        10000,
+        10,
         visitColumn(
             org.embulk.spi.time.Timestamp.ofEpochMilli(10000),
             JsonColumnVisitor::timestampColumn,
