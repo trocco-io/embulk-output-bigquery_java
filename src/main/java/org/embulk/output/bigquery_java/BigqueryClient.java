@@ -316,7 +316,14 @@ public class BigqueryClient {
   }
 
   public void updateTableIfNeed() {
-    Table table = this.getTable(task.getTable());
+    updateTableIfNeed(task.getTable());
+  }
+
+  // targetTable lets callers patch a table other than task.getTable(), e.g. to trial-apply
+  // policy tags to the temp table before copying into the destination table (see
+  // BigqueryJavaOutputPlugin's policy tag permission check for mode:replace).
+  public void updateTableIfNeed(String targetTable) {
+    Table table = this.getTable(targetTable);
     com.google.cloud.bigquery.Schema schema = table.getDefinition().getSchema();
     if (schema == null) {
       return;
@@ -329,18 +336,18 @@ public class BigqueryClient {
     try {
       bigquery.update(
           TableInfo.newBuilder(
-                  table.getTableId(),
+                  TableId.of(destinationProject, destinationDataset, targetTable),
                   StandardTableDefinition.newBuilder().setSchema(patchSchema).build())
               .build());
     } catch (BigQueryException e) {
       logger.error(
           String.format(
               "embulk-output-bigquery: update_table(%s:%s.%s)",
-              destinationProject, destinationDataset, task.getTable()));
+              destinationProject, destinationDataset, targetTable));
       throw new BigqueryException(
           String.format(
               "failed to update table %s:%s.%s, response: %s",
-              destinationProject, destinationDataset, task.getTable(), e));
+              destinationProject, destinationDataset, targetTable, e));
     }
   }
 
