@@ -21,6 +21,7 @@ import com.google.cloud.bigquery.JobId;
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.LegacySQLTypeName;
+import com.google.cloud.bigquery.PolicyTags;
 import com.google.cloud.bigquery.QueryJobConfiguration;
 import com.google.cloud.bigquery.StandardSQLTypeName;
 import com.google.cloud.bigquery.StandardTableDefinition;
@@ -316,7 +317,14 @@ public class BigqueryClient {
   }
 
   public void updateTableIfNeed() {
-    Table table = this.getTable(task.getTable());
+    updateTableIfNeed(task.getTable());
+  }
+
+  // targetTable lets callers patch a table other than task.getTable(), e.g. to trial-apply
+  // policy tags to the temp table before copying into the destination table (see
+  // BigqueryJavaOutputPlugin's policy tag permission check for mode:replace).
+  public void updateTableIfNeed(String targetTable) {
+    Table table = this.getTable(targetTable);
     com.google.cloud.bigquery.Schema schema = table.getDefinition().getSchema();
     if (schema == null) {
       return;
@@ -329,19 +337,67 @@ public class BigqueryClient {
     try {
       bigquery.update(
           TableInfo.newBuilder(
-                  table.getTableId(),
+                  TableId.of(destinationProject, destinationDataset, targetTable),
                   StandardTableDefinition.newBuilder().setSchema(patchSchema).build())
               .build());
     } catch (BigQueryException e) {
       logger.error(
           String.format(
               "embulk-output-bigquery: update_table(%s:%s.%s)",
-              destinationProject, destinationDataset, task.getTable()));
+              destinationProject, destinationDataset, targetTable));
       throw new BigqueryException(
           String.format(
               "failed to update table %s:%s.%s, response: %s",
-              destinationProject, destinationDataset, task.getTable(), e));
+              destinationProject, destinationDataset, targetTable, e));
     }
+  }
+
+  // Removes policy tags from a table's schema. Used to let a copy from the temp table succeed
+  // for users who can apply policy tags (Policy Tag Admin) but cannot read policy-tagged data:
+  // after the permission check in updateTableIfNeed() confirms tags can be applied, the tags are
+  // cleared again here so the temp table can be read during copy(), then re-applied to the
+  // destination table by the final updateTableIfNeed() call.
+  public void clearPolicyTags(String targetTable) {
+    Table table = this.getTable(targetTable);
+    com.google.cloud.bigquery.Schema schema = table.getDefinition().getSchema();
+    if (schema == null) {
+      return;
+    }
+    com.google.cloud.bigquery.Schema clearedSchema =
+        com.google.cloud.bigquery.Schema.of(clearPolicyTagsFromFields(schema.getFields()));
+    try {
+      bigquery.update(
+          TableInfo.newBuilder(
+                  TableId.of(destinationProject, destinationDataset, targetTable),
+                  StandardTableDefinition.newBuilder().setSchema(clearedSchema).build())
+              .build());
+    } catch (BigQueryException e) {
+      logger.error(
+          String.format(
+              "embulk-output-bigquery: clear_policy_tags(%s:%s.%s)",
+              destinationProject, destinationDataset, targetTable));
+      throw new BigqueryException(
+          String.format(
+              "failed to clear policy tags on table %s:%s.%s, response: %s",
+              destinationProject, destinationDataset, targetTable, e));
+    }
+  }
+
+  public static List<Field> clearPolicyTagsFromFields(FieldList fields) {
+    List<Field> clearedFields = new ArrayList<>();
+    for (Field field : fields) {
+      Field.Builder fieldBuilder = field.toBuilder();
+      if (field.getPolicyTags() != null) {
+        fieldBuilder.setPolicyTags(
+            PolicyTags.newBuilder().setNames(Collections.emptyList()).build());
+      }
+      if (field.getSubFields() != null) {
+        fieldBuilder.setType(
+            field.getType(), FieldList.of(clearPolicyTagsFromFields(field.getSubFields())));
+      }
+      clearedFields.add(fieldBuilder.build());
+    }
+    return clearedFields;
   }
 
   public static com.google.cloud.bigquery.Schema buildPatchSchema(
