@@ -62,8 +62,15 @@ public interface PluginTask extends Task {
   @ConfigDefault("\"NONE\"")
   String getCompression();
 
+  // Used by BigqueryConfigValidator to normalize the value (e.g. uppercase) after validation.
+  void setCompression(String compression);
+
   @Config("source_format")
   String getSourceFormat();
+
+  // Used by BigqueryConfigValidator to normalize the value (e.g. "jsonl" ->
+  // "NEWLINE_DELIMITED_JSON") after validation.
+  void setSourceFormat(String sourceFormat);
 
   @Config("path_prefix")
   @ConfigDefault("null")
