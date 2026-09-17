@@ -14,11 +14,13 @@ import com.google.cloud.bigquery.StandardSQLTypeName;
 import com.google.cloud.bigquery.Table;
 import com.google.cloud.bigquery.TableDefinition;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.embulk.config.ConfigException;
 import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
@@ -294,5 +296,26 @@ public class TestBigqueryClient {
     taskField.set(client, replaceTask);
 
     assertNull(client.storeCachedSrcFieldsIfNeed());
+  }
+
+  private static final org.embulk.spi.Schema EMPTY_SCHEMA =
+      new org.embulk.spi.Schema(Collections.emptyList());
+
+  private PluginTask buildProjectTask(Function<ConfigSource, ConfigSource> setupConfig) {
+    ConfigSource config = loadYamlResource(embulk, "project.yml");
+    return CONFIG_MAPPER.map(setupConfig.apply(config), PluginTask.class);
+  }
+
+  @Test(expected = ConfigException.class)
+  public void testConstructor_missingProjectAndJsonKeyfile_throwsConfigException() {
+    PluginTask task = buildProjectTask(c -> c);
+    new BigqueryClient(task, EMPTY_SCHEMA);
+  }
+
+  @Test(expected = ConfigException.class)
+  public void testConstructor_jsonKeyfileWithoutProjectId_throwsConfigException() {
+    PluginTask task =
+        buildProjectTask(c -> c.set("json_keyfile", Collections.singletonMap("content", "{}")));
+    new BigqueryClient(task, EMPTY_SCHEMA);
   }
 }
