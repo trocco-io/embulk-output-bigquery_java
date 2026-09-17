@@ -63,6 +63,33 @@ public class TestBigqueryTaskBuilder {
   }
 
   @Test
+  public void expandStrftime_oldTable_noFormatSpecifiers_unchanged() {
+    assertEquals(
+        "table_old", BigqueryTaskBuilder.expandStrftime("table_old", TEST_ZONE, TEST_INSTANT));
+  }
+
+  @Test
+  public void expandStrftime_oldTable_expandsPattern() {
+    assertEquals(
+        "table_old_20260917",
+        BigqueryTaskBuilder.expandStrftime("table_old_%Y%m%d", TEST_ZONE, TEST_INSTANT));
+  }
+
+  @Test
+  public void expandStrftime_oldTable_expandsDateTimeAndEpochSeconds() {
+    assertEquals(
+        "table_old_202609171430" + TEST_INSTANT.getEpochSecond(),
+        BigqueryTaskBuilder.expandStrftime("table_old_%Y%m%d%H%M%s", TEST_ZONE, TEST_INSTANT));
+  }
+
+  @Test
+  public void expandStrftime_oldTable_nullZoneAndInstant_usesSystemDefaults() {
+    assertTrue(
+        BigqueryTaskBuilder.expandStrftime("table_old_%Y%m%d", null, null)
+            .matches("table_old_\\d{8}"));
+  }
+
+  @Test
   public void setAbortOnError_DefaultMaxBadRecord_True() {
     config =
         embulk

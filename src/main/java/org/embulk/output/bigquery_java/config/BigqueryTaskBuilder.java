@@ -14,6 +14,11 @@ public class BigqueryTaskBuilder {
 
   public static PluginTask build(PluginTask task) {
     task.setTable(expandStrftime(task.getTable()));
+    // old_table is only consumed by replace_backup, which isn't supported yet, but expand it here
+    // too to match ruby, so it's ready once replace_backup is added.
+    if (task.getOldTable().isPresent()) {
+      task.setOldTable(Optional.of(expandStrftime(task.getOldTable().get())));
+    }
     setPathPrefix(task);
     setFileExt(task);
     setTempTable(task);

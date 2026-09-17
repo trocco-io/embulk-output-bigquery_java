@@ -52,6 +52,8 @@ public interface PluginTask extends Task {
   @ConfigDefault("null")
   Optional<String> getOldTable();
 
+  void setOldTable(Optional<String> oldTable);
+
   @Config("location")
   @ConfigDefault("null")
   Optional<String> getLocation();
