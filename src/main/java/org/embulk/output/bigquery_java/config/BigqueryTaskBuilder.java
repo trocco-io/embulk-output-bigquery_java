@@ -2,19 +2,34 @@ package org.embulk.output.bigquery_java.config;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.UUID;
+import org.embulk.util.timestamp.TimestampFormatter;
 
 public class BigqueryTaskBuilder {
   private static final String uniqueName = UUID.randomUUID().toString().replace("-", "_");
 
   public static PluginTask build(PluginTask task) {
+    task.setTable(expandStrftime(task.getTable()));
     setPathPrefix(task);
     setFileExt(task);
     setTempTable(task);
     setAbortOnError(task);
     return task;
+  }
+
+  public static String expandStrftime(String pattern) {
+    return expandStrftime(pattern, null, null);
+  }
+
+  public static String expandStrftime(String pattern, ZoneId zoneId, Instant instant) {
+    return TimestampFormatter.builder(pattern, true)
+        .setDefaultZoneId(zoneId != null ? zoneId : ZoneId.systemDefault())
+        .build()
+        .format(instant != null ? instant : Instant.now());
   }
 
   protected static void setPathPrefix(PluginTask task) {

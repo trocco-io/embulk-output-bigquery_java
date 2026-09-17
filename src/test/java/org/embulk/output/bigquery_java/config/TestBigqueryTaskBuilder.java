@@ -1,6 +1,7 @@
 package org.embulk.output.bigquery_java.config;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
 import java.util.List;
@@ -31,6 +32,35 @@ public class TestBigqueryTaskBuilder {
       TestingEmbulk.builder()
           .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
           .build();
+
+  private static final java.time.ZoneId TEST_ZONE = java.time.ZoneId.of("UTC");
+  private static final java.time.Instant TEST_INSTANT =
+      java.time.Instant.parse("2026-09-17T14:30:15Z");
+
+  @Test
+  public void expandStrftime_noFormatSpecifiers_unchanged() {
+    assertEquals("table", BigqueryTaskBuilder.expandStrftime("table", TEST_ZONE, TEST_INSTANT));
+  }
+
+  @Test
+  public void expandStrftime_expandsPattern() {
+    assertEquals(
+        "table_20260917",
+        BigqueryTaskBuilder.expandStrftime("table_%Y%m%d", TEST_ZONE, TEST_INSTANT));
+  }
+
+  @Test
+  public void expandStrftime_expandsDateTimeAndEpochSeconds() {
+    assertEquals(
+        "table_202609171430" + TEST_INSTANT.getEpochSecond(),
+        BigqueryTaskBuilder.expandStrftime("table_%Y%m%d%H%M%s", TEST_ZONE, TEST_INSTANT));
+  }
+
+  @Test
+  public void expandStrftime_nullZoneAndInstant_usesSystemDefaults() {
+    assertTrue(
+        BigqueryTaskBuilder.expandStrftime("table_%Y%m%d", null, null).matches("table_\\d{8}"));
+  }
 
   @Test
   public void setAbortOnError_DefaultMaxBadRecord_True() {

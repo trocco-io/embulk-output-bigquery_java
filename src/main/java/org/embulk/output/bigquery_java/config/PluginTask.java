@@ -42,6 +42,8 @@ public interface PluginTask extends Task {
   @Config("table")
   String getTable();
 
+  void setTable(String table);
+
   @Config("old_dataset")
   @ConfigDefault("null")
   Optional<String> getOldDataset();
