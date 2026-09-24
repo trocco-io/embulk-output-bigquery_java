@@ -413,6 +413,56 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
   }
 
   @Test
+  public void testRunDeleteInAdvanceModeWhenDestinationTableDoesNotExist() throws Exception {
+    // First run against a fresh dataset: the destination table doesn't exist yet, so the
+    // tables.delete in autoCreate() gets a 404. The BigQuery client library maps that to
+    // BigQuery#delete() returning false rather than throwing, and the plugin ignores the return
+    // value, so the run proceeds exactly as when the delete succeeds.
+    List<RecordedRequest> requests =
+        runWithMockServer(
+            c -> c.set("mode", "delete_in_advance"),
+            datasetResponse(),
+            errorResponse(404, "Not found: Table project:dataset.table", "notFound"),
+            tableResponse(),
+            createLoadJobResponse("testjob"),
+            waitForLoadJobResponse("testjob"),
+            tableResponseWithNumRows(1),
+            createCopyJobResponse("testjob"),
+            waitForCopyJobResponse("testjob"),
+            deleteResponse(),
+            tableResponse());
+
+    assertEquals(10, requests.size());
+
+    assertGetDataset(requests.get(0));
+
+    assertDeleteTable(requests.get(1), "table");
+
+    assertPostTables(requests.get(2));
+    String tempTableId = tableIdOf(requestBodyJson(requests.get(2)), "tableReference");
+    assertMatches(tempTableId, "LOAD_TEMP_.*_table");
+
+    assertPostJobs(requests.get(3));
+    assertEquals(tempTableId, tableIdOf(jobConfig(requests.get(3), "load"), "destinationTable"));
+
+    assertGetJobStatus(requests.get(4), "testjob");
+
+    assertGetTable(requests.get(5), tempTableId); // getTransactionReport()
+
+    assertPostJobs(requests.get(6));
+    JSONObject copyConfig = jobConfig(requests.get(6), "copy");
+    assertEquals(tempTableId, firstSourceTableId(copyConfig));
+    assertEquals("table", tableIdOf(copyConfig, "destinationTable"));
+    assertEquals("WRITE_TRUNCATE", copyConfig.getString("writeDisposition"));
+
+    assertGetJobStatus(requests.get(7), "testjob");
+
+    assertDeleteTable(requests.get(8), tempTableId);
+
+    assertGetTable(requests.get(9), "table");
+  }
+
+  @Test
   public void testRunMergeMode() throws Exception {
     // autoCreate() creates both the temp table and the final table (merge needs the final table
     // to exist for its MERGE statement); load into the temp table, then MERGE it into the
