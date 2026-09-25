@@ -494,8 +494,8 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
             tableResponseWithNumRows(1),
             createCopyJobResponse("testjob"),
             waitForCopyJobResponse("testjob"),
-            deleteResponse(),
-            tableResponse());
+            tableResponse(),
+            deleteResponse());
 
     assertEquals(10, requests.size());
 
@@ -522,9 +522,9 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
 
     assertGetJobStatus(requests.get(7), "testjob");
 
-    assertDeleteTable(requests.get(8), tempTableId);
+    assertGetTable(requests.get(8), "table"); // updateTableIfNeed()
 
-    assertGetTable(requests.get(9), "table");
+    assertDeleteTable(requests.get(9), tempTableId);
   }
 
   @Test
