@@ -1,0 +1,5 @@
+type: bigquery_java
+auth_method: compute_engine
+dataset: dataset
+table: table
+source_format: NEWLINE_DELIMITED_JSON
