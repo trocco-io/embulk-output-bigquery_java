@@ -53,7 +53,7 @@ public class TestBigqueryTimestampConverter {
 
     BigqueryTimestampConverter.convertAndSet(
         node, "key", ts, BigqueryColumnOptionType.INTEGER, columnOption, task);
-    assertEquals(1588291200000L, node.get("key").asLong());
+    assertEquals(1588291200L, node.get("key").asLong());
   }
 
   @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
@@ -74,7 +74,28 @@ public class TestBigqueryTimestampConverter {
 
     BigqueryTimestampConverter.convertAndSet(
         node, "key", ts, BigqueryColumnOptionType.FLOAT, columnOption, task);
-    assertEquals(1588291200000L, node.get("key").asLong());
+    assertEquals(1588291200.0, node.get("key").asDouble(), 0.0);
+  }
+
+  @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
+  @Test
+  public void testConvertTimestampToFloat_withFraction() {
+    ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
+    config = loadYamlResource(embulk, "base.yml");
+    List<ConfigSource> configSources = new ArrayList<>();
+    ConfigSource configSource = embulk.newConfig();
+    configSource.set("type", "FLOAT");
+    configSource.set("name", "key");
+    configSources.add(configSource);
+    config.set("column_options", configSources);
+    BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+    // Fri May 01 2020 00:00:00.123
+    org.embulk.spi.time.Timestamp ts = org.embulk.spi.time.Timestamp.ofEpochMilli(1588291200123L);
+
+    BigqueryTimestampConverter.convertAndSet(
+        node, "key", ts, BigqueryColumnOptionType.FLOAT, columnOption, task);
+    assertEquals(1588291200.123, node.get("key").asDouble(), 0.0001);
   }
 
   @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
@@ -109,7 +130,7 @@ public class TestBigqueryTimestampConverter {
 
     BigqueryTimestampConverter.convertAndSet(
         node, "key", ts, BigqueryColumnOptionType.STRING, columnOption, task);
-    assertEquals("2020-05-01 00:00:00.000000 +00:00", node.get("key").asText());
+    assertEquals("2020-05-01 00:00:00.000000", node.get("key").asText());
   }
 
   @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp

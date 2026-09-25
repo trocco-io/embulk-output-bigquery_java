@@ -20,10 +20,10 @@ public class BigqueryTimestampConverter {
     String timezone;
     switch (bigqueryColumnOptionType) {
       case INTEGER:
-        node.put(name, src.toEpochMilli());
+        node.put(name, src.getEpochSecond());
         break;
       case FLOAT:
-        node.put(name, Double.valueOf(src.toEpochMilli()));
+        node.put(name, src.getEpochSecond() + src.getNano() / 1_000_000_000.0);
         break;
       case STRING:
         String format = columnOption.getTimestampFormat().orElse(task.getDefaultTimestampFormat());
