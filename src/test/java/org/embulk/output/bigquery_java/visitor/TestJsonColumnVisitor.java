@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -112,10 +113,26 @@ public class TestJsonColumnVisitor {
         visitColumn(jsonObject, JsonColumnVisitor::jsonColumn));
     assertNull(visitColumn(null, JsonColumnVisitor::jsonColumn));
 
-    // columnOption is ignored
+    // columnOption is ignored for types other than RECORD/JSON
     assertEquals(
         "{\"k0\":2.5,\"k1\":[0,1],\"k2\":{\"\\uD83D\\uDE00\":\"\\uD83D\\uDE00\"}}",
         visitColumn(jsonObject, JsonColumnVisitor::jsonColumn, x -> x.set("type", "INTEGER")));
+  }
+
+  @Test
+  public void testJsonColumnWithJsonTypeDoesNotDoubleEncode() throws JsonProcessingException {
+    ImmutableMapValueImpl jsonObject =
+        new ImmutableMapValueImpl(
+            new Value[] {
+              new ImmutableStringValueImpl("msg"), new ImmutableStringValueImpl("hello")
+            });
+
+    // type: JSON must pass the value through as-is (matching ruby's json_converter for type:
+    // JSON), not re-encode it into a JSON string as the default (type: STRING) path does.
+    assertEquals(
+        Collections.singletonMap("msg", "hello"),
+        visitColumn(jsonObject, JsonColumnVisitor::jsonColumn, x -> x.set("type", "JSON")));
+    assertNull(visitColumn(null, JsonColumnVisitor::jsonColumn, x -> x.set("type", "JSON")));
   }
 
   private Object visitColumn(Object value, BiConsumer<JsonColumnVisitor, Column> visit)
