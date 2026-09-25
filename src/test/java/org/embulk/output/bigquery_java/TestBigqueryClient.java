@@ -172,6 +172,11 @@ public class TestBigqueryClient {
 
   @Test
   public void testRetainDescriptionTrueButNotModeReplace() {
+    // Ruby applies `column_options[].description` (here, c0's "d0" from takeover.yml) on every
+    // run regardless of mode. Java only reflects it when isNeedUpdateTable() is true (mode:
+    // replace with a retain flag on), so for any other mode buildPatchSchema() returns null and
+    // the configured description is never applied, even though it's set here.
+    // TODO: apply `column_options[].description` regardless of mode, like ruby does.
     Schema schema = invokeRetainDescriptionBuildSchema("insert", true, "prev_c0", "prev_c1");
     assertNull(schema);
   }
