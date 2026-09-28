@@ -215,6 +215,8 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
 - **default_timestamp_format**: default timestamp format for column_options (string, default is "%Y-%m-%d %H:%M:%S.%6N")
 - **default_timezone**: default timezone for column_options (string, default is "UTC")
 
+Note for users upgrading from earlier versions of this plugin: `timestamp` columns written as `STRING` without an explicit `timestamp_format` used to include a timezone offset (`%Y-%m-%d %H:%M:%S.%6N %:z`). To keep that output, set `default_timestamp_format: "%Y-%m-%d %H:%M:%S.%6N %:z"`. `timestamp` columns written as `INTEGER`/`FLOAT` used to be epoch milliseconds and are now epoch seconds; there is no option to restore milliseconds, so downstream queries such as `TIMESTAMP_MILLIS(col)` must be changed to `TIMESTAMP_SECONDS(col)`.
+
 Example)
 
 ```yaml

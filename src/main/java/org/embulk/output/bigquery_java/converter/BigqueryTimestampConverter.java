@@ -1,6 +1,7 @@
 package org.embulk.output.bigquery_java.converter;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.math.BigDecimal;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOptionType;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -23,11 +24,15 @@ public class BigqueryTimestampConverter {
         node.put(name, src.getEpochSecond());
         break;
       case FLOAT:
-        node.put(name, src.getEpochSecond() + src.getNano() / 1_000_000_000.0);
+        node.put(
+            name,
+            BigDecimal.valueOf(src.getEpochSecond())
+                .add(BigDecimal.valueOf(src.getNano(), 9))
+                .doubleValue());
         break;
       case STRING:
         String format = columnOption.getTimestampFormat().orElse(task.getDefaultTimestampFormat());
-        timezone = columnOption.getTimezone();
+        timezone = columnOption.getTimezone().orElse(task.getDefaultTimezone());
         timestampFormat =
             TimestampFormatter.builder(format, true).setDefaultZoneFromString(timezone).build();
         node.put(name, timestampFormat.format(src.getInstant()));
@@ -47,7 +52,7 @@ public class BigqueryTimestampConverter {
         if (src == null) {
           node.putNull(name);
         } else {
-          timezone = columnOption.getTimezone();
+          timezone = columnOption.getTimezone().orElse(task.getDefaultTimezone());
           timestampFormat =
               TimestampFormatter.builder("%Y-%m-%d %H:%M:%S.%6N", true)
                   .setDefaultZoneFromString(timezone)
@@ -59,7 +64,7 @@ public class BigqueryTimestampConverter {
         if (src == null) {
           node.putNull(name);
         } else {
-          timezone = columnOption.getTimezone();
+          timezone = columnOption.getTimezone().orElse(task.getDefaultTimezone());
           timestampFormat =
               TimestampFormatter.builder("%Y-%m-%d", true)
                   .setDefaultZoneFromString(timezone)
