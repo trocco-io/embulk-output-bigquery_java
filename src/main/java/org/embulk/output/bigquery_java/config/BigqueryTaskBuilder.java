@@ -13,11 +13,14 @@ public class BigqueryTaskBuilder {
   private static final String uniqueName = UUID.randomUUID().toString().replace("-", "_");
 
   public static PluginTask build(PluginTask task) {
-    task.setTable(expandStrftime(task.getTable()));
+    // Sample the clock once so table and old_table share the same timestamp, as in ruby.
+    Instant now = Instant.now();
+    ZoneId zone = ZoneId.systemDefault();
+    task.setTable(expandStrftime(task.getTable(), zone, now));
     // old_table is only consumed by replace_backup, which isn't supported yet, but expand it here
     // too to match ruby, so it's ready once replace_backup is added.
     if (task.getOldTable().isPresent()) {
-      task.setOldTable(Optional.of(expandStrftime(task.getOldTable().get())));
+      task.setOldTable(Optional.of(expandStrftime(task.getOldTable().get(), zone, now)));
     }
     setPathPrefix(task);
     setFileExt(task);
@@ -26,15 +29,11 @@ public class BigqueryTaskBuilder {
     return task;
   }
 
-  public static String expandStrftime(String pattern) {
-    return expandStrftime(pattern, null, null);
-  }
-
   public static String expandStrftime(String pattern, ZoneId zoneId, Instant instant) {
     return TimestampFormatter.builder(pattern, true)
-        .setDefaultZoneId(zoneId != null ? zoneId : ZoneId.systemDefault())
+        .setDefaultZoneId(zoneId)
         .build()
-        .format(instant != null ? instant : Instant.now());
+        .format(instant);
   }
 
   protected static void setPathPrefix(PluginTask task) {

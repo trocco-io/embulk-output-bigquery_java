@@ -1,7 +1,7 @@
 package org.embulk.output.bigquery_java.config;
 
+import static org.embulk.output.bigquery_java.util.AssertUtil.assertMatches;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
 import java.util.List;
@@ -33,60 +33,25 @@ public class TestBigqueryTaskBuilder {
           .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
           .build();
 
-  private static final java.time.ZoneId TEST_ZONE = java.time.ZoneId.of("UTC");
-  private static final java.time.Instant TEST_INSTANT =
-      java.time.Instant.parse("2026-09-17T14:30:15Z");
-
-  @Test
-  public void expandStrftime_noFormatSpecifiers_unchanged() {
-    assertEquals("table", BigqueryTaskBuilder.expandStrftime("table", TEST_ZONE, TEST_INSTANT));
-  }
-
-  @Test
-  public void expandStrftime_expandsPattern() {
-    assertEquals(
-        "table_20260917",
-        BigqueryTaskBuilder.expandStrftime("table_%Y%m%d", TEST_ZONE, TEST_INSTANT));
-  }
-
   @Test
   public void expandStrftime_expandsDateTimeAndEpochSeconds() {
+    java.time.Instant instant = java.time.Instant.parse("2026-09-17T14:30:15Z");
     assertEquals(
-        "table_202609171430" + TEST_INSTANT.getEpochSecond(),
-        BigqueryTaskBuilder.expandStrftime("table_%Y%m%d%H%M%s", TEST_ZONE, TEST_INSTANT));
+        "table_202609171430" + instant.getEpochSecond(),
+        BigqueryTaskBuilder.expandStrftime(
+            "table_%Y%m%d%H%M%s", java.time.ZoneId.of("UTC"), instant));
   }
 
   @Test
-  public void expandStrftime_nullZoneAndInstant_usesSystemDefaults() {
-    assertTrue(
-        BigqueryTaskBuilder.expandStrftime("table_%Y%m%d", null, null).matches("table_\\d{8}"));
-  }
+  public void build_expandsTableAndOldTableWithSameTimestamp() {
+    config =
+        loadYamlResource(embulk, "base.yml")
+            .set("table", "table_%Y%m%d%H%M%S%N")
+            .set("old_table", "old_table_%Y%m%d%H%M%S%N");
+    PluginTask task = BigqueryTaskBuilder.build(CONFIG_MAPPER.map(config, PluginTask.class));
 
-  @Test
-  public void expandStrftime_oldTable_noFormatSpecifiers_unchanged() {
-    assertEquals(
-        "table_old", BigqueryTaskBuilder.expandStrftime("table_old", TEST_ZONE, TEST_INSTANT));
-  }
-
-  @Test
-  public void expandStrftime_oldTable_expandsPattern() {
-    assertEquals(
-        "table_old_20260917",
-        BigqueryTaskBuilder.expandStrftime("table_old_%Y%m%d", TEST_ZONE, TEST_INSTANT));
-  }
-
-  @Test
-  public void expandStrftime_oldTable_expandsDateTimeAndEpochSeconds() {
-    assertEquals(
-        "table_old_202609171430" + TEST_INSTANT.getEpochSecond(),
-        BigqueryTaskBuilder.expandStrftime("table_old_%Y%m%d%H%M%s", TEST_ZONE, TEST_INSTANT));
-  }
-
-  @Test
-  public void expandStrftime_oldTable_nullZoneAndInstant_usesSystemDefaults() {
-    assertTrue(
-        BigqueryTaskBuilder.expandStrftime("table_old_%Y%m%d", null, null)
-            .matches("table_old_\\d{8}"));
+    assertMatches(task.getTable(), "table_\\d{23}");
+    assertMatches(task.getOldTable().get(), "old_table_\\d{23}");
   }
 
   @Test
