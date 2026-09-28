@@ -42,7 +42,7 @@ Under construction
 |  project  (x)                           | string      | required unless service\_account's `json_keyfile` is given. | | project\_id |
 |  dataset                             | string      | required   |                          | dataset |
 |  location                            | string      | optional   | nil                      | geographic location of dataset. See [Location](#location) |
-|  table                               | string      | required   |                          | table name, or table name with a partition decorator such as `table_name$20160929`|
+|  table                               | string      | required   |                          | table name (see [Table id formatting](#table-id-formatting) for strftime support), or table name with a partition decorator such as `table_name$20160929` |
 |  auto_create_dataset                 | boolean     | optional   | false                    | automatically create dataset |
 |  auto_create_table                   | boolean     | optional   | true                     | `false` is available only for `append_direct` mode. Other modes require `true`. See [Dynamic Table Creating](#dynamic-table-creating) and [Time Partitioning](#time-partitioning) |
 |  schema_file   (x)                      | string      | optional   |                          | /path/to/schema.json |
@@ -112,6 +112,22 @@ Following options are same as [bq command-line tools](https://cloud.google.com/b
 |  clustering.fields  (x)               | array    | required  | nil     | One or more fields on which data should be clustered. The order of the specified columns determines the sort order of the data. |
 |  schema_update_options  (x)           | array    | optional  | nil     | (Experimental) List of `ALLOW_FIELD_ADDITION` or `ALLOW_FIELD_RELAXATION` or both. See [jobs#configuration.load.schemaUpdateOptions](https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.schemaUpdateOptions). NOTE for the current status: `schema_update_options` does not work for `copy` job, that is, is not effective for most of modes such as `append`, `replace` and `replace_backup`. `delete_in_advance` deletes origin table so does not need to update schema. Only `append_direct` can utilize schema update. |
 
+
+### Table id formatting
+
+`table` accepts a [Time#strftime](https://docs.ruby-lang.org/en/2.6.0/Time.html#method-i-strftime)
+format to construct table ids (via [embulk-util-timestamp](https://github.com/embulk/embulk-util-timestamp)'s
+legacy Embulk-style formatter, which reimplements ruby's strftime rather than the C library's).
+Table ids are formatted at runtime using the local time of the embulk server.
+
+For example, with the configuration below,
+data is inserted into tables `table_20150503`, `table_20150504` and so on.
+
+```yaml
+out:
+  type: bigquery_java
+  table: table_%Y%m%d
+```
 
 ### Workload Identity Federation
 

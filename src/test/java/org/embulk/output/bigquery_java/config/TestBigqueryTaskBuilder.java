@@ -1,5 +1,6 @@
 package org.embulk.output.bigquery_java.config;
 
+import static org.embulk.output.bigquery_java.util.AssertUtil.assertMatches;
 import static org.junit.Assert.assertEquals;
 
 import java.util.Arrays;
@@ -31,6 +32,27 @@ public class TestBigqueryTaskBuilder {
       TestingEmbulk.builder()
           .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
           .build();
+
+  @Test
+  public void expandStrftime_expandsDateTimeAndEpochSeconds() {
+    java.time.Instant instant = java.time.Instant.parse("2026-09-17T14:30:15Z");
+    assertEquals(
+        "table_202609171430" + instant.getEpochSecond(),
+        BigqueryTaskBuilder.expandStrftime(
+            "table_%Y%m%d%H%M%s", java.time.ZoneId.of("UTC"), instant));
+  }
+
+  @Test
+  public void build_expandsTableAndOldTableWithSameTimestamp() {
+    config =
+        loadYamlResource(embulk, "base.yml")
+            .set("table", "table_%Y%m%d%H%M%S%N")
+            .set("old_table", "old_table_%Y%m%d%H%M%S%N");
+    PluginTask task = BigqueryTaskBuilder.build(CONFIG_MAPPER.map(config, PluginTask.class));
+
+    assertMatches(task.getTable(), "table_\\d{23}");
+    assertMatches(task.getOldTable().get(), "old_table_\\d{23}");
+  }
 
   @Test
   public void setAbortOnError_DefaultMaxBadRecord_True() {

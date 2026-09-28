@@ -42,6 +42,8 @@ public interface PluginTask extends Task {
   @Config("table")
   String getTable();
 
+  void setTable(String table);
+
   @Config("old_dataset")
   @ConfigDefault("null")
   Optional<String> getOldDataset();
@@ -49,6 +51,8 @@ public interface PluginTask extends Task {
   @Config("old_table")
   @ConfigDefault("null")
   Optional<String> getOldTable();
+
+  void setOldTable(Optional<String> oldTable);
 
   @Config("location")
   @ConfigDefault("null")
