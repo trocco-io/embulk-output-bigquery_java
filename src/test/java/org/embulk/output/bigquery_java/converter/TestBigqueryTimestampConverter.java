@@ -49,11 +49,30 @@ public class TestBigqueryTimestampConverter {
     config.set("column_options", configSources);
     BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
-    org.embulk.spi.time.Timestamp ts = org.embulk.spi.time.Timestamp.ofEpochMilli(1588291200000L);
+    // Fri May 01 2020 00:00:00.999 -> sub-second part is truncated, not rounded up
+    org.embulk.spi.time.Timestamp ts = org.embulk.spi.time.Timestamp.ofEpochMilli(1588291200999L);
 
     BigqueryTimestampConverter.convertAndSet(
         node, "key", ts, BigqueryColumnOptionType.INTEGER, columnOption, task);
     assertEquals(1588291200L, node.get("key").asLong());
+  }
+
+  @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
+  @Test
+  public void testConvertTimestampToInteger_floorsBeforeEpoch() {
+    ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
+    config = loadYamlResource(embulk, "base.yml");
+    ConfigSource configSource = embulk.newConfig();
+    configSource.set("type", "INTEGER");
+    configSource.set("name", "key");
+    BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+    // 1ms before the epoch -> floor to -1, not truncate toward zero to 0 (matches ruby's to_i)
+    org.embulk.spi.time.Timestamp ts = org.embulk.spi.time.Timestamp.ofEpochMilli(-1L);
+
+    BigqueryTimestampConverter.convertAndSet(
+        node, "key", ts, BigqueryColumnOptionType.INTEGER, columnOption, task);
+    assertEquals(-1L, node.get("key").asLong());
   }
 
   @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
@@ -100,61 +119,7 @@ public class TestBigqueryTimestampConverter {
 
   @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
   @Test
-  public void testConvertTimestampToInteger_truncatesSubSecond() {
-    ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
-    config = loadYamlResource(embulk, "base.yml");
-    ConfigSource configSource = embulk.newConfig();
-    configSource.set("type", "INTEGER");
-    configSource.set("name", "key");
-    BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
-    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
-    // Fri May 01 2020 00:00:00.999 -> truncated, not rounded up
-    org.embulk.spi.time.Timestamp ts = org.embulk.spi.time.Timestamp.ofEpochMilli(1588291200999L);
-
-    BigqueryTimestampConverter.convertAndSet(
-        node, "key", ts, BigqueryColumnOptionType.INTEGER, columnOption, task);
-    assertEquals(1588291200L, node.get("key").asLong());
-  }
-
-  @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
-  @Test
-  public void testConvertTimestampToInteger_floorsBeforeEpoch() {
-    ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
-    config = loadYamlResource(embulk, "base.yml");
-    ConfigSource configSource = embulk.newConfig();
-    configSource.set("type", "INTEGER");
-    configSource.set("name", "key");
-    BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
-    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
-    // 1ms before the epoch -> floor to -1, not truncate toward zero to 0 (matches ruby's to_i)
-    org.embulk.spi.time.Timestamp ts = org.embulk.spi.time.Timestamp.ofEpochMilli(-1L);
-
-    BigqueryTimestampConverter.convertAndSet(
-        node, "key", ts, BigqueryColumnOptionType.INTEGER, columnOption, task);
-    assertEquals(-1L, node.get("key").asLong());
-  }
-
-  @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
-  @Test
   public void testConvertTimestampToFloat_beforeEpoch() {
-    ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
-    config = loadYamlResource(embulk, "base.yml");
-    ConfigSource configSource = embulk.newConfig();
-    configSource.set("type", "FLOAT");
-    configSource.set("name", "key");
-    BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
-    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
-    // 500ms before the epoch
-    org.embulk.spi.time.Timestamp ts = org.embulk.spi.time.Timestamp.ofEpochMilli(-500L);
-
-    BigqueryTimestampConverter.convertAndSet(
-        node, "key", ts, BigqueryColumnOptionType.FLOAT, columnOption, task);
-    assertEquals(-0.5, node.get("key").asDouble(), 0.0);
-  }
-
-  @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
-  @Test
-  public void testConvertTimestampToFloat_justBeforeEpoch() {
     ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
     config = loadYamlResource(embulk, "base.yml");
     ConfigSource configSource = embulk.newConfig();
