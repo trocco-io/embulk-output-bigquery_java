@@ -149,15 +149,11 @@ public class TestBigqueryClientWithMockServer {
 
   @Test
   public void testCreateTableIfNotExistRetriesTransientErrorsThenSucceeds() throws Exception {
-    // This retry count currently comes from the client library's own default (maxAttempts=6 via
-    // ServiceOptions.getDefaultRetrySettings()); it is not yet driven by our task's `retries`
-    // config. If createTableIfNotExist() is ever changed to honor `retries`, this test should be
-    // updated to reflect that config value instead of the library default.
-    // TODO: reflect task's `retries` config in createTableIfNotExist()'s retry behavior.
+    // test_host.yml sets retries: 1, so 1 failure then a success should still go through (1
+    // initial attempt + 1 retry = 2 total), driven by the task's `retries` config (see
+    // buildRetrySettings() in BigqueryClient).
     List<MockResponse> responses = new ArrayList<>();
-    for (int i = 0; i < 5; i++) {
-      responses.add(errorResponse(500, "boom", "internalError"));
-    }
+    responses.add(errorResponse(500, "boom", "internalError"));
     responses.add(tableResponse());
 
     List<RecordedRequest> requests =
@@ -165,7 +161,7 @@ public class TestBigqueryClientWithMockServer {
             server -> buildTestHostClient(server).createTableIfNotExist("table"),
             responses.toArray(new MockResponse[0]));
 
-    assertEquals(6, requests.size());
+    assertEquals(2, requests.size());
     for (RecordedRequest request : requests) {
       assertPostTables(request);
     }
@@ -173,11 +169,10 @@ public class TestBigqueryClientWithMockServer {
 
   @Test
   public void testCreateTableIfNotExistGivesUpAfterMaxTransientErrors() throws Exception {
-    // As above, this retry count currently comes from the client library's own default
-    // (maxAttempts=6), not our task's `retries` config; update this test if that ever changes.
-    // TODO: reflect task's `retries` config in createTableIfNotExist()'s retry behavior.
+    // test_host.yml sets retries: 1, so 2 consecutive failures (1 initial attempt + 1 retry)
+    // should exhaust the budget and give up, driven by the task's `retries` config.
     List<MockResponse> responses = new ArrayList<>();
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 2; i++) {
       responses.add(errorResponse(500, "boom", "internalError"));
     }
 
@@ -188,7 +183,7 @@ public class TestBigqueryClientWithMockServer {
             server -> buildTestHostClient(server).createTableIfNotExist("table"),
             responses.toArray(new MockResponse[0]));
 
-    assertEquals(6, requests.size());
+    assertEquals(2, requests.size());
     for (RecordedRequest request : requests) {
       assertPostTables(request);
     }

@@ -153,6 +153,19 @@ public interface PluginTask extends Task {
   @ConfigDefault("5")
   int getRetries();
 
+  @Config("open_timeout_sec")
+  @ConfigDefault("300")
+  int getOpenTimeoutSec();
+
+  @Config("read_timeout_sec")
+  @ConfigDefault("300")
+  int getReadTimeoutSec();
+
+  // Kept only for config compatibility with the ruby plugin; see README.md for details.
+  @Config("send_timeout_sec")
+  @ConfigDefault("300")
+  int getSendTimeoutSec();
+
   @Config("before_load")
   @ConfigDefault("null")
   Optional<String> getBeforeLoad();
