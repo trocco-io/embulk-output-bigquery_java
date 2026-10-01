@@ -10,6 +10,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class BigqueryFileWriter {
+  // embulk default page size
+  public static final int BUFFER_SIZE = 1024 * 32;
+
   private final Logger logger = LoggerFactory.getLogger(BigqueryFileWriter.class);
   private PluginTask task;
   private String compression;
@@ -38,8 +41,7 @@ public class BigqueryFileWriter {
     if (this.compression.equals("GZIP")) {
       this.os = new GZIPOutputStream(this.os);
     }
-    // embulk default page size
-    this.os = new BufferedOutputStream(this.os, 1024 * 32);
+    this.os = new BufferedOutputStream(this.os, BUFFER_SIZE);
 
     return this.os;
   }
@@ -63,8 +65,9 @@ public class BigqueryFileWriter {
     try {
       outputStream().write(bytes);
       this.count++;
-    } catch (Exception e) {
-      logger.info(e.getMessage());
+    } catch (IOException e) {
+      logger.error("embulk-output-bigquery: failed to write an intermediate file", e);
+      throw new RuntimeException(e);
     }
   }
 
@@ -73,10 +76,12 @@ public class BigqueryFileWriter {
   }
 
   public void close() {
+    // Swallowed to match ruby (file_writer#close does `io.close rescue nil`). A file truncated by
+    // a failed flush/close is still caught later, by the load job error or the row-count check.
     try {
       this.outputStream().flush();
       this.outputStream().close();
-    } catch (Exception e) {
+    } catch (IOException e) {
       logger.info(e.getMessage());
     }
   }

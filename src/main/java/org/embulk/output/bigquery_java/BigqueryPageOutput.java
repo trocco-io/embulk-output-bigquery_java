@@ -10,13 +10,10 @@ import org.embulk.spi.PageReader;
 import org.embulk.spi.Schema;
 import org.embulk.spi.TransactionalPageOutput;
 import org.embulk.util.config.ConfigMapperFactory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class BigqueryPageOutput implements TransactionalPageOutput {
   private static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
       ConfigMapperFactory.builder().addDefaultModules().build();
-  private final Logger logger = LoggerFactory.getLogger(BigqueryPageOutput.class);
   private PageReader pageReader;
   private final Schema schema;
   private PluginTask task;
@@ -32,18 +29,12 @@ public class BigqueryPageOutput implements TransactionalPageOutput {
   public void add(Page page) {
     pageReader.setPage(page);
     BigqueryThreadLocalFileWriter.setFileWriter(this.task);
-    try {
-      while (pageReader.nextRecord()) {
-        BigqueryColumnVisitor visitor =
-            new JsonColumnVisitor(
-                this.task,
-                pageReader,
-                this.task.getColumnOptions().orElse(Collections.emptyList()));
-        pageReader.getSchema().getColumns().forEach(col -> col.visit(visitor));
-        BigqueryThreadLocalFileWriter.write(visitor.getByteArray());
-      }
-    } catch (Exception e) {
-      logger.info(e.getMessage());
+    while (pageReader.nextRecord()) {
+      BigqueryColumnVisitor visitor =
+          new JsonColumnVisitor(
+              this.task, pageReader, this.task.getColumnOptions().orElse(Collections.emptyList()));
+      pageReader.getSchema().getColumns().forEach(col -> col.visit(visitor));
+      BigqueryThreadLocalFileWriter.write(visitor.getByteArray());
     }
   }
 
