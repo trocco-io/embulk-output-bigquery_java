@@ -4,16 +4,26 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.Field;
 import com.google.cloud.bigquery.FieldList;
+import com.google.cloud.bigquery.JobId;
+import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.PolicyTags;
 import com.google.cloud.bigquery.Schema;
 import com.google.cloud.bigquery.StandardSQLTypeName;
 import com.google.cloud.bigquery.Table;
+import com.google.cloud.bigquery.TableDataWriteChannel;
 import com.google.cloud.bigquery.TableDefinition;
+import com.google.cloud.bigquery.WriteChannelConfiguration;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +33,7 @@ import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryUploadException;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.FileInputPlugin;
 import org.embulk.spi.OutputPlugin;
@@ -34,6 +45,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.mockito.Mockito;
+import org.slf4j.Logger;
 
 public class TestBigqueryClient {
   protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
@@ -299,5 +311,100 @@ public class TestBigqueryClient {
     taskField.set(client, replaceTask);
 
     assertNull(client.storeCachedSrcFieldsIfNeed());
+  }
+
+  // The upload path can't be exercised through MockWebServer: TableDataWriteChannel's resumable
+  // upload hardcodes the real BigQuery host (see BigqueryTestHostSupport). Instead, BigqueryClient
+  // is a Mockito mock whose load() runs for real, with its collaborators injected by reflection
+  // and its network steps (writeToStream / waitForLoad) left to the mock.
+  private static class LoadFixture {
+    final BigQuery bigquery = Mockito.mock(BigQuery.class);
+    final TableDataWriteChannel writer = Mockito.mock(TableDataWriteChannel.class);
+    final Logger logger = Mockito.mock(Logger.class);
+    final BigqueryClient client = Mockito.mock(BigqueryClient.class);
+
+    LoadFixture(PluginTask task) throws ReflectiveOperationException {
+      Mockito.when(
+              bigquery.writer(
+                  Mockito.any(JobId.class), Mockito.any(WriteChannelConfiguration.class)))
+          .thenReturn(writer);
+      Mockito.when(
+              client.load(
+                  Mockito.any(Path.class),
+                  Mockito.anyString(),
+                  Mockito.any(JobInfo.WriteDisposition.class)))
+          .thenCallRealMethod();
+      setField("task", task);
+      setField("bigquery", bigquery);
+      setField("schema", new org.embulk.spi.Schema(Collections.emptyList()));
+      setField("columnOptions", Collections.emptyList());
+      setField("destinationProject", "project");
+      setField("destinationDataset", "dataset");
+      setField("logger", logger);
+    }
+
+    private void setField(String name, Object value) throws ReflectiveOperationException {
+      java.lang.reflect.Field field = BigqueryClient.class.getDeclaredField(name);
+      field.setAccessible(true);
+      field.set(client, value);
+    }
+
+    void verifyUploadAttempts(int times) throws IOException {
+      Mockito.verify(bigquery, Mockito.times(times))
+          .writer(Mockito.any(JobId.class), Mockito.any(WriteChannelConfiguration.class));
+      Mockito.verify(client, Mockito.times(times))
+          .writeToStream(Mockito.any(Path.class), Mockito.any(OutputStream.class));
+    }
+
+    void verifyUploadErrorsLogged(int times) {
+      Mockito.verify(logger, Mockito.times(times))
+          .error(Mockito.contains("failed to upload"), Mockito.any(IOException.class));
+    }
+  }
+
+  private LoadFixture loadFixture(int retries) throws ReflectiveOperationException {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml").set("retries", retries);
+    return new LoadFixture(CONFIG_MAPPER.map(config, PluginTask.class));
+  }
+
+  @Test
+  public void testLoadRetriesUploadIOExceptionThenGivesUp()
+      throws IOException, ReflectiveOperationException {
+    LoadFixture f = loadFixture(1);
+    Mockito.doCallRealMethod()
+        .when(f.client)
+        .writeToStream(Mockito.any(Path.class), Mockito.any(OutputStream.class));
+    Path notAFile = testFolder.newFolder().toPath();
+
+    BigqueryUploadException thrown =
+        assertThrows(
+            BigqueryUploadException.class,
+            () -> f.client.load(notAFile, "table", JobInfo.WriteDisposition.WRITE_APPEND));
+
+    assertTrue(thrown.getMessage().contains("failed to upload"));
+    assertTrue(thrown.getCause() instanceof IOException);
+    f.verifyUploadAttempts(2);
+    f.verifyUploadErrorsLogged(2);
+    Mockito.verify(f.logger).error("embulk-output-bigquery: Give up retrying for Load job");
+    Mockito.verify(f.writer, Mockito.never()).getJob();
+  }
+
+  @Test
+  public void testLoadRetriesUploadIOExceptionThenSucceeds()
+      throws IOException, ReflectiveOperationException {
+    LoadFixture f = loadFixture(1);
+    Mockito.doThrow(new IOException("Connection reset"))
+        .doNothing()
+        .when(f.client)
+        .writeToStream(Mockito.any(Path.class), Mockito.any(OutputStream.class));
+    Path loadFile = testFolder.newFile().toPath();
+
+    f.client.load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+
+    f.verifyUploadAttempts(2);
+    f.verifyUploadErrorsLogged(1);
+    Mockito.verify(f.logger, Mockito.never())
+        .error("embulk-output-bigquery: Give up retrying for Load job");
+    Mockito.verify(f.writer).getJob();
   }
 }

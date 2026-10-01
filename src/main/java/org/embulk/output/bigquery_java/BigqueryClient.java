@@ -54,6 +54,7 @@ import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
 import org.embulk.output.bigquery_java.exception.BigqueryRateLimitExceededException;
+import org.embulk.output.bigquery_java.exception.BigqueryUploadException;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
 import org.embulk.spi.type.BooleanType;
@@ -319,6 +320,11 @@ public class BigqueryClient {
     return timePartitioningBuilder.build();
   }
 
+  // Package-private (like waitForLoad) so tests can stub the network steps of load().
+  void writeToStream(Path loadFile, OutputStream stream) throws IOException {
+    Files.copy(loadFile, stream);
+  }
+
   public JobStatistics.LoadStatistics load(
       Path loadFile, String table, JobInfo.WriteDisposition writeDisposition)
       throws BigqueryException {
@@ -380,9 +386,18 @@ public class BigqueryClient {
                       bigquery.writer(JobId.of(jobId), writeChannelConfiguration);
 
                   try (OutputStream stream = Channels.newOutputStream(writer)) {
-                    Files.copy(loadFile, stream);
+                    writeToStream(loadFile, stream);
                   } catch (IOException e) {
-                    logger.info(e.getMessage());
+                    String msg =
+                        String.format(
+                            "embulk-output-bigquery: failed to upload %s to %s:%s.%s, message: %s",
+                            loadFile,
+                            destinationProject,
+                            destinationDataset,
+                            table,
+                            e.getMessage());
+                    logger.error(msg, e);
+                    throw new BigqueryUploadException(msg, e);
                   }
 
                   Job job = writer.getJob();
@@ -393,7 +408,8 @@ public class BigqueryClient {
                 public boolean isRetryableException(Exception exception) {
                   return exception instanceof BigqueryBackendException
                       || exception instanceof BigqueryRateLimitExceededException
-                      || exception instanceof BigqueryInternalException;
+                      || exception instanceof BigqueryInternalException
+                      || exception instanceof BigqueryUploadException;
                 }
 
                 @Override
@@ -805,7 +821,8 @@ public class BigqueryClient {
     return bigquery.delete(TableId.of(project, dataset, table));
   }
 
-  private JobStatistics waitForLoad(Job job) throws BigqueryException {
+  // Package-private for the same reason as writeToStream().
+  JobStatistics waitForLoad(Job job) throws BigqueryException {
     return new BigqueryJobWaiter(task, this, job).waitFor("Load");
   }
 
