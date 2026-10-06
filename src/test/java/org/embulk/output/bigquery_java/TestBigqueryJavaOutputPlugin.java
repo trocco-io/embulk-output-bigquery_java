@@ -65,6 +65,7 @@ public class TestBigqueryJavaOutputPlugin {
     assertEquals("table", task.getTable());
     assertEquals("service_account", task.getAuthMethod());
     assertEquals("UTC", task.getDefaultTimezone());
+    assertEquals("%Y-%m-%d %H:%M:%S.%6N", task.getDefaultTimestampFormat());
     assertEquals("UTF-8", task.getEncoding());
     assertTrue(task.getDeleteFromLocalWhenJobEnd());
     assertFalse(task.getAutoCreateDataset());

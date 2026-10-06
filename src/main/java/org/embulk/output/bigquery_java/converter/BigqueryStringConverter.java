@@ -64,14 +64,10 @@ public class BigqueryStringConverter {
       case TIMESTAMP:
         if (columnOption.getTimestampFormat().isPresent()) {
           pattern = columnOption.getTimestampFormat().get();
-          timezone = columnOption.getTimezone().orElse(task.getDefaultTimezone());
-          parser =
-              TimestampFormatter.builder(pattern, true).setDefaultZoneFromString(timezone).build();
+          timezone = BigqueryTimestampFormatters.resolveTimezone(columnOption.getTimezone(), task);
+          parser = BigqueryTimestampFormatters.get(pattern, timezone);
           ts = org.embulk.spi.time.Timestamp.ofInstant(parser.parse(src));
-          timestampFormat =
-              TimestampFormatter.builder("%Y-%m-%d %H:%M:%S.%6N %:z", true)
-                  .setDefaultZoneFromString(timezone)
-                  .build();
+          timestampFormat = BigqueryTimestampFormatters.get("%Y-%m-%d %H:%M:%S.%6N %:z", timezone);
           node.put(name, timestampFormat.format(ts.getInstant()));
         } else {
           // Users must care of BQ timestamp format by themselves with no timestamp_format
@@ -85,14 +81,10 @@ public class BigqueryStringConverter {
       case DATETIME:
         if (columnOption.getTimestampFormat().isPresent()) {
           pattern = columnOption.getTimestampFormat().get();
-          timezone = columnOption.getTimezone().orElse(task.getDefaultTimezone());
-          parser =
-              TimestampFormatter.builder(pattern, true).setDefaultZoneFromString(timezone).build();
+          timezone = BigqueryTimestampFormatters.resolveTimezone(columnOption.getTimezone(), task);
+          parser = BigqueryTimestampFormatters.get(pattern, timezone);
           ts = org.embulk.spi.time.Timestamp.ofInstant(parser.parse(src));
-          timestampFormat =
-              TimestampFormatter.builder("%Y-%m-%d %H:%M:%S.%6N", true)
-                  .setDefaultZoneFromString(timezone)
-                  .build();
+          timestampFormat = BigqueryTimestampFormatters.get("%Y-%m-%d %H:%M:%S.%6N", timezone);
           node.put(name, timestampFormat.format(ts.getInstant()));
         } else {
           // Users must care of BQ datetime format by themselves with no timestamp_format
@@ -106,18 +98,14 @@ public class BigqueryStringConverter {
       case DATE:
         if (columnOption.getTimestampFormat().isPresent()) {
           pattern = columnOption.getTimestampFormat().get();
-          timezone = columnOption.getTimezone().orElse(task.getDefaultTimezone());
-          parser =
-              TimestampFormatter.builder(pattern, true).setDefaultZoneFromString(timezone).build();
+          timezone = BigqueryTimestampFormatters.resolveTimezone(columnOption.getTimezone(), task);
+          parser = BigqueryTimestampFormatters.get(pattern, timezone);
           try {
             ts = org.embulk.spi.time.Timestamp.ofInstant(parser.parse(src));
           } catch (org.embulk.util.rubytime.RubyDateTimeParseException e) {
             throw new BigqueryTypeCastException(e.getMessage());
           }
-          timestampFormat =
-              TimestampFormatter.builder("%Y-%m-%d", true)
-                  .setDefaultZoneFromString(timezone)
-                  .build();
+          timestampFormat = BigqueryTimestampFormatters.get("%Y-%m-%d", timezone);
           node.put(name, timestampFormat.format(ts.getInstant()));
         } else {
           // Users must care of BQ date format by themselves with no timestamp_format

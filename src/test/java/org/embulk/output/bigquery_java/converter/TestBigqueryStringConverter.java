@@ -284,4 +284,50 @@ public class TestBigqueryStringConverter {
 
     assertEquals("2020-05-01 00:00:00.000000 +09:00", node.get("key").asText());
   }
+
+  @Test
+  public void testConvertStringToDatetime_usesDefaultTimezone() {
+    ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
+    config = loadYamlResource(embulk, "base.yml").set("default_timezone", "Asia/Tokyo");
+    ConfigSource configSource = embulk.newConfig();
+    configSource.set("type", "DATETIME");
+    configSource.set("name", "key");
+    configSource.set("timestamp_format", "%Y/%m/%d %H:%M:%S %z");
+    BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+
+    // The input carries its own offset, so only the output side depends on default_timezone.
+    BigqueryStringConverter.convertAndSet(
+        node,
+        "key",
+        "2020/05/01 23:00:00 +0000",
+        BigqueryColumnOptionType.DATETIME,
+        columnOption,
+        task);
+
+    assertEquals("2020-05-02 08:00:00.000000", node.get("key").asText());
+  }
+
+  @Test
+  public void testConvertStringToDate_usesDefaultTimezone() {
+    ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
+    config = loadYamlResource(embulk, "base.yml").set("default_timezone", "Asia/Tokyo");
+    ConfigSource configSource = embulk.newConfig();
+    configSource.set("type", "DATE");
+    configSource.set("name", "key");
+    configSource.set("timestamp_format", "%Y/%m/%d %H:%M:%S %z");
+    BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+
+    // 2020-05-01 23:00 UTC is already 2020-05-02 in Asia/Tokyo.
+    BigqueryStringConverter.convertAndSet(
+        node,
+        "key",
+        "2020/05/01 23:00:00 +0000",
+        BigqueryColumnOptionType.DATE,
+        columnOption,
+        task);
+
+    assertEquals("2020-05-02", node.get("key").asText());
+  }
 }

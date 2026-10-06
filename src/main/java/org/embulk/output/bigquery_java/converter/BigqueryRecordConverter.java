@@ -134,18 +134,16 @@ public class BigqueryRecordConverter {
 
     if (field.getTimestampFormat().isPresent()) {
       pattern = field.getTimestampFormat().get();
-      timezone = field.getTimezone().orElse(task.getDefaultTimezone());
+      timezone = BigqueryTimestampFormatters.resolveTimezone(field.getTimezone(), task);
     } else {
       // Users must care of BQ format by themselves with no timestamp_format
       return value;
     }
 
     try {
-      TimestampFormatter parser =
-          TimestampFormatter.builder(pattern, true).setDefaultZoneFromString(timezone).build();
+      TimestampFormatter parser = BigqueryTimestampFormatters.get(pattern, timezone);
       org.embulk.spi.time.Timestamp ts = org.embulk.spi.time.Timestamp.ofInstant(parser.parse(src));
-      TimestampFormatter formatter =
-          TimestampFormatter.builder(outputFormat, true).setDefaultZoneFromString(timezone).build();
+      TimestampFormatter formatter = BigqueryTimestampFormatters.get(outputFormat, timezone);
       return BigqueryUtil.getObjectMapper()
           .getNodeFactory()
           .textNode(formatter.format(ts.getInstant()));
