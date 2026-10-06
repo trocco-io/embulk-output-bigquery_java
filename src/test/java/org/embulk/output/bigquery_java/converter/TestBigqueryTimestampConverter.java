@@ -324,4 +324,20 @@ public class TestBigqueryTimestampConverter {
         node, "key", ts, BigqueryColumnOptionType.STRING, columnOption, task);
     assertEquals("2020/05/01", node.get("key").asText());
   }
+
+  @SuppressWarnings("deprecation") // The use of org.embulk.spi.time.Timestamp
+  @Test
+  public void testConvertTimestampToDate_withoutTask_fallsBackToUtc() {
+    ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
+    ConfigSource configSource = embulk.newConfig();
+    configSource.set("type", "DATE");
+    configSource.set("name", "key");
+    BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
+    // Thu Apr 30 2020 20:00:00 UTC == Fri May 01 2020 05:00:00 JST
+    org.embulk.spi.time.Timestamp ts = org.embulk.spi.time.Timestamp.ofEpochMilli(1588276800000L);
+
+    BigqueryTimestampConverter.convertAndSet(
+        node, "key", ts, BigqueryColumnOptionType.DATE, columnOption, null);
+    assertEquals("2020-04-30", node.get("key").asText());
+  }
 }
