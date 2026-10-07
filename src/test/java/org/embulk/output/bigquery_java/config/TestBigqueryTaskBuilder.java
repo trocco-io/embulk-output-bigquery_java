@@ -52,6 +52,9 @@ public class TestBigqueryTaskBuilder {
 
     assertMatches(task.getTable(), "table_\\d{23}");
     assertMatches(task.getOldTable().get(), "old_table_\\d{23}");
+    String tableSuffix = task.getTable().substring("table_".length());
+    String oldTableSuffix = task.getOldTable().get().substring("old_table_".length());
+    assertEquals(tableSuffix, oldTableSuffix);
   }
 
   @Test
