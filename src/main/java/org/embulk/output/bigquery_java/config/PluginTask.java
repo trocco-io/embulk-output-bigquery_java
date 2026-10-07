@@ -158,8 +158,13 @@ public interface PluginTask extends Task {
   int getOpenTimeoutSec();
 
   @Config("read_timeout_sec")
-  @ConfigDefault("300")
-  int getReadTimeoutSec();
+  @ConfigDefault("null")
+  Optional<Integer> getReadTimeoutSec();
+
+  // Deprecated alias of read_timeout_sec, kept for config compatibility with the ruby plugin.
+  @Config("timeout_sec")
+  @ConfigDefault("null")
+  Optional<Integer> getTimeoutSec();
 
   // Kept only for config compatibility with the ruby plugin; see README.md for details.
   @Config("send_timeout_sec")

@@ -355,4 +355,37 @@ public class TestBigqueryClient {
     // See README.md for why send_timeout_sec folds into read_timeout_sec here.
     assertEquals((34 + 56) * 1000, httpTransportOptions.getReadTimeout());
   }
+
+  private static int readTimeoutMillis(PluginTask task) {
+    return ((HttpTransportOptions) BigqueryClient.buildTransportOptions(task)).getReadTimeout();
+  }
+
+  @Test
+  public void testBuildTransportOptionsFallsBackToDeprecatedTimeoutSec() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config.set("timeout_sec", 34).set("send_timeout_sec", 56), PluginTask.class);
+
+    assertEquals((34 + 56) * 1000, readTimeoutMillis(task));
+  }
+
+  @Test
+  public void testBuildTransportOptionsPrefersReadTimeoutSecOverTimeoutSec() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config.set("read_timeout_sec", 34).set("timeout_sec", 99).set("send_timeout_sec", 56),
+            PluginTask.class);
+
+    assertEquals((34 + 56) * 1000, readTimeoutMillis(task));
+  }
+
+  @Test
+  public void testBuildTransportOptionsDefaultsReadTimeoutWhenNeitherIsSet() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task = CONFIG_MAPPER.map(config.set("send_timeout_sec", 56), PluginTask.class);
+
+    assertEquals((BigqueryClient.DEFAULT_READ_TIMEOUT_SEC + 56) * 1000, readTimeoutMillis(task));
+  }
 }
