@@ -10,3 +10,10 @@ auto_create_dataset: false
 auto_create_table: true
 is_skip_job_result_check: false
 retries: 1
+# Keep retry/job-retry backoff near zero so retry tests don't incur real wait time.
+retry_initial_delay_sec: 0
+retry_max_delay_sec: 0
+retry_delay_multiplier: 1.0
+retry_total_timeout_sec: 1
+job_retry_initial_wait_sec: 0
+job_retry_max_wait_sec: 0

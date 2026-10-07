@@ -153,6 +153,37 @@ public interface PluginTask extends Task {
   @ConfigDefault("5")
   int getRetries();
 
+  // Backoff for retrying individual BigQuery API calls (gax RetrySettings). The delay defaults
+  // mirror gax's own (ServiceOptions.getDefaultRetrySettings()).
+  @Config("retry_initial_delay_sec")
+  @ConfigDefault("1")
+  int getRetryInitialDelaySec();
+
+  @Config("retry_max_delay_sec")
+  @ConfigDefault("32")
+  int getRetryMaxDelaySec();
+
+  @Config("retry_delay_multiplier")
+  @ConfigDefault("2.0")
+  double getRetryDelayMultiplier();
+
+  // One day rather than gax's default 50s: gax stops retrying once the elapsed time plus the next
+  // delay would exceed the total timeout, which would cap `retries` at ~6 attempts (or 0 after a
+  // single long read timeout). Ruby retries by count with no wall-clock cap, so keep `retries`
+  // the effective limit.
+  @Config("retry_total_timeout_sec")
+  @ConfigDefault("86400")
+  int getRetryTotalTimeoutSec();
+
+  // Wait between job-level retries (resubmitting a completed-but-errored load/copy/query job).
+  @Config("job_retry_initial_wait_sec")
+  @ConfigDefault("2")
+  int getJobRetryInitialWaitSec();
+
+  @Config("job_retry_max_wait_sec")
+  @ConfigDefault("10")
+  int getJobRetryMaxWaitSec();
+
   @Config("open_timeout_sec")
   @ConfigDefault("300")
   int getOpenTimeoutSec();

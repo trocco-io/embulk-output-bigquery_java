@@ -317,23 +317,38 @@ public class TestBigqueryClient {
   }
 
   @Test
-  public void testBuildRetrySettingsLiftsTotalTimeoutSoMaxAttemptsIsTheLimit() {
+  public void testBuildRetrySettingsDefaultsLiftTotalTimeoutSoMaxAttemptsIsTheLimit() {
     ConfigSource config = loadYamlResource(embulk, "takeover.yml");
     PluginTask task = CONFIG_MAPPER.map(config.set("retries", 10), PluginTask.class);
 
     RetrySettings retrySettings = BigqueryClient.buildRetrySettings(task);
 
     assertEquals(11, retrySettings.getMaxAttempts());
-    // `./gradlew test` overrides the total timeout through
-    // BIGQUERY_OUTPUT_OPTION_RETRY_TOTAL_TIMEOUT_MS to keep retry tests fast; without the
-    // override, the default must lift gax's 50s cap so that maxAttempts is the effective limit.
-    String override = System.getenv("BIGQUERY_OUTPUT_OPTION_RETRY_TOTAL_TIMEOUT_MS");
-    Duration expected =
-        override == null
-            ? BigqueryClient.RETRY_TOTAL_TIMEOUT
-            : Duration.ofMillis(Long.parseLong(override));
-    assertEquals(expected, retrySettings.getTotalTimeout());
-    assertTrue(BigqueryClient.RETRY_TOTAL_TIMEOUT.compareTo(Duration.ofSeconds(50)) > 0);
+    assertEquals(Duration.ofMillis(1000), retrySettings.getInitialRetryDelay());
+    assertEquals(Duration.ofMillis(32000), retrySettings.getMaxRetryDelay());
+    assertEquals(2.0, retrySettings.getRetryDelayMultiplier(), 0.0);
+    // gax's default would be 50s, under which 11 attempts with the default backoff can't fit.
+    assertEquals(Duration.ofDays(1), retrySettings.getTotalTimeout());
+  }
+
+  @Test
+  public void testBuildRetrySettingsReflectsConfiguredBackoff() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config
+                .set("retry_initial_delay_sec", 5)
+                .set("retry_max_delay_sec", 50)
+                .set("retry_delay_multiplier", 1.5)
+                .set("retry_total_timeout_sec", 500),
+            PluginTask.class);
+
+    RetrySettings retrySettings = BigqueryClient.buildRetrySettings(task);
+
+    assertEquals(Duration.ofSeconds(5), retrySettings.getInitialRetryDelay());
+    assertEquals(Duration.ofSeconds(50), retrySettings.getMaxRetryDelay());
+    assertEquals(1.5, retrySettings.getRetryDelayMultiplier(), 0.0);
+    assertEquals(Duration.ofSeconds(500), retrySettings.getTotalTimeout());
   }
 
   @Test
