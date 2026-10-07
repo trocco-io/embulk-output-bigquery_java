@@ -3,6 +3,8 @@ package org.embulk.output.bigquery_java.config;
 import static org.embulk.output.bigquery_java.util.AssertUtil.assertMatches;
 import static org.junit.Assert.assertEquals;
 
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import org.embulk.config.ConfigSource;
@@ -35,11 +37,10 @@ public class TestBigqueryTaskBuilder {
 
   @Test
   public void expandStrftime_expandsDateTimeAndEpochSeconds() {
-    java.time.Instant instant = java.time.Instant.parse("2026-09-17T14:30:15Z");
+    Instant instant = Instant.parse("2026-09-17T14:30:15Z");
     assertEquals(
         "table_202609171430" + instant.getEpochSecond(),
-        BigqueryTaskBuilder.expandStrftime(
-            "table_%Y%m%d%H%M%s", java.time.ZoneId.of("UTC"), instant));
+        BigqueryTaskBuilder.expandStrftime("table_%Y%m%d%H%M%s", ZoneId.of("UTC"), instant));
   }
 
   @Test
