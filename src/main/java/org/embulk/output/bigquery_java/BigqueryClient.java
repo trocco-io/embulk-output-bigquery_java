@@ -168,6 +168,12 @@ public class BigqueryClient {
     return value == null ? Optional.empty() : Optional.of(Double.parseDouble(value));
   }
 
+  // gax's default RetrySettings carry totalTimeout = 50s and stop retrying as soon as the elapsed
+  // time plus the next delay would exceed it, which caps `retries` at ~6 attempts (or 0 after a
+  // single long read timeout). Ruby's client retries by count with no wall-clock cap, so raise
+  // the cap far enough that maxAttempts is the effective limit.
+  static final Duration RETRY_TOTAL_TIMEOUT = Duration.ofDays(1);
+
   static RetrySettings buildRetrySettings(PluginTask task) {
     RetrySettings.Builder builder =
         ServiceOptions.getDefaultRetrySettings()
@@ -175,7 +181,8 @@ public class BigqueryClient {
             // +1: task.getRetries() means "number of retries", matching
             // RetryExecutor#withRetryLimit usage elsewhere in this class, while
             // RetrySettings#setMaxAttempts counts total attempts.
-            .setMaxAttempts(task.getRetries() + 1);
+            .setMaxAttempts(task.getRetries() + 1)
+            .setTotalTimeout(RETRY_TOTAL_TIMEOUT);
     envMillis("BIGQUERY_OUTPUT_OPTION_RETRY_INITIAL_DELAY_MS")
         .ifPresent(v -> builder.setInitialRetryDelay(Duration.ofMillis(v)));
     envMillis("BIGQUERY_OUTPUT_OPTION_RETRY_MAX_DELAY_MS")

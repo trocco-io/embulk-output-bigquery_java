@@ -37,6 +37,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.mockito.Mockito;
+import org.threeten.bp.Duration;
 
 public class TestBigqueryClient {
   protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
@@ -313,6 +314,26 @@ public class TestBigqueryClient {
 
     // +1: task.getRetries() means "number of retries", so 1 retry means 2 total attempts.
     assertEquals(2, retrySettings.getMaxAttempts());
+  }
+
+  @Test
+  public void testBuildRetrySettingsLiftsTotalTimeoutSoMaxAttemptsIsTheLimit() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task = CONFIG_MAPPER.map(config.set("retries", 10), PluginTask.class);
+
+    RetrySettings retrySettings = BigqueryClient.buildRetrySettings(task);
+
+    assertEquals(11, retrySettings.getMaxAttempts());
+    // `./gradlew test` overrides the total timeout through
+    // BIGQUERY_OUTPUT_OPTION_RETRY_TOTAL_TIMEOUT_MS to keep retry tests fast; without the
+    // override, the default must lift gax's 50s cap so that maxAttempts is the effective limit.
+    String override = System.getenv("BIGQUERY_OUTPUT_OPTION_RETRY_TOTAL_TIMEOUT_MS");
+    Duration expected =
+        override == null
+            ? BigqueryClient.RETRY_TOTAL_TIMEOUT
+            : Duration.ofMillis(Long.parseLong(override));
+    assertEquals(expected, retrySettings.getTotalTimeout());
+    assertTrue(BigqueryClient.RETRY_TOTAL_TIMEOUT.compareTo(Duration.ofSeconds(50)) > 0);
   }
 
   @Test
