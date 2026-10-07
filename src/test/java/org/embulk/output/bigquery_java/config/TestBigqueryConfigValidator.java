@@ -97,6 +97,11 @@ public class TestBigqueryConfigValidator {
   }
 
   @Test(expected = ConfigException.class)
+  public void validateRetrySettings_multiplierNaN_configException() {
+    validateRetrySettings(taskWith(c -> c.set("retry_delay_multiplier", Double.NaN)));
+  }
+
+  @Test(expected = ConfigException.class)
   public void validateRetrySettings_maxDelayShorterThanInitial_configException() {
     validateRetrySettings(
         taskWith(c -> c.set("retry_initial_delay_sec", 10).set("retry_max_delay_sec", 5)));

@@ -29,8 +29,10 @@ public class BigqueryConfigValidator {
       throw new ConfigException(
           "`retry_max_delay_sec` must not be shorter than `retry_initial_delay_sec`");
     }
-    if (task.getRetryDelayMultiplier() < 1.0) {
-      throw new ConfigException("`retry_delay_multiplier` must be at least 1.0");
+    // NaN compares false against everything, so it has to be rejected explicitly.
+    double multiplier = task.getRetryDelayMultiplier();
+    if (Double.isNaN(multiplier) || multiplier < 1.0) {
+      throw new ConfigException("`retry_delay_multiplier` must be a number of at least 1.0");
     }
     requireSecondsFitInIntMillis("job_retry_initial_wait_sec", task.getJobRetryInitialWaitSec());
     requireSecondsFitInIntMillis("job_retry_max_wait_sec", task.getJobRetryMaxWaitSec());
