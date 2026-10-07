@@ -403,4 +403,23 @@ public class TestBigqueryClient {
 
     assertEquals((BigqueryClient.DEFAULT_READ_TIMEOUT_SEC + 56) * 1000, readTimeoutMillis(task));
   }
+
+  @Test
+  public void testBuildTransportOptionsAcceptsMaxTimeout() {
+    // 2147483 = BigqueryConfigValidator.MAX_TIMEOUT_SEC (Integer.MAX_VALUE / 1000), so
+    // 2147483000 ms is the largest int timeout HttpTransportOptions accepts.
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config
+                .set("open_timeout_sec", 2147483)
+                .set("read_timeout_sec", 2147483)
+                .set("send_timeout_sec", 0),
+            PluginTask.class);
+
+    HttpTransportOptions options =
+        (HttpTransportOptions) BigqueryClient.buildTransportOptions(task);
+    assertEquals(2147483000, options.getConnectTimeout());
+    assertEquals(2147483000, options.getReadTimeout());
+  }
 }

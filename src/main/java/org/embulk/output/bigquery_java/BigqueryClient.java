@@ -173,23 +173,24 @@ public class BigqueryClient {
 
   static final int DEFAULT_READ_TIMEOUT_SEC = 300;
 
-  // Mirrors ruby's google_client.rb: `read_timeout_sec || timeout_sec || 300`, warning whenever
-  // the deprecated timeout_sec is present.
-  static int resolveReadTimeoutSec(PluginTask task) {
-    if (task.getTimeoutSec().isPresent()) {
-      LoggerFactory.getLogger(BigqueryClient.class)
-          .warn("embulk-output-bigquery: timeout_sec is deprecated. Use read_timeout_sec instead");
-    }
+  // Mirrors ruby's google_client.rb: `read_timeout_sec || timeout_sec || 300`.
+  public static int resolveReadTimeoutSec(PluginTask task) {
     return task.getReadTimeoutSec()
         .orElseGet(() -> task.getTimeoutSec().orElse(DEFAULT_READ_TIMEOUT_SEC));
   }
 
+  // The read timeout actually applied to the HTTP transport. send_timeout_sec is folded in because
+  // the transport has no separate timeout for the send phase; see README.md.
+  public static long effectiveReadTimeoutSec(PluginTask task) {
+    return (long) resolveReadTimeoutSec(task) + task.getSendTimeoutSec();
+  }
+
+  // Ranges are checked up front by BigqueryConfigValidator#validateTimeouts, so the int
+  // millisecond conversions here can't overflow.
   static TransportOptions buildTransportOptions(PluginTask task) {
-    // See README.md for why send_timeout_sec is folded in here.
-    int readTimeoutSec = resolveReadTimeoutSec(task) + task.getSendTimeoutSec();
     return HttpTransportOptions.newBuilder()
         .setConnectTimeout(task.getOpenTimeoutSec() * 1000)
-        .setReadTimeout(readTimeoutSec * 1000)
+        .setReadTimeout((int) (effectiveReadTimeoutSec(task) * 1000))
         .build();
   }
 
