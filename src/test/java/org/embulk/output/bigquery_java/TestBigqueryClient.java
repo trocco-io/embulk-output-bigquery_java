@@ -401,7 +401,8 @@ public class TestBigqueryClient {
     ConfigSource config = loadYamlResource(embulk, "takeover.yml");
     PluginTask task = CONFIG_MAPPER.map(config.set("send_timeout_sec", 56), PluginTask.class);
 
-    assertEquals((BigqueryClient.DEFAULT_READ_TIMEOUT_SEC + 56) * 1000, readTimeoutMillis(task));
+    // 300 = BigqueryConfigResolver.DEFAULT_READ_TIMEOUT_SEC
+    assertEquals((300 + 56) * 1000, readTimeoutMillis(task));
   }
 
   @Test

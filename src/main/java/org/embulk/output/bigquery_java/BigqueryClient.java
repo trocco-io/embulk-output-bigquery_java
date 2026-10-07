@@ -51,6 +51,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.embulk.config.ConfigException;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.BigqueryConfigResolver;
 import org.embulk.output.bigquery_java.config.BigqueryFieldOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -171,26 +172,12 @@ public class BigqueryClient {
         .build();
   }
 
-  static final int DEFAULT_READ_TIMEOUT_SEC = 300;
-
-  // Mirrors ruby's google_client.rb: `read_timeout_sec || timeout_sec || 300`.
-  public static int resolveReadTimeoutSec(PluginTask task) {
-    return task.getReadTimeoutSec()
-        .orElseGet(() -> task.getTimeoutSec().orElse(DEFAULT_READ_TIMEOUT_SEC));
-  }
-
-  // The read timeout actually applied to the HTTP transport. send_timeout_sec is folded in because
-  // the transport has no separate timeout for the send phase; see README.md.
-  public static long effectiveReadTimeoutSec(PluginTask task) {
-    return (long) resolveReadTimeoutSec(task) + task.getSendTimeoutSec();
-  }
-
   // Ranges are checked up front by BigqueryConfigValidator#validateTimeouts, so the int
   // millisecond conversions here can't overflow.
   static TransportOptions buildTransportOptions(PluginTask task) {
     return HttpTransportOptions.newBuilder()
         .setConnectTimeout(task.getOpenTimeoutSec() * 1000)
-        .setReadTimeout((int) (effectiveReadTimeoutSec(task) * 1000))
+        .setReadTimeout((int) (BigqueryConfigResolver.effectiveReadTimeoutSec(task) * 1000))
         .build();
   }
 

@@ -2,7 +2,6 @@ package org.embulk.output.bigquery_java.config;
 
 import java.util.Arrays;
 import org.embulk.config.ConfigException;
-import org.embulk.output.bigquery_java.BigqueryClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +53,8 @@ public class BigqueryConfigValidator {
             });
     // The folded value is what the transport actually receives, so it has to fit too.
     requireSecondsFitInIntMillis(
-        "read_timeout_sec + send_timeout_sec", BigqueryClient.effectiveReadTimeoutSec(task));
+        "read_timeout_sec + send_timeout_sec",
+        BigqueryConfigResolver.effectiveReadTimeoutSec(task));
   }
 
   // HttpTransportOptions silently treats a negative timeout as "unset" (library default 20s) and

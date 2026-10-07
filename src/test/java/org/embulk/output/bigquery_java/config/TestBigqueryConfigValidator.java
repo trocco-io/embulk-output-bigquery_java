@@ -140,6 +140,19 @@ public class TestBigqueryConfigValidator {
   }
 
   @Test
+  public void validateTimeouts_readPlusSendOverflowViaDeprecatedTimeoutSec_configException() {
+    // The folded sum is checked on the resolved read timeout, so the deprecated alias counts too.
+    // 2147483 = BigqueryConfigValidator.MAX_TIMEOUT_SEC (Integer.MAX_VALUE / 1000)
+    ConfigException e =
+        assertThrows(
+            ConfigException.class,
+            () ->
+                validateTimeouts(
+                    taskWith(c -> c.set("timeout_sec", 2147483).set("send_timeout_sec", 1))));
+    assertTrue(e.getMessage().contains("read_timeout_sec + send_timeout_sec"));
+  }
+
+  @Test
   public void validateTimeouts_acceptsMaxValues() {
     // 2147483 = BigqueryConfigValidator.MAX_TIMEOUT_SEC (Integer.MAX_VALUE / 1000)
     validateTimeouts(
