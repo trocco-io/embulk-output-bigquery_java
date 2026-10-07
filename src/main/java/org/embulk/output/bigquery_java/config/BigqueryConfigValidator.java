@@ -2,12 +2,8 @@ package org.embulk.output.bigquery_java.config;
 
 import java.util.Arrays;
 import org.embulk.config.ConfigException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class BigqueryConfigValidator {
-  private static final Logger logger = LoggerFactory.getLogger(BigqueryConfigValidator.class);
-
   // Every *_sec value ends up as int milliseconds in the Google client or RetryExecutor.
   public static final long MAX_TIMEOUT_SEC = Integer.MAX_VALUE / 1000;
 
@@ -44,13 +40,7 @@ public class BigqueryConfigValidator {
     requireSecondsFitInIntMillis("open_timeout_sec", task.getOpenTimeoutSec());
     requireSecondsFitInIntMillis("send_timeout_sec", task.getSendTimeoutSec());
     task.getReadTimeoutSec().ifPresent(v -> requireSecondsFitInIntMillis("read_timeout_sec", v));
-    task.getTimeoutSec()
-        .ifPresent(
-            v -> {
-              logger.warn(
-                  "embulk-output-bigquery: timeout_sec is deprecated. Use read_timeout_sec instead");
-              requireSecondsFitInIntMillis("timeout_sec", v);
-            });
+    task.getTimeoutSec().ifPresent(v -> requireSecondsFitInIntMillis("timeout_sec", v));
     // The folded value is what the transport actually receives, so it has to fit too.
     requireSecondsFitInIntMillis(
         "read_timeout_sec + send_timeout_sec",
