@@ -390,10 +390,13 @@ public class BigqueryClient {
                   // starts a load job for that partial file. The session is only closed (and the
                   // load job started) when the whole file has been written.
                   OutputStream stream = Channels.newOutputStream(writer);
+                  // The channel reports network failures as BigQueryException (a RuntimeException),
+                  // not IOException: BigQueryRpc#write translates the IOException and flushBuffer()
+                  // rethrows it. IOException here only comes from reading the local file.
                   try {
                     writeToStream(loadFile, stream);
                     stream.close();
-                  } catch (IOException e) {
+                  } catch (IOException | BigQueryException e) {
                     String msg =
                         String.format(
                             "embulk-output-bigquery: failed to upload %s to %s:%s.%s, message: %s",
@@ -403,6 +406,11 @@ public class BigqueryClient {
                             table,
                             e.getMessage());
                     logger.error(msg, e);
+                    // Retry only what the library itself considers retryable (connection reset,
+                    // 5xx, ...); a 4xx such as an invalid schema fails right away.
+                    if (e instanceof BigQueryException && !((BigQueryException) e).isRetryable()) {
+                      throw new BigqueryException(msg, e);
+                    }
                     throw new BigqueryUploadException(msg, e);
                   }
 

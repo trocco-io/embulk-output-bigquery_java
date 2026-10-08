@@ -44,6 +44,7 @@ import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryUploadException;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.FileInputPlugin;
@@ -521,6 +522,27 @@ public class TestBigqueryClient {
         .open(Mockito.any(com.google.api.services.bigquery.model.Job.class));
     Mockito.verify(f.logger, Mockito.never())
         .error("embulk-output-bigquery: Give up retrying for Load job");
+  }
+
+  // A BigQueryException the library itself wouldn't retry (4xx) fails the load right away, with
+  // the plugin's context message but without being retried.
+  @Test
+  public void testLoadDoesNotRetryNonRetryableBigQueryException()
+      throws IOException, ReflectiveOperationException {
+    RpcLoadFixture f = rpcLoadFixture(1);
+    f.stubWrite().thenThrow(new BigQueryException(400, "Invalid schema"));
+    Path loadFile = testFolder.newFile().toPath();
+
+    BigqueryException thrown =
+        assertThrows(
+            BigqueryException.class,
+            () -> f.client.load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND));
+
+    assertFalse(thrown instanceof BigqueryUploadException);
+    assertTrue(thrown.getMessage().contains("failed to upload"));
+    assertTrue(thrown.getMessage().contains("Invalid schema"));
+    Mockito.verify(f.rpc, Mockito.times(1))
+        .open(Mockito.any(com.google.api.services.bigquery.model.Job.class));
   }
 
   // Once the upload has failed, the resumable session must not be finalized: closing the channel
