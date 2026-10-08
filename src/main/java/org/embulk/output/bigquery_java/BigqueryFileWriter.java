@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.zip.GZIPOutputStream;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,8 +67,9 @@ public class BigqueryFileWriter {
       outputStream().write(bytes);
       this.count++;
     } catch (IOException e) {
-      logger.error("embulk-output-bigquery: failed to write an intermediate file", e);
-      throw new RuntimeException(e);
+      String msg = "embulk-output-bigquery: failed to write an intermediate file";
+      logger.error(msg, e);
+      throw new BigqueryException(msg, e);
     }
   }
 
