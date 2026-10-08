@@ -203,7 +203,7 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
     - long (x):      `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `INTEGER`)
     - double (x):    `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `FLOAT`)
     - string:    `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD` (default: `STRING`)
-    - timestamp (x): `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE` (default: `TIMESTAMP`)
+    - timestamp (x): `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE` (default: `TIMESTAMP`). `INTEGER`/`FLOAT` output epoch seconds (not milliseconds)
     - json (x):      `STRING`,  `RECORD`, `JSON` (default: `STRING`)
     - numeric (x): `STRING`
   - **mode**: BigQuery mode such as `NULLABLE`, `REQUIRED`, and `REPEATED` (string, default: `NULLABLE`)
@@ -214,6 +214,8 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
   - **scale**: optional, [scale](https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types?hl=ja#decimal_types) for numeric column (long, default is 9).
 - **default_timestamp_format**: default timestamp format for column_options (string, default is "%Y-%m-%d %H:%M:%S.%6N")
 - **default_timezone**: default timezone for column_options (string, default is "UTC")
+
+Note for users upgrading from earlier versions of this plugin: `timestamp` columns written as `STRING` without an explicit `timestamp_format` used to include a timezone offset (`%Y-%m-%d %H:%M:%S.%6N %:z`). To keep that output, set `default_timestamp_format: "%Y-%m-%d %H:%M:%S.%6N %:z"`. `timestamp` columns written as `INTEGER`/`FLOAT` used to be epoch milliseconds and are now epoch seconds; there is no option to restore milliseconds, so downstream queries such as `TIMESTAMP_MILLIS(col)` must be changed to `TIMESTAMP_SECONDS(col)`.
 
 Example)
 
