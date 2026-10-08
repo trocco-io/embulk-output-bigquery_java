@@ -50,114 +50,112 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     BigqueryTaskBuilder.build(task);
     BigqueryClient client = new BigqueryClient(task, schema);
     autoCreate(task, client);
-    client.storeCachedSrcFieldsIfNeed();
-
-    control.run(task.dump());
-    this.writers.values().forEach(BigqueryFileWriter::close);
-    logger.info("embulk-output-bigquery: finish to create intermediate files");
 
     try {
-      paths = BigqueryUtil.getIntermediateFiles(task);
-    } catch (Exception e) {
-      logger.info(e.getMessage());
-      throw new RuntimeException(e);
-    }
-    if (paths.isEmpty()) {
-      logger.info("embulk-output-bigquery: Nothing for transfer");
-      client.createTableIfNotExist(task.getTable());
+      client.storeCachedSrcFieldsIfNeed();
 
-      switch (task.getMode()) {
-        case "merge":
-        case "append":
-        case "replace":
-        case "delete_in_advance":
-          if (task.getTempTable().isPresent()) {
-            client.deleteTable(task.getTempTable().get());
-          }
-          break;
-      }
+      control.run(task.dump());
+      this.writers.values().forEach(BigqueryFileWriter::close);
+      logger.info("embulk-output-bigquery: finish to create intermediate files");
 
-      return CONFIG_MAPPER_FACTORY.newConfigDiff();
-    }
-
-    logger.debug(
-        "embulk-output-bigquery: LOAD IN PARALLEL {}",
-        paths.stream().map(Path::toString).collect(Collectors.joining("\n")));
-
-    // transfer data to BQ from files
-    ExecutorService executor = Executors.newFixedThreadPool(paths.size());
-    List<Future<JobStatistics>> jobStatisticFutures = new ArrayList<>();
-    List<JobStatistics.LoadStatistics> statistics = new ArrayList<>();
-
-    for (Path path : paths) {
-      Future<JobStatistics> jobStatisticsFuture =
-          executor.submit(new BigqueryJobRunner(task, schema, path));
-      jobStatisticFutures.add(jobStatisticsFuture);
-    }
-
-    for (Future<JobStatistics> jobStatisticFuture : jobStatisticFutures) {
       try {
-        statistics.add((JobStatistics.LoadStatistics) jobStatisticFuture.get());
+        paths = BigqueryUtil.getIntermediateFiles(task);
       } catch (Exception e) {
+        logger.info(e.getMessage());
         throw new RuntimeException(e);
       }
-    }
-    BigqueryTransactionReport report =
-        getTransactionReport(task, client, statistics, this.writers.values());
-    if (task.getAbortOnError().get() && !task.getIsSkipJobResultCheck()) {
-      if (report.getNumInputRows().compareTo(report.getNumOutputRows()) != 0) {
-        String msg =
-            String.format(
-                "ABORT: `num_input_rows (%d)` and `num_output_rows (%d)` does not match",
-                report.getNumInputRows(), report.getNumOutputRows());
-        throw new RuntimeException(msg);
+      if (paths.isEmpty()) {
+        logger.info("embulk-output-bigquery: Nothing for transfer");
+        client.createTableIfNotExist(task.getTable());
+        return CONFIG_MAPPER_FACTORY.newConfigDiff();
       }
-    }
 
-    if (task.getMode().equals("append") && task.getBeforeLoad().isPresent()) {
-      logger.info("embulk-output-bigquery: before_load will be executed");
-      logger.info("embulk-output-bigquery: {}", task.getBeforeLoad().get());
-      client.executeQuery(task.getBeforeLoad().get());
-    }
+      logger.debug(
+          "embulk-output-bigquery: LOAD IN PARALLEL {}",
+          paths.stream().map(Path::toString).collect(Collectors.joining("\n")));
 
-    if (task.getMode().equals("replace_backup")) {
-      if (task.getOldTable().isPresent()) {
-        client.copy(
-            task.getTable(),
-            task.getOldTable().get(),
-            task.getOldDataset().orElse(client.destinationDataset),
-            JobInfo.WriteDisposition.WRITE_TRUNCATE);
+      // transfer data to BQ from files
+      ExecutorService executor = Executors.newFixedThreadPool(paths.size());
+      List<Future<JobStatistics>> jobStatisticFutures = new ArrayList<>();
+      List<JobStatistics.LoadStatistics> statistics = new ArrayList<>();
+
+      for (Path path : paths) {
+        Future<JobStatistics> jobStatisticsFuture =
+            executor.submit(new BigqueryJobRunner(task, schema, path));
+        jobStatisticFutures.add(jobStatisticsFuture);
       }
-    }
-    if (task.getTempTable().isPresent()) {
-      if (task.getMode().equals("merge")) {
-        client.merge(
-            task.getTempTable().get(),
-            task.getTable(),
-            task.getMergeKeys().orElse(Collections.emptyList()),
-            task.getMergeRule().orElse(Collections.emptyList()));
-      } else if (task.getMode().equals("append")) {
-        client.copy(
-            task.getTempTable().get(), task.getTable(), JobInfo.WriteDisposition.WRITE_APPEND);
-      } else {
-        client.copy(
-            task.getTempTable().get(), task.getTable(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
+
+      for (Future<JobStatistics> jobStatisticFuture : jobStatisticFutures) {
+        try {
+          statistics.add((JobStatistics.LoadStatistics) jobStatisticFuture.get());
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
       }
-      client.deleteTable(task.getTempTable().get());
-    }
+      BigqueryTransactionReport report =
+          getTransactionReport(task, client, statistics, this.writers.values());
+      if (task.getAbortOnError().get() && !task.getIsSkipJobResultCheck()) {
+        if (report.getNumInputRows().compareTo(report.getNumOutputRows()) != 0) {
+          String msg =
+              String.format(
+                  "ABORT: `num_input_rows (%d)` and `num_output_rows (%d)` does not match",
+                  report.getNumInputRows(), report.getNumOutputRows());
+          throw new RuntimeException(msg);
+        }
+      }
 
-    client.updateTableIfNeed();
+      if (task.getMode().equals("append") && task.getBeforeLoad().isPresent()) {
+        logger.info("embulk-output-bigquery: before_load will be executed");
+        logger.info("embulk-output-bigquery: {}", task.getBeforeLoad().get());
+        client.executeQuery(task.getBeforeLoad().get());
+      }
 
-    if (task.getDeleteFromLocalWhenJobEnd()) {
-      paths.forEach(p -> p.toFile().delete());
-    } else {
-      paths.forEach(
-          p -> {
-            File intermediateFile = new File(p.toString());
-            if (intermediateFile.exists()) {
-              logger.info("embulk-output-bigquery: keep {}", p.toString());
-            }
-          });
+      if (task.getMode().equals("replace_backup")) {
+        if (task.getOldTable().isPresent()) {
+          client.copy(
+              task.getTable(),
+              task.getOldTable().get(),
+              task.getOldDataset().orElse(client.destinationDataset),
+              JobInfo.WriteDisposition.WRITE_TRUNCATE);
+        }
+      }
+      if (task.getTempTable().isPresent()) {
+        if (task.getMode().equals("merge")) {
+          client.merge(
+              task.getTempTable().get(),
+              task.getTable(),
+              task.getMergeKeys().orElse(Collections.emptyList()),
+              task.getMergeRule().orElse(Collections.emptyList()));
+        } else if (task.getMode().equals("append")) {
+          client.copy(
+              task.getTempTable().get(), task.getTable(), JobInfo.WriteDisposition.WRITE_APPEND);
+        } else {
+          client.copy(
+              task.getTempTable().get(), task.getTable(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
+        }
+      }
+
+      client.updateTableIfNeed();
+    } finally {
+      try {
+        if (task.getTempTable().isPresent()) {
+          client.deleteTable(task.getTempTable().get());
+        }
+      } finally {
+        if (paths != null) {
+          if (task.getDeleteFromLocalWhenJobEnd()) {
+            paths.forEach(p -> p.toFile().delete());
+          } else {
+            paths.forEach(
+                p -> {
+                  File intermediateFile = new File(p.toString());
+                  if (intermediateFile.exists()) {
+                    logger.info("embulk-output-bigquery: keep {}", p.toString());
+                  }
+                });
+          }
+        }
+      }
     }
 
     return CONFIG_MAPPER_FACTORY.newConfigDiff();

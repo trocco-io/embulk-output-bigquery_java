@@ -42,7 +42,7 @@ Under construction
 |  project  (x)                           | string      | required unless service\_account's `json_keyfile` is given. | | project\_id |
 |  dataset                             | string      | required   |                          | dataset |
 |  location                            | string      | optional   | nil                      | geographic location of dataset. See [Location](#location) |
-|  table                               | string      | required   |                          | table name, or table name with a partition decorator such as `table_name$20160929`|
+|  table                               | string      | required   |                          | table name (see [Table id formatting](#table-id-formatting) for strftime support), or table name with a partition decorator such as `table_name$20160929` |
 |  auto_create_dataset                 | boolean     | optional   | false                    | automatically create dataset |
 |  auto_create_table                   | boolean     | optional   | true                     | `false` is available only for `append_direct` mode. Other modes require `true`. See [Dynamic Table Creating](#dynamic-table-creating) and [Time Partitioning](#time-partitioning) |
 |  schema_file   (x)                      | string      | optional   |                          | /path/to/schema.json |
@@ -112,6 +112,22 @@ Following options are same as [bq command-line tools](https://cloud.google.com/b
 |  clustering.fields  (x)               | array    | required  | nil     | One or more fields on which data should be clustered. The order of the specified columns determines the sort order of the data. |
 |  schema_update_options  (x)           | array    | optional  | nil     | (Experimental) List of `ALLOW_FIELD_ADDITION` or `ALLOW_FIELD_RELAXATION` or both. See [jobs#configuration.load.schemaUpdateOptions](https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.schemaUpdateOptions). NOTE for the current status: `schema_update_options` does not work for `copy` job, that is, is not effective for most of modes such as `append`, `replace` and `replace_backup`. `delete_in_advance` deletes origin table so does not need to update schema. Only `append_direct` can utilize schema update. |
 
+
+### Table id formatting
+
+`table` accepts a [Time#strftime](https://docs.ruby-lang.org/en/2.6.0/Time.html#method-i-strftime)
+format to construct table ids (via [embulk-util-timestamp](https://github.com/embulk/embulk-util-timestamp)'s
+legacy Embulk-style formatter, which reimplements ruby's strftime rather than the C library's).
+Table ids are formatted at runtime using the local time of the embulk server.
+
+For example, with the configuration below,
+data is inserted into tables `table_20150503`, `table_20150504` and so on.
+
+```yaml
+out:
+  type: bigquery_java
+  table: table_%Y%m%d
+```
 
 ### Workload Identity Federation
 
@@ -198,13 +214,13 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
 
 - **column_options**: advanced: an array of options for columns
   - **name**: column name
-  - **type**: BigQuery type such as `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD`, and `NUMERIC`. See belows for supported conversion type.
+  - **type**: BigQuery type such as `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD`, `JSON`, and `NUMERIC`. See belows for supported conversion type.
     - boolean (x):   `BOOLEAN`, `STRING` (default: `BOOLEAN`)
     - long (x):      `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `INTEGER`)
     - double (x):    `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `FLOAT`)
     - string:    `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD` (default: `STRING`)
-    - timestamp (x): `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE` (default: `TIMESTAMP`)
-    - json (x):      `STRING`,  `RECORD` (default: `STRING`)
+    - timestamp (x): `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE` (default: `TIMESTAMP`). `INTEGER`/`FLOAT` output epoch seconds (not milliseconds)
+    - json (x):      `STRING`,  `RECORD`, `JSON` (default: `STRING`)
     - numeric (x): `STRING`
   - **mode**: BigQuery mode such as `NULLABLE`, `REQUIRED`, and `REPEATED` (string, default: `NULLABLE`)
   - **fields (x) **: Describes the nested schema fields if the type property is set to RECORD. Please note that this is **required** for `RECORD` column.
@@ -214,6 +230,8 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
   - **scale**: optional, [scale](https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types?hl=ja#decimal_types) for numeric column (long, default is 9).
 - **default_timestamp_format**: default timestamp format for column_options (string, default is "%Y-%m-%d %H:%M:%S.%6N")
 - **default_timezone**: default timezone for column_options (string, default is "UTC")
+
+Note for users upgrading from earlier versions of this plugin: `timestamp` columns written as `STRING` without an explicit `timestamp_format` used to include a timezone offset (`%Y-%m-%d %H:%M:%S.%6N %:z`). To keep that output, set `default_timestamp_format: "%Y-%m-%d %H:%M:%S.%6N %:z"`. `timestamp` columns written as `INTEGER`/`FLOAT` used to be epoch milliseconds and are now epoch seconds; there is no option to restore milliseconds, so downstream queries such as `TIMESTAMP_MILLIS(col)` must be changed to `TIMESTAMP_SECONDS(col)`.
 
 Example)
 
@@ -254,3 +272,9 @@ Real bigquery connection tests are normally disabled. To enable them, set the EM
 ```
 $ EMBULK_OUTPUT_BIGQUERY_TEST_CONFIG="example/test.yml" ./gradlew test # Create example/test.yml based on example/test.yml.example
 ```
+
+### test_host (internal, test-only)
+
+`test_host` is an internal, undocumented-for-users config option used by this plugin's own test suite (`TestBigqueryClientWithMockServer`, `TestBigqueryJavaOutputPluginWithMockServer`) to redirect all BigQuery API calls to a local `MockWebServer` instead of the real BigQuery API, and to bypass credential setup entirely (`NoCredentials`). It is not intended for use outside of tests, and is a no-op unless the `TEST_HOST_ENABLED` environment variable is also set to `true` (as the `test` task in `build.gradle` does), so a plugin config alone can't redirect a real embulk run at an arbitrary host.
+
+When set, `BigqueryClient#load()` also takes a different code path: instead of `TableDataWriteChannel`'s resumable upload session (which `google-cloud-bigquery:2.14.0` hardcodes to the real `googleapis.com` host regardless of `test_host`), it submits the load job configuration directly via `jobs.insert`, without actually streaming the file content. This lets tests observe and assert on load job requests (e.g. the destination table, schema, write disposition) through `MockWebServer`, at the cost of not exercising the real resumable-upload code path.

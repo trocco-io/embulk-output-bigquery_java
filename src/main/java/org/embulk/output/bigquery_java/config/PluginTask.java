@@ -42,6 +42,8 @@ public interface PluginTask extends Task {
   @Config("table")
   String getTable();
 
+  void setTable(String table);
+
   @Config("old_dataset")
   @ConfigDefault("null")
   Optional<String> getOldDataset();
@@ -49,6 +51,8 @@ public interface PluginTask extends Task {
   @Config("old_table")
   @ConfigDefault("null")
   Optional<String> getOldTable();
+
+  void setOldTable(Optional<String> oldTable);
 
   @Config("location")
   @ConfigDefault("null")
@@ -76,7 +80,7 @@ public interface PluginTask extends Task {
   String getDefaultTimezone();
 
   @Config("default_timestamp_format")
-  @ConfigDefault("\"%Y-%m-%d %H:%M:%S.%6N %:z\"")
+  @ConfigDefault("\"%Y-%m-%d %H:%M:%S.%6N\"")
   String getDefaultTimestampFormat();
 
   // TODO: make this optional
@@ -182,4 +186,11 @@ public interface PluginTask extends Task {
   @Config("retain_column_policy_tags")
   @ConfigDefault("false")
   Boolean getRetainColumnPolicyTags();
+
+  // Test-only seam: when set, redirects the BigQuery client at this host (e.g. a local
+  // MockWebServer) instead of the real BigQuery API, bypassing credential setup entirely. Also
+  // requires the TEST_HOST_ENABLED environment variable (set by the `test` Gradle task).
+  @Config("test_host")
+  @ConfigDefault("null")
+  Optional<String> getTestHost();
 }
