@@ -242,8 +242,8 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
             tableResponseWithNumRows(1),
             createCopyJobResponse("testjob"),
             waitForCopyJobResponse("testjob"),
-            deleteResponse(),
-            tableResponse());
+            tableResponse(),
+            deleteResponse());
 
     assertEquals(9, requests.size());
 
@@ -257,7 +257,8 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     String destinationTable = tableIdOf(copyConfig, "destinationTable");
     assertMatches(destinationTable, "table_\\d{8}");
 
-    assertGetTable(requests.get(8), destinationTable);
+    assertGetTable(requests.get(7), destinationTable); // updateTableIfNeed()
+    assertDeleteTable(requests.get(8), tempTableId);
   }
 
   @Test
