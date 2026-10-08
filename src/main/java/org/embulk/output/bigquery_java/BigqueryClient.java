@@ -382,39 +382,7 @@ public class BigqueryClient {
                           .setIgnoreUnknownValues(task.getIgnoreUnknownValues())
                           .setSchema(buildSchema(schema, columnOptions))
                           .build();
-                  TableDataWriteChannel writer =
-                      bigquery.writer(JobId.of(jobId), writeChannelConfiguration);
-
-                  // Deliberately not try-with-resources: closing the channel after a failed upload
-                  // finalizes the resumable session with the bytes sent so far, and BigQuery then
-                  // starts a load job for that partial file. The session is only closed (and the
-                  // load job started) when the whole file has been written.
-                  OutputStream stream = Channels.newOutputStream(writer);
-                  // The channel reports network failures as BigQueryException (a RuntimeException),
-                  // not IOException: BigQueryRpc#write translates the IOException and flushBuffer()
-                  // rethrows it. IOException here only comes from reading the local file.
-                  try {
-                    writeToStream(loadFile, stream);
-                    stream.close();
-                  } catch (IOException | BigQueryException e) {
-                    String msg =
-                        String.format(
-                            "embulk-output-bigquery: failed to upload %s to %s:%s.%s, message: %s",
-                            loadFile,
-                            destinationProject,
-                            destinationDataset,
-                            table,
-                            e.getMessage());
-                    logger.error(msg);
-                    // Retry only what the library itself considers retryable (connection reset,
-                    // 5xx, ...); a 4xx such as an invalid schema fails right away.
-                    if (e instanceof BigQueryException && !((BigQueryException) e).isRetryable()) {
-                      throw new BigqueryException(msg, e);
-                    }
-                    throw new BigqueryUploadException(msg, e);
-                  }
-
-                  Job job = writer.getJob();
+                  Job job = upload(loadFile, table, jobId, writeChannelConfiguration);
                   return (JobStatistics.LoadStatistics) waitForLoad(job);
                 }
 
@@ -422,8 +390,7 @@ public class BigqueryClient {
                 public boolean isRetryableException(Exception exception) {
                   return exception instanceof BigqueryBackendException
                       || exception instanceof BigqueryRateLimitExceededException
-                      || exception instanceof BigqueryInternalException
-                      || exception instanceof BigqueryUploadException;
+                      || exception instanceof BigqueryInternalException;
                 }
 
                 @Override
@@ -457,6 +424,66 @@ public class BigqueryClient {
     } catch (InterruptedException ex) {
       throw new BigqueryException("interrupted");
     }
+  }
+
+  // Mirrors ruby's with_network_retry, which sits inside with_job_retry: the job id is fixed for
+  // the whole upload, so a retry re-sends the file under the same id (as a new resumable session)
+  // instead of creating a second job, and retries are immediate. A job that ran and failed is
+  // retried by the caller with a new job id, like ruby's with_job_retry.
+  // Private on purpose: the mocked BigqueryClient in tests must run this for real.
+  private Job upload(
+      Path loadFile,
+      String table,
+      String jobId,
+      WriteChannelConfiguration writeChannelConfiguration) {
+    int retries = 0;
+    while (true) {
+      try {
+        return uploadOnce(loadFile, table, jobId, writeChannelConfiguration);
+      } catch (BigqueryUploadException e) {
+        if (retries < task.getRetries()) {
+          retries++;
+          logger.warn("embulk-output-bigquery: retry #{}, {}", retries, e.getMessage());
+        } else {
+          logger.error("embulk-output-bigquery: retry exhausted #{}, {}", retries, e.getMessage());
+          throw e;
+        }
+      }
+    }
+  }
+
+  private Job uploadOnce(
+      Path loadFile,
+      String table,
+      String jobId,
+      WriteChannelConfiguration writeChannelConfiguration) {
+    TableDataWriteChannel writer;
+    // The channel reports network failures as BigQueryException (a RuntimeException), not
+    // IOException: BigQueryRpc#write translates the IOException and flushBuffer() rethrows it.
+    // IOException here only comes from reading the local file.
+    try {
+      writer = bigquery.writer(JobId.of(jobId), writeChannelConfiguration);
+      // Deliberately not try-with-resources: closing the channel after a failed upload finalizes
+      // the resumable session with the bytes sent so far, and BigQuery then starts a load job for
+      // that partial file. The session is only closed (and the load job started) when the whole
+      // file has been written.
+      OutputStream stream = Channels.newOutputStream(writer);
+      writeToStream(loadFile, stream);
+      stream.close();
+    } catch (IOException | BigQueryException e) {
+      String msg =
+          String.format(
+              "embulk-output-bigquery: failed to upload %s to %s:%s.%s, message: %s",
+              loadFile, destinationProject, destinationDataset, table, e.getMessage());
+      logger.error(msg);
+      // Retry only what the library itself considers retryable (connection reset, 5xx, ...); a
+      // 4xx such as an invalid schema fails right away.
+      if (e instanceof BigQueryException && !((BigQueryException) e).isRetryable()) {
+        throw new BigqueryException(msg, e);
+      }
+      throw new BigqueryUploadException(msg, e);
+    }
+    return writer.getJob();
   }
 
   public JobStatistics.CopyStatistics copy(
