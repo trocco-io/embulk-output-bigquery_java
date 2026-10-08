@@ -40,6 +40,7 @@ import java.util.function.Function;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.embulk.config.ConfigSource;
+import org.embulk.exec.PartialExecutionException;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil;
 import org.embulk.parser.csv.CsvParserPlugin;
@@ -136,6 +137,27 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     assertGetJobStatus(requests.get(3), "testjob");
 
     assertGetTable(requests.get(4), "table");
+  }
+
+  @Test
+  public void testRunFailsImmediatelyOnRecordConversionError() throws Exception {
+    List<RecordedRequest> requests =
+        runWithMockServerExpectingFailure(
+            c ->
+                c.set("mode", "append_direct")
+                    .set(
+                        "column_options",
+                        Collections.singletonList(
+                            embulk.newConfig().set("name", "c0").set("type", "INTEGER"))),
+            PartialExecutionException.class,
+            "(?s).*hello cannot be converted to INTEGER.*",
+            datasetResponse(),
+            tableResponse());
+
+    assertEquals(2, requests.size());
+
+    assertGetDataset(requests.get(0));
+    assertPostTables(requests.get(1));
   }
 
   @Test
