@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory;
 
 public class BigqueryFileWriter {
   // embulk default page size
-  public static final int BUFFER_SIZE = 1024 * 32;
+  static final int BUFFER_SIZE = 1024 * 32;
 
   private final Logger logger = LoggerFactory.getLogger(BigqueryFileWriter.class);
   private PluginTask task;
