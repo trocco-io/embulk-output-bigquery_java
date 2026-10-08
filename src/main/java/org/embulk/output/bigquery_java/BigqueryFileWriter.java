@@ -78,13 +78,13 @@ public class BigqueryFileWriter {
   }
 
   public void close() {
-    // Swallowed to match ruby (file_writer#close does `io.close rescue nil`). A file truncated by
-    // a failed flush/close is still caught later, by the load job error or the row-count check.
-    try {
-      this.outputStream().flush();
-      this.outputStream().close();
-    } catch (IOException e) {
-      logger.info(e.getMessage());
+    // try-with-resources so the file is closed even when flush() fails.
+    try (OutputStream stream = this.outputStream()) {
+      stream.flush();
+    } catch (IOException ignored) {
+      // Swallowed silently to match ruby (file_writer#close does `io.close rescue nil`). Note that
+      // a file truncated here is not always caught later: the row-count check is skipped when
+      // abort_on_error is false (max_bad_records > 0) or is_skip_job_result_check is true.
     }
   }
 }
