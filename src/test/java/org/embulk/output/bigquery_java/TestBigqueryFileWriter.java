@@ -6,6 +6,8 @@ import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -23,11 +25,16 @@ public class TestBigqueryFileWriter {
     return writer;
   }
 
+  private static void setField(BigqueryFileWriter writer, String name, Object value)
+      throws ReflectiveOperationException {
+    java.lang.reflect.Field field = BigqueryFileWriter.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(writer, value);
+  }
+
   private static Logger mockLogger(BigqueryFileWriter writer) throws ReflectiveOperationException {
     Logger mockLogger = Mockito.mock(Logger.class);
-    java.lang.reflect.Field loggerField = BigqueryFileWriter.class.getDeclaredField("logger");
-    loggerField.setAccessible(true);
-    loggerField.set(writer, mockLogger);
+    setField(writer, "logger", mockLogger);
     return mockLogger;
   }
 
@@ -37,10 +44,13 @@ public class TestBigqueryFileWriter {
     BigqueryFileWriter writer = openWriterWithClosedFile();
     Logger mockLogger = mockLogger(writer);
 
-    RuntimeException thrown =
+    // The plugin's own exception type, with the context message, so that Embulk's error output
+    // says more than "java.lang.RuntimeException: java.io.IOException: ...".
+    BigqueryException thrown =
         assertThrows(
-            RuntimeException.class, () -> writer.write(new byte[BigqueryFileWriter.BUFFER_SIZE]));
+            BigqueryException.class, () -> writer.write(new byte[BigqueryFileWriter.BUFFER_SIZE]));
 
+    assertTrue(thrown.getMessage().contains("failed to write an intermediate file"));
     assertTrue(thrown.getCause() instanceof IOException);
     assertEquals(0, writer.getCount());
     Mockito.verify(mockLogger)
@@ -59,5 +69,34 @@ public class TestBigqueryFileWriter {
 
     assertEquals(1, writer.getCount());
     Mockito.verify(mockLogger).info(Mockito.contains("Stream Closed"));
+  }
+
+  // A failed flush() must not leak the file: close() has to be called on the stream regardless.
+  @Test
+  public void testCloseClosesStreamEvenIfFlushFails()
+      throws IOException, ReflectiveOperationException {
+    BigqueryFileWriter writer = new BigqueryFileWriter();
+    mockLogger(writer);
+    AtomicBoolean closed = new AtomicBoolean(false);
+    OutputStream failingFlush =
+        new OutputStream() {
+          @Override
+          public void write(int b) {}
+
+          @Override
+          public void flush() throws IOException {
+            throw new IOException("No space left on device");
+          }
+
+          @Override
+          public void close() {
+            closed.set(true);
+          }
+        };
+    setField(writer, "os", failingFlush);
+
+    writer.close();
+
+    assertTrue(closed.get());
   }
 }
