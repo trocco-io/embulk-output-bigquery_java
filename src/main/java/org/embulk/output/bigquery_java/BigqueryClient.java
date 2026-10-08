@@ -405,7 +405,7 @@ public class BigqueryClient {
                             destinationDataset,
                             table,
                             e.getMessage());
-                    logger.error(msg, e);
+                    logger.error(msg);
                     // Retry only what the library itself considers retryable (connection reset,
                     // 5xx, ...); a 4xx such as an invalid schema fails right away.
                     if (e instanceof BigQueryException && !((BigQueryException) e).isRetryable()) {

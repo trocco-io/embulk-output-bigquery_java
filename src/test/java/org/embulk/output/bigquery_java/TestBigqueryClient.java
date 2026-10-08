@@ -389,8 +389,7 @@ public class TestBigqueryClient {
     }
 
     void verifyUploadErrorsLogged(int times) {
-      Mockito.verify(logger, Mockito.times(times))
-          .error(Mockito.contains("failed to upload"), Mockito.any(IOException.class));
+      Mockito.verify(logger, Mockito.times(times)).error(Mockito.contains("failed to upload"));
     }
   }
 
