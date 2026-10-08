@@ -1,6 +1,9 @@
 package org.embulk.output.bigquery_java;
 
+import com.google.api.gax.retrying.RetrySettings;
 import com.google.api.services.bigquery.BigqueryScopes;
+import com.google.cloud.ServiceOptions;
+import com.google.cloud.TransportOptions;
 import com.google.cloud.bigquery.BigQuery;
 import com.google.cloud.bigquery.BigQueryException;
 import com.google.cloud.bigquery.BigQueryOptions;
@@ -29,6 +32,7 @@ import com.google.cloud.bigquery.TableInfo;
 import com.google.cloud.bigquery.TableResult;
 import com.google.cloud.bigquery.TimePartitioning;
 import com.google.cloud.bigquery.WriteChannelConfiguration;
+import com.google.cloud.http.HttpTransportOptions;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -47,6 +51,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.embulk.config.ConfigException;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.BigqueryConfigResolver;
 import org.embulk.output.bigquery_java.config.BigqueryFieldOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -70,6 +75,7 @@ import org.json.JSONObject;
 import org.json.JSONTokener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.threeten.bp.Duration;
 
 public class BigqueryClient {
   private final Logger logger = LoggerFactory.getLogger(BigqueryClient.class);
@@ -145,9 +151,44 @@ public class BigqueryClient {
             ? BigqueryTestHostSupport.getBigQueryOptionsBuilder(task)
             : BigQueryOptions.newBuilder()
                 .setCredentials(new Auth(task).getCredentials(BigqueryScopes.BIGQUERY)))
+        .setRetrySettings(buildRetrySettings(task))
+        .setTransportOptions(buildTransportOptions(task))
         .setProjectId(project)
         .build()
         .getService();
+  }
+
+  static RetrySettings buildRetrySettings(PluginTask task) {
+    return ServiceOptions.getDefaultRetrySettings()
+        .toBuilder()
+        // +1: task.getRetries() means "number of retries", matching
+        // RetryExecutor#withRetryLimit usage elsewhere in this class, while
+        // RetrySettings#setMaxAttempts counts total attempts.
+        .setMaxAttempts(task.getRetries() + 1)
+        .setInitialRetryDelay(Duration.ofSeconds(task.getRetryInitialDelaySec()))
+        .setMaxRetryDelay(Duration.ofSeconds(task.getRetryMaxDelaySec()))
+        .setRetryDelayMultiplier(task.getRetryDelayMultiplier())
+        .setTotalTimeout(Duration.ofSeconds(task.getRetryTotalTimeoutSec()))
+        .build();
+  }
+
+  // Ranges are checked up front by BigqueryConfigValidator#validateTimeouts, so the int
+  // millisecond conversions here can't overflow.
+  static TransportOptions buildTransportOptions(PluginTask task) {
+    return HttpTransportOptions.newBuilder()
+        .setConnectTimeout(task.getOpenTimeoutSec() * 1000)
+        .setReadTimeout((int) (BigqueryConfigResolver.effectiveReadTimeoutSec(task) * 1000))
+        .build();
+  }
+
+  // Backs load()/copy()/runQuery()/executeQuery()'s job-level retry (a fresh job resubmission
+  // after a completed-but-errored job), separate from the gax RetrySettings above.
+  private RetryExecutor buildJobRetryExecutor() {
+    return RetryExecutor.builder()
+        .withRetryLimit(task.getRetries())
+        .withInitialRetryWaitMillis(task.getJobRetryInitialWaitSec() * 1000)
+        .withMaxRetryWaitMillis(task.getJobRetryMaxWaitSec() * 1000)
+        .build();
   }
 
   public Dataset createDataset() {
@@ -322,16 +363,10 @@ public class BigqueryClient {
   public JobStatistics.LoadStatistics load(
       Path loadFile, String table, JobInfo.WriteDisposition writeDisposition)
       throws BigqueryException {
-    int retries = task.getRetries();
-
     try {
       // https://cloud.google.com/bigquery/quotas#standard_tables
       // Maximum rate of table metadata update operations — 5 operations every 10 seconds per table
-      return RetryExecutor.builder()
-          .withRetryLimit(retries)
-          .withInitialRetryWaitMillis(2 * 1000)
-          .withMaxRetryWaitMillis(10 * 1000)
-          .build()
+      return buildJobRetryExecutor()
           .runInterruptible(
               new Retryable<JobStatistics.LoadStatistics>() {
                 @Override
@@ -404,7 +439,7 @@ public class BigqueryClient {
                       String.format(
                           "embulk-output-bigquery: Load job failed. Retrying %d/%d after %d seconds. Message: %s",
                           retryCount, retryLimit, retryWait / 1000, exception.getMessage());
-                  if (retryCount % retries == 0) {
+                  if (retryCount % task.getRetries() == 0) {
                     logger.warn(message, exception);
                   } else {
                     logger.warn(message);
@@ -450,14 +485,8 @@ public class BigqueryClient {
   private JobStatistics.CopyStatistics copy(
       TableId sourceTable, TableId destinationTable, JobInfo.WriteDisposition writeDisposition)
       throws BigqueryException {
-    int retries = task.getRetries();
-
     try {
-      return RetryExecutor.builder()
-          .withRetryLimit(retries)
-          .withInitialRetryWaitMillis(2 * 1000)
-          .withMaxRetryWaitMillis(10 * 1000)
-          .build()
+      return buildJobRetryExecutor()
           .runInterruptible(
               new Retryable<JobStatistics.CopyStatistics>() {
                 @Override
@@ -493,7 +522,7 @@ public class BigqueryClient {
                       String.format(
                           "embulk-output-bigquery: Copy job failed. Retrying %d/%d after %d seconds. Message: %s",
                           retryCount, retryLimit, retryWait / 1000, exception.getMessage());
-                  if (retryCount % retries == 0) {
+                  if (retryCount % task.getRetries() == 0) {
                     logger.warn(message, exception);
                   } else {
                     logger.warn(message);
@@ -586,13 +615,8 @@ public class BigqueryClient {
   }
 
   public TableResult runQuery(String query) {
-    int retries = task.getRetries();
     try {
-      return RetryExecutor.builder()
-          .withRetryLimit(retries)
-          .withInitialRetryWaitMillis(2 * 1000)
-          .withMaxRetryWaitMillis(10 * 1000)
-          .build()
+      return buildJobRetryExecutor()
           .runInterruptible(
               new Retryable<TableResult>() {
                 @Override
@@ -621,7 +645,7 @@ public class BigqueryClient {
                       String.format(
                           "embulk-output-bigquery: Query job failed. Retrying %d/%d after %d seconds. Message: %s",
                           retryCount, retryLimit, retryWait / 1000, exception.getMessage());
-                  if (retryCount % retries == 0) {
+                  if (retryCount % task.getRetries() == 0) {
                     logger.warn(message, exception);
                   } else {
                     logger.warn(message);
@@ -709,14 +733,8 @@ public class BigqueryClient {
   }
 
   public JobStatistics.QueryStatistics executeQuery(String query) {
-    int retries = task.getRetries();
-
     try {
-      return RetryExecutor.builder()
-          .withRetryLimit(retries)
-          .withInitialRetryWaitMillis(2 * 1000)
-          .withMaxRetryWaitMillis(10 * 1000)
-          .build()
+      return buildJobRetryExecutor()
           .runInterruptible(
               new Retryable<JobStatistics.QueryStatistics>() {
                 @Override
@@ -752,7 +770,7 @@ public class BigqueryClient {
                       String.format(
                           "embulk-output-bigquery: Query job failed. Retrying %d/%d after %d seconds. Message: %s",
                           retryCount, retryLimit, retryWait / 1000, exception.getMessage());
-                  if (retryCount % retries == 0) {
+                  if (retryCount % task.getRetries() == 0) {
                     logger.warn(message, exception);
                   } else {
                     logger.warn(message);
