@@ -385,8 +385,14 @@ public class BigqueryClient {
                   TableDataWriteChannel writer =
                       bigquery.writer(JobId.of(jobId), writeChannelConfiguration);
 
-                  try (OutputStream stream = Channels.newOutputStream(writer)) {
+                  // Deliberately not try-with-resources: closing the channel after a failed upload
+                  // finalizes the resumable session with the bytes sent so far, and BigQuery then
+                  // starts a load job for that partial file. The session is only closed (and the
+                  // load job started) when the whole file has been written.
+                  OutputStream stream = Channels.newOutputStream(writer);
+                  try {
                     writeToStream(loadFile, stream);
+                    stream.close();
                   } catch (IOException e) {
                     String msg =
                         String.format(
