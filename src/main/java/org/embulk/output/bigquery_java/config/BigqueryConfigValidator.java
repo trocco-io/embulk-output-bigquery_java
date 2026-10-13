@@ -78,7 +78,7 @@ public class BigqueryConfigValidator {
     String[] modes = {"replace", "append", "merge", "delete_in_advance"};
     if (Arrays.asList(modes).contains(task.getMode().toLowerCase()) && !task.getAutoCreateTable()) {
       throw new ConfigException(
-          "replace, append, merge and delete_in_advance are supported. Stay tuned!");
+          String.format("`mode: %s` requires `auto_create_table: true`", task.getMode()));
     }
   }
 
