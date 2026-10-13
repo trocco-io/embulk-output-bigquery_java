@@ -498,6 +498,23 @@ public class BigqueryClient {
       // only retries socket errors too.
       throw new BigqueryException(uploadFailureMessage(loadFile, table, e), e);
     } catch (BigQueryException e) {
+      // A 409 on the request that creates the job means a previous attempt did create it (it is
+      // the final chunk that creates the job) but its response was lost, so the retry under the
+      // same job id is refused. The job id is a fresh UUID per load(), so nothing else can
+      // conflict; and rather than trusting the error text (the library doesn't parse the error
+      // body on this path, so there is no structured reason either), the job is looked up: if
+      // it exists, wait for it instead of failing, or of starting a second one. If it ran and
+      // failed, the caller's job-level retry resubmits under a new id as usual.
+      // ruby (verified): with_network_retry re-sends insert_job under the same job_id, the retry
+      // gets 409 "duplicate: Already Exists: Job", load raises Error, and since the first job did
+      // run its rows are in the table, so the user's rerun appends them a second time. This goes
+      // one step further on purpose.
+      if (e.getCode() == 409) {
+        Job existing = bigquery.getJob(JobId.of(jobId));
+        if (existing != null) {
+          return existing;
+        }
+      }
       String msg = uploadFailureMessage(loadFile, table, e);
       // Retry only what the library itself considers retryable (connection reset, 5xx, ...); a
       // 4xx such as an invalid schema fails right away.

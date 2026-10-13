@@ -37,6 +37,7 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
@@ -663,6 +664,50 @@ public class TestBigqueryClientWithMockServer {
     assertGetJobStatus(requests.next(), "testjob");
     requests.assertNoMore();
     assertEquals(jobIdOf(firstOpen), jobIdOf(secondOpen));
+  }
+
+  // The final chunk creates the job; if its response is lost, the retry under the same job id is
+  // refused with 409 "Already Exists: Job" although the job is running. load() then fetches
+  // that job and waits for it instead of failing (or starting a second one). ruby would fail
+  // here, so this is one step beyond ruby on purpose.
+  @Test
+  public void testLoadWaitsForTheJobWhenTheRetryIsRefusedAsDuplicate() throws Exception {
+    Path loadFile = newLoadFile("load-409-test.json");
+
+    RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(503, "boom", "backendError"),
+            errorResponse(503, "boom", "backendError"),
+            startResumableUploadResponse(),
+            // Deliberately not BigQuery's "Already Exists: Job ..." wording: the status code and
+            // the jobs.get below decide, not the error text.
+            errorResponse(409, "boom", "duplicate"),
+            uploadLoadFileResponse("testjob"), // jobs.get of the existing job
+            waitForLoadJobResponse("testjob", null));
+
+    RecordedRequest firstOpen = requests.next();
+    assertStartResumableUpload(firstOpen);
+    assertUploadLoadFile(requests.next());
+    assertUploadLoadFile(requests.next());
+    RecordedRequest secondOpen = requests.next();
+    assertStartResumableUpload(secondOpen);
+    assertUploadLoadFile(requests.next()); // refused with 409
+    RecordedRequest getExistingJob = requests.next();
+    assertEquals("GET", getExistingJob.getMethod());
+    assertTrue(
+        getExistingJob.getPath(),
+        getExistingJob
+            .getPath()
+            .startsWith("/bigquery/v2/projects/project/jobs/" + jobIdOf(firstOpen)));
+    assertGetJobStatus(requests.next(), "testjob");
+    requests.assertNoMore();
   }
 
   @Test
