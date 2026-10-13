@@ -101,4 +101,16 @@ public class TestBigqueryFileWriter {
 
     assertTrue(closed.get());
   }
+
+  // A writer that never wrote a record (an empty page, or a run that failed before any record)
+  // has no file; close() must not open one just to close it, since an empty intermediate file
+  // would be picked up as a load file. No task is set here, so opening a file would fail with a
+  // NullPointerException rather than silently create one.
+  @Test
+  public void testCloseWithoutWriteDoesNotOpenAFile() {
+    BigqueryFileWriter writer = new BigqueryFileWriter();
+    writer.setCompression("NONE");
+
+    writer.close();
+  }
 }

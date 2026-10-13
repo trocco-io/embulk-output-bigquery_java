@@ -78,9 +78,15 @@ public class BigqueryFileWriter {
   }
 
   public void close() {
-    // try-with-resources so the file is closed even when flush() fails.
-    try (OutputStream stream = this.outputStream()) {
-      stream.flush();
+    // A writer that never wrote a record never opened its file; don't create an empty one now
+    // (it would be picked up as a load file by getIntermediateFiles()).
+    if (this.os == null) {
+      return;
+    }
+    // close() flushes, and (FilterOutputStream / DeflaterOutputStream) still closes the
+    // underlying file when that flush fails, so no separate flush() and no finally needed.
+    try {
+      this.os.close();
     } catch (IOException ignored) {
       // Swallowed silently to match ruby (file_writer#close does `io.close rescue nil`). Note that
       // a file truncated here is not always caught later: the row-count check is skipped when
