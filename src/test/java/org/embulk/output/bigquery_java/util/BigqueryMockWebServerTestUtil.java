@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Function;
 import java.util.zip.GZIPInputStream;
@@ -32,6 +33,14 @@ public final class BigqueryMockWebServerTestUtil {
 
   private static final String E2E_INPUT_FILE_NAME = "embulk-output-bigquery_java-e2e-test.csv";
 
+  // Stands in for the MockWebServer's scheme://host:port in responses built before the server is
+  // started; runWithMockServer() substitutes the real one when enqueueing.
+  private static final String TEST_HOST_PLACEHOLDER = "{{test_host}}";
+
+  private static final String RESUMABLE_UPLOAD_PATH =
+      "/upload/bigquery/v2/projects/project/jobs?uploadType=resumable";
+  private static final String RESUMABLE_UPLOAD_ID = "test-upload";
+
   private BigqueryMockWebServerTestUtil() {}
 
   // Loads test_host.yml, customized by `customizeConfig` (e.g. to set mode or flip a flag).
@@ -52,6 +61,13 @@ public final class BigqueryMockWebServerTestUtil {
       server.start();
 
       for (MockResponse response : responses) {
+        // A resumable upload session's Location must be an absolute URL, and the server's URL is
+        // only known now; see startResumableUploadResponse().
+        String location = response.getHeaders().get("Location");
+        if (location != null && location.contains(TEST_HOST_PLACEHOLDER)) {
+          String testHost = "http://" + server.getHostName() + ":" + server.getPort();
+          response.setHeader("Location", location.replace(TEST_HOST_PLACEHOLDER, testHost));
+        }
         server.enqueue(response);
       }
 
@@ -142,6 +158,10 @@ public final class BigqueryMockWebServerTestUtil {
     if (!"gzip".equals(request.getHeader("Content-Encoding"))) {
       return new String(rawBytes, StandardCharsets.UTF_8);
     }
+    return gunzip(rawBytes);
+  }
+
+  private static String gunzip(byte[] rawBytes) throws IOException {
     try (GZIPInputStream gzip = new GZIPInputStream(new ByteArrayInputStream(rawBytes))) {
       ByteArrayOutputStream out = new ByteArrayOutputStream();
       byte[] buffer = new byte[1024];
@@ -219,6 +239,34 @@ public final class BigqueryMockWebServerTestUtil {
   public static void assertGetJobStatus(RecordedRequest request, String jobId) {
     assertRequest(
         request, "GET", PROJECT_PATH_PREFIX + "/jobs/" + jobId + "?location=US&prettyPrint=false");
+  }
+
+  // The POST that opens the resumable upload session. Its body is the load job (jobReference +
+  // configuration.load), so jobConfig(request, "load") applies to it.
+  public static void assertStartResumableUpload(RecordedRequest request) {
+    assertRequest(request, "POST", RESUMABLE_UPLOAD_PATH);
+  }
+
+  // The PUT of the whole file as the single, final chunk of the resumable upload session opened
+  // by startResumableUploadResponse().
+  public static void assertUploadLoadFile(RecordedRequest request) {
+    assertRequest(request, "PUT", RESUMABLE_UPLOAD_PATH + "&upload_id=" + RESUMABLE_UPLOAD_ID);
+    long size = request.getBodySize();
+    assertEquals("bytes 0-" + (size - 1) + "/" + size, request.getHeader("Content-Range"));
+  }
+
+  // The 3 requests matching loadAttemptResponses(), starting at requests.get(offset).
+  public static void assertLoadAttempt(List<RecordedRequest> requests, int offset, String jobId) {
+    assertStartResumableUpload(requests.get(offset));
+    assertUploadLoadFile(requests.get(offset + 1));
+    assertGetJobStatus(requests.get(offset + 2), jobId);
+  }
+
+  // The lines of the intermediate file as uploaded by assertUploadLoadFile()'s request.
+  // test_host.yml uses compression: GZIP, so the body is the gzipped file itself.
+  public static List<String> uploadedLines(RecordedRequest request) throws IOException {
+    String content = gunzip(request.getBody().readByteArray());
+    return Arrays.asList(content.split("\n"));
   }
 
   public static void assertGetTable(RecordedRequest request, String tableId) {
@@ -384,9 +432,9 @@ public final class BigqueryMockWebServerTestUtil {
                 + "}");
   }
 
-  // A completed job, as returned both by the jobs.insert response (test_host branch of
-  // BigqueryClient#load, or the plain jobs.insert path used by copy/merge) and by the subsequent
-  // jobs.get poll in BigqueryJobWaiter.
+  // A completed job, as returned both by the request that creates it (the final chunk of the
+  // resumable upload for load, or jobs.insert for copy/merge) and by the subsequent jobs.get poll
+  // in BigqueryJobWaiter.
   private static MockResponse jobDoneResponse(String jobId, String configKey, String configBody) {
     return jobResponse(jobId, configKey, configBody, "DONE", null);
   }
@@ -402,14 +450,45 @@ public final class BigqueryMockWebServerTestUtil {
         "\"load\":{\"outputRows\":\"1\"}");
   }
 
-  // The response to jobs.insert when creating the load job.
-  public static MockResponse createLoadJobResponse(String jobId) {
-    return loadJobDoneResponse(jobId);
+  // The response that opens the resumable upload session (BigqueryClient#load's
+  // bigquery.writer()): the Location is where the file's chunks get PUT.
+  private static MockResponse startResumableUploadResponse() {
+    return new MockResponse()
+        .setResponseCode(200)
+        .setHeader(
+            "Location",
+            TEST_HOST_PLACEHOLDER + RESUMABLE_UPLOAD_PATH + "&upload_id=" + RESUMABLE_UPLOAD_ID);
   }
 
-  // The response to the jobs.get poll (BigqueryJobWaiter) that observes the load job as DONE.
-  public static MockResponse waitForLoadJobResponse(String jobId) {
-    return loadJobDoneResponse(jobId);
+  // One attempt of BigqueryClient#load() as the server sees it, 3 responses: the POST that opens
+  // the resumable upload session, the PUT of the file (which creates the job, still running),
+  // and the jobs.get poll (BigqueryJobWaiter) that reports the job DONE: succeeded with 1 output
+  // row when errorReason is null, failed with that reason otherwise. assertLoadAttempt() checks
+  // the matching requests.
+  public static MockResponse[] loadAttemptResponses(String jobId, String errorReason) {
+    return new MockResponse[] {
+      startResumableUploadResponse(),
+      jobResponse(jobId, "load", LOAD_CONFIG_BODY, "RUNNING", null),
+      errorReason == null
+          ? loadJobDoneResponse(jobId)
+          : jobResponse(jobId, "load", LOAD_CONFIG_BODY, "DONE", errorReason)
+    };
+  }
+
+  // Flattens MockResponse and MockResponse[] items into one array, so that a test can list
+  // loadAttemptResponses() inline among single responses.
+  public static MockResponse[] responses(Object... items) {
+    List<MockResponse> flattened = new ArrayList<>();
+    for (Object item : items) {
+      if (item instanceof MockResponse) {
+        flattened.add((MockResponse) item);
+      } else if (item instanceof MockResponse[]) {
+        flattened.addAll(Arrays.asList((MockResponse[]) item));
+      } else {
+        throw new IllegalArgumentException("not a MockResponse or MockResponse[]: " + item);
+      }
+    }
+    return flattened.toArray(new MockResponse[0]);
   }
 
   private static MockResponse copyJobDoneResponse(String jobId) {
