@@ -70,9 +70,9 @@ Client or request options
 
 | name                                 | type        | required?  | default                  | description            |
 |:-------------------------------------|:------------|:-----------|:-------------------------|:-----------------------|
-|  open_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait for the connection to open |
+|  open_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait for the connection to open. 0 means no timeout, as in the ruby plugin |
 |  send_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait to send a request. The underlying HTTP transport has no timeout for the send phase itself, so this value is added onto `read_timeout_sec` instead for config compatibility with the ruby plugin. This is expected to change to something based on the java library's own settings in the future |
-|  read_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait to read a response. The effective timeout applied is `read_timeout_sec + send_timeout_sec`. See `send_timeout_sec` |
+|  read_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait to read a response. The effective timeout applied is `read_timeout_sec + send_timeout_sec`; when that sum is 0 there is no timeout, as in the ruby plugin. See `send_timeout_sec` |
 |  timeout_sec                         | integer     | optional   | nil                      | Deprecated. Used as `read_timeout_sec` when that is not set, for config compatibility with the ruby plugin |
 |  retries                            | integer     | optional   | 5                        | Number of retries. Used for both individual BigQuery API call retries and job-level retries (a fresh job resubmission after a completed-but-errored job), matching the ruby plugin's behavior of using the same value for both |
 |  retry_initial_delay_sec             | integer     | optional   | 1                        | Initial backoff before retrying a failed BigQuery API call (seconds). Same as the library default. Delays are applied as configured, without the library's random jitter |

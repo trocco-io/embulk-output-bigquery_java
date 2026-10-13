@@ -39,6 +39,8 @@ public class BigqueryConfigValidator {
   }
 
   public static void validateTimeouts(PluginTask task) throws ConfigException {
+    // 0 is accepted: the transport treats it as "no timeout", which is what ruby's httpclient does
+    // with 0 too (Timeout.timeout(0) never fires).
     requireSecondsFitInIntMillis("open_timeout_sec", task.getOpenTimeoutSec());
     requireSecondsFitInIntMillis("send_timeout_sec", task.getSendTimeoutSec());
     task.getReadTimeoutSec().ifPresent(v -> requireSecondsFitInIntMillis("read_timeout_sec", v));
