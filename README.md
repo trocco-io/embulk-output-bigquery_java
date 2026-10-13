@@ -75,16 +75,16 @@ Client or request options
 |  read_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait to read a response. The effective timeout applied is `read_timeout_sec + send_timeout_sec`. See `send_timeout_sec` |
 |  timeout_sec                         | integer     | optional   | nil                      | Deprecated. Used as `read_timeout_sec` when that is not set, for config compatibility with the ruby plugin |
 |  retries                            | integer     | optional   | 5                        | Number of retries. Used for both individual BigQuery API call retries and job-level retries (a fresh job resubmission after a completed-but-errored job), matching the ruby plugin's behavior of using the same value for both |
-|  retry_initial_delay_sec             | integer     | optional   | 1                        | Initial backoff before retrying a failed BigQuery API call (seconds). Same as the library default |
-|  retry_max_delay_sec                 | integer     | optional   | 32                       | Maximum backoff between API call retries (seconds). Same as the library default |
+|  retry_initial_delay_sec             | integer     | optional   | 1                        | Initial backoff before retrying a failed BigQuery API call (seconds). Same as the library default. Delays are applied as configured, without the library's random jitter |
+|  retry_max_delay_sec                 | integer     | optional   | 32                       | Maximum backoff between API call retries (seconds). Same as the library default. See `retry_initial_delay_sec` |
 |  retry_delay_multiplier              | float       | optional   | 2.0                      | Backoff multiplier between API call retries. Same as the library default |
-|  retry_total_timeout_sec             | integer     | optional   | 86400                    | Wall-clock budget for API call retries (seconds). Defaults to 1 day rather than the library's 50 seconds, so that `retries` is the effective limit as in the ruby plugin |
+|  retry_total_timeout_sec             | integer     | optional   | 86400                    | Wall-clock budget for API call retries (seconds). Defaults to 1 day rather than the library's 50 seconds, so that `retries` is the effective limit. The ruby plugin's HTTP client library applies a fixed 15 minute cap instead |
 |  job_retry_initial_wait_sec          | integer     | optional   | 2                        | Initial wait before resubmitting a completed-but-errored load/copy/query job (seconds) |
 |  job_retry_max_wait_sec              | integer     | optional   | 10                       | Maximum wait between job-level retries (seconds) |
 |  application_name   (x)                  | string      | optional   | "Embulk BigQuery plugin" | User-Agent |
 |  sdk_log_level      (x)                 | string      | optional   | nil (WARN)               | Log level of google api client library |
 
-The `retry_*` / `job_retry_*` options above are java-only additions; the ruby plugin has no equivalent, and its retry count has no wall-clock cap.
+The `retry_*` / `job_retry_*` options above are java-only additions; the ruby plugin has no equivalent. Its API call retries are backed off by its HTTP client library (1s initial delay doubling up to 60s, randomized by +/-50%, with a fixed 15 minute wall-clock cap), and its job-level retries resubmit immediately.
 
 
 Options for intermediate local files

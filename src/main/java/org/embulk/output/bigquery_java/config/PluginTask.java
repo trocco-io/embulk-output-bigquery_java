@@ -169,8 +169,8 @@ public interface PluginTask extends Task {
 
   // One day rather than gax's default 50s: gax stops retrying once the elapsed time plus the next
   // delay would exceed the total timeout, which would cap `retries` at ~6 attempts (or 0 after a
-  // single long read timeout). Ruby retries by count with no wall-clock cap, so keep `retries`
-  // the effective limit.
+  // single long read timeout). Ruby's HTTP client library applies a fixed 15-minute cap of its
+  // own; here `retries` is kept as the effective limit instead.
   @Config("retry_total_timeout_sec")
   @ConfigDefault("86400")
   int getRetryTotalTimeoutSec();

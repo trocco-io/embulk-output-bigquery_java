@@ -168,6 +168,10 @@ public class BigqueryClient {
         .setInitialRetryDelay(Duration.ofSeconds(task.getRetryInitialDelaySec()))
         .setMaxRetryDelay(Duration.ofSeconds(task.getRetryMaxDelaySec()))
         .setRetryDelayMultiplier(task.getRetryDelayMultiplier())
+        // gax would otherwise draw each delay from [0, delay], halving the expected wait. Ruby's
+        // client library randomizes around the nominal value (0.5x to 1.5x) instead, so applying
+        // the delays as configured keeps java inside ruby's range.
+        .setJittered(false)
         .setTotalTimeout(Duration.ofSeconds(task.getRetryTotalTimeoutSec()))
         .build();
   }

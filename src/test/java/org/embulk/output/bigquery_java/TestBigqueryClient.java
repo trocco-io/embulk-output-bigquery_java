@@ -327,6 +327,7 @@ public class TestBigqueryClient {
     assertEquals(Duration.ofMillis(1000), retrySettings.getInitialRetryDelay());
     assertEquals(Duration.ofMillis(32000), retrySettings.getMaxRetryDelay());
     assertEquals(2.0, retrySettings.getRetryDelayMultiplier(), 0.0);
+    assertFalse(retrySettings.isJittered());
     // gax's default would be 50s, under which 11 attempts with the default backoff can't fit.
     assertEquals(Duration.ofDays(1), retrySettings.getTotalTimeout());
   }
