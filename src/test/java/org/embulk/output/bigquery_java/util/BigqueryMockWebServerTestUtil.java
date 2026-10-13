@@ -17,6 +17,7 @@ import java.util.function.Function;
 import java.util.zip.GZIPInputStream;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.QueueDispatcher;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.embulk.config.ConfigSource;
 import org.embulk.test.TestingEmbulk;
@@ -63,6 +64,12 @@ public final class BigqueryMockWebServerTestUtil {
   public static List<RecordedRequest> runWithMockServer(
       MockServerAction action, MockResponse... responses) throws Exception {
     try (MockWebServer server = new MockWebServer()) {
+      // A request with no enqueued response is a test bug: answer it right away instead of
+      // leaving the client waiting for its read timeout.
+      QueueDispatcher dispatcher = new QueueDispatcher();
+      dispatcher.setFailFast(
+          new MockResponse().setResponseCode(599).setBody("no response enqueued for this request"));
+      server.setDispatcher(dispatcher);
       server.start();
 
       for (MockResponse response : responses) {
