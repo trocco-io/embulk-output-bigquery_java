@@ -55,6 +55,7 @@ import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
+import org.embulk.output.bigquery_java.exception.BigqueryUploadException;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockResponses;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockServerAction;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.RequestCursor;
@@ -499,37 +500,49 @@ public class TestBigqueryClientWithMockServer {
   }
 
   // A chunk PUT answered with a 5xx is re-sent by the library on the same session, `retries`
-  // more times (test_host.yml: 1); when they are all 5xx the upload fails.
+  // more times (test_host.yml: 1). Once the library gives up, load() re-sends the whole file in a
+  // new session under the same job id (like ruby's with_network_retry), again `retries` more
+  // times; when they are all 5xx the upload fails.
   @Test
-  public void testLoadResendsChunkOnServerErrorThenGivesUp() throws Exception {
+  public void testLoadReopensUploadSessionAfterServerErrorsThenGivesUp() throws Exception {
     Path loadFile = newLoadFile("load-5xx-test.json");
 
     RequestCursor requests =
         runWithMockServerExpectingFailure(
-            RuntimeException.class,
-            "(?s).*BigQueryException: 503 .*",
+            BigqueryUploadException.class,
+            "(?s).*failed to upload .*503.*",
             server ->
                 buildTestHostClient(server)
                     .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
             startResumableUploadResponse(),
             errorResponse(503, "boom", "backendError"),
+            errorResponse(503, "boom", "backendError"),
+            startResumableUploadResponse(),
+            errorResponse(503, "boom", "backendError"),
             errorResponse(503, "boom", "backendError"));
-    assertStartResumableUpload(requests.next());
+
+    RecordedRequest firstOpen = requests.next();
+    assertStartResumableUpload(firstOpen);
     assertUploadLoadFile(requests.next());
     assertUploadLoadFile(requests.next()); // the library's retry, same session
-
+    RecordedRequest secondOpen = requests.next(); // load()'s retry: a new session, same job
+    assertStartResumableUpload(secondOpen);
+    assertUploadLoadFile(requests.next());
+    assertUploadLoadFile(requests.next());
     requests.assertNoMore();
+    assertEquals(jobIdOf(firstOpen), jobIdOf(secondOpen));
   }
 
-  // A chunk PUT answered with a 4xx is not re-sent.
+  // A chunk PUT answered with a 4xx is not re-sent, neither by the library nor by load(), and
+  // the failure is not a BigqueryUploadException (which would be retried).
   @Test
   public void testLoadDoesNotResendChunkOnClientError() throws Exception {
     Path loadFile = newLoadFile("load-4xx-test.json");
 
     RequestCursor requests =
         runWithMockServerExpectingFailure(
-            RuntimeException.class,
-            "(?s).*BigQueryException: 400 .*",
+            BigqueryException.class,
+            "(?s).*failed to upload .*400.*",
             server ->
                 buildTestHostClient(server)
                     .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
@@ -542,27 +555,25 @@ public class TestBigqueryClientWithMockServer {
   }
 
   // The configured read timeout applies to the chunk PUT as well (#113): a server that never
-  // answers makes the client give up after read_timeout_sec (1 s in test_host.yml), the library
-  // retries that like any network failure, and the upload fails once retries run out. Costs
-  // about 2 s of real waiting.
+  // answers makes the client give up after read_timeout_sec (1 s in test_host.yml), and load()
+  // reports it as a retryable upload failure. retries: 0 keeps this to a single 1 s wait; the
+  // retries themselves are covered by the 5xx and connection-reset tests.
   @Test
   public void testLoadFailsOnReadTimeoutDuringUpload() throws Exception {
     Path loadFile = newLoadFile("load-timeout-test.json");
 
     RequestCursor requests =
         runWithMockServerExpectingFailure(
-            RuntimeException.class,
-            "(?s).*Read timed out.*",
+            BigqueryUploadException.class,
+            "(?s).*failed to upload .*Read timed out.*",
             server ->
-                buildTestHostClient(server)
+                buildTestHostClient(server, c -> c.set("retries", 0))
                     .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
             startResumableUploadResponse(),
-            unansweredResponse(),
             unansweredResponse());
+
     assertStartResumableUpload(requests.next());
     assertUploadLoadFile(requests.next());
-    assertUploadLoadFile(requests.next()); // the library's retry, same session
-
     requests.assertNoMore();
   }
 
