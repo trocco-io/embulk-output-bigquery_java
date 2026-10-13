@@ -64,7 +64,7 @@ public class BigqueryConfigValidator {
   }
 
   public static void validateMode(PluginTask task) throws ConfigException {
-    // TODO: append_direct delete_in_advance replace_backup
+    // TODO: replace_backup
     String[] modes = {"replace", "append", "merge", "delete_in_advance", "append_direct"};
     if (!Arrays.asList(modes).contains(task.getMode().toLowerCase())) {
       throw new ConfigException(
