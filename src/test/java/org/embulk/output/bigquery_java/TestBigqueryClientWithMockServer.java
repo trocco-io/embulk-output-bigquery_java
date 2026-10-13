@@ -29,6 +29,7 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableResponseWithNullableC0;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableResponseWithOldDescriptionAndPolicyTag;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableResponseWithSchemaFields;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.unansweredResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.uploadChunkAcceptedResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.uploadLoadFileResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForLoadJobResponse;
@@ -549,6 +550,31 @@ public class TestBigqueryClientWithMockServer {
     assertEquals(2, requests.size());
     assertStartResumableUpload(requests.get(0));
     assertUploadLoadFile(requests.get(1));
+  }
+
+  // The configured read timeout applies to the chunk PUT as well (#113): a server that never
+  // answers makes the client give up after read_timeout_sec (1 s in test_host.yml), the library
+  // retries that like any network failure, and the upload fails once retries run out. Costs
+  // about 2 s of real waiting.
+  @Test
+  public void testLoadFailsOnReadTimeoutDuringUpload() throws Exception {
+    Path loadFile = newLoadFile("load-timeout-test.json");
+
+    List<RecordedRequest> requests =
+        runWithMockServerExpectingFailure(
+            RuntimeException.class,
+            "(?s).*Read timed out.*",
+            server ->
+                buildTestHostClient(server)
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            unansweredResponse(),
+            unansweredResponse());
+
+    assertEquals(3, requests.size());
+    assertStartResumableUpload(requests.get(0));
+    assertUploadLoadFile(requests.get(1));
+    assertUploadLoadFile(requests.get(2)); // the library's retry, same session
   }
 
   @Test

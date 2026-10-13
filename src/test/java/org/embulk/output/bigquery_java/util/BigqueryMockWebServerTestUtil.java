@@ -516,6 +516,12 @@ public final class BigqueryMockWebServerTestUtil {
     return new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY);
   }
 
+  // Never answers the request: the client gives up after its read timeout (read_timeout_sec: 1
+  // in test_host.yml), which the library treats as retryable. Each use costs that second.
+  public static MockResponse unansweredResponse() {
+    return new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE);
+  }
+
   // Writes JSONL rows to `file` until it holds at least `minBytes` (plain, not gzipped), e.g. to
   // get an upload that spans more than one chunk; returns the file's size.
   public static long writeLoadFile(Path file, long minBytes) throws IOException {
