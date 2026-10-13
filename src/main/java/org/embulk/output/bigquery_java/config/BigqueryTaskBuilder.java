@@ -63,8 +63,9 @@ public class BigqueryTaskBuilder {
   }
 
   protected static void setTempTable(PluginTask task) {
-    // TODO: support replace_backup
-    String[] modeForTempTable = {"replace", "append", "merge"};
+    // Same list as ruby. replace_backup is not supported yet (validateMode rejects it), but it is
+    // kept here so the temp-table routing stays correct once it is enabled.
+    String[] modeForTempTable = {"replace", "replace_backup", "append", "merge"};
     if (Arrays.asList(modeForTempTable).contains(task.getMode())) {
       String tempTable =
           task.getTempTable().orElse(String.format("LOAD_TEMP_%s_%s", uniqueName, task.getTable()));

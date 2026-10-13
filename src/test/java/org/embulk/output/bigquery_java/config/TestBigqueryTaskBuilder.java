@@ -153,6 +153,15 @@ public class TestBigqueryTaskBuilder {
   }
 
   @Test
+  public void setTempTable_assignsDefaultForReplaceBackup() {
+    config = loadYamlResource(embulk, "base.yml").set("mode", "replace_backup");
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+    BigqueryTaskBuilder.setTempTable(task);
+
+    assertMatches(task.getTempTable().get(), "LOAD_TEMP_.*_table");
+  }
+
+  @Test
   public void setTempTable_keepsConfiguredValueForReplace() {
     config = loadYamlResource(embulk, "base.yml").set("mode", "replace").set("temp_table", "foo");
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
