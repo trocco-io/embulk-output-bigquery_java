@@ -6,36 +6,12 @@ import static org.junit.Assert.*;
 
 import org.embulk.config.ConfigException;
 import org.embulk.config.ConfigSource;
-import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
-import org.embulk.spi.OutputPlugin;
-import org.embulk.test.TestingEmbulk;
-import org.embulk.util.config.ConfigMapper;
-import org.embulk.util.config.ConfigMapperFactory;
-import org.junit.Rule;
 import org.junit.Test;
 
-public class TestBigqueryConfigValidator {
-  protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
-      ConfigMapperFactory.builder().addDefaultModules().build();
-
-  protected static final ConfigMapper CONFIG_MAPPER = CONFIG_MAPPER_FACTORY.createConfigMapper();
-
-  private ConfigSource config;
-  private static final String BASIC_RESOURCE_PATH = "/java/org/embulk/output/bigquery_java/";
-
-  private static ConfigSource loadYamlResource(TestingEmbulk embulk, String fileName) {
-    return embulk.loadYamlResource(BASIC_RESOURCE_PATH + fileName);
-  }
-
-  @Rule
-  public TestingEmbulk embulk =
-      TestingEmbulk.builder()
-          .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
-          .build();
-
+public class TestBigqueryConfigValidator extends BigqueryConfigTestBase {
   @Test
   public void validateMode() {
-    config = loadYamlResource(embulk, "base.yml");
+    ConfigSource config = loadYamlResource("base.yml");
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
     BigqueryConfigValidator.validateMode(task);
 
@@ -44,7 +20,7 @@ public class TestBigqueryConfigValidator {
 
   @Test(expected = ConfigException.class)
   public void validateMode_invalid_configException() {
-    config = loadYamlResource(embulk, "base.yml");
+    ConfigSource config = loadYamlResource("base.yml");
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
     task.setMode("foo");
     BigqueryConfigValidator.validateMode(task);
@@ -52,7 +28,7 @@ public class TestBigqueryConfigValidator {
 
   @Test
   public void validateModeAndAutoCreteTable() {
-    config = loadYamlResource(embulk, "base.yml");
+    ConfigSource config = loadYamlResource("base.yml");
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
     BigqueryConfigValidator.validateModeAndAutoCreteTable(task);
 
@@ -62,14 +38,10 @@ public class TestBigqueryConfigValidator {
 
   @Test(expected = ConfigException.class)
   public void validateModeAndAutoCreteTable_autoCreateTable_False_configException() {
-    config = loadYamlResource(embulk, "base.yml");
+    ConfigSource config = loadYamlResource("base.yml");
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
     task.setAutoCreateTable(false);
     BigqueryConfigValidator.validateModeAndAutoCreteTable(task);
-  }
-
-  private PluginTask taskWith(java.util.function.Function<ConfigSource, ConfigSource> setup) {
-    return CONFIG_MAPPER.map(setup.apply(loadYamlResource(embulk, "base.yml")), PluginTask.class);
   }
 
   @Test

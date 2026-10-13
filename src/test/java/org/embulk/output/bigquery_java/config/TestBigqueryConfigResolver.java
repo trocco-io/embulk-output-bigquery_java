@@ -4,33 +4,9 @@ import static org.embulk.output.bigquery_java.config.BigqueryConfigResolver.effe
 import static org.embulk.output.bigquery_java.config.BigqueryConfigResolver.resolveReadTimeoutSec;
 import static org.junit.Assert.assertEquals;
 
-import java.util.function.Function;
-import org.embulk.config.ConfigSource;
-import org.embulk.output.bigquery_java.BigqueryJavaOutputPlugin;
-import org.embulk.spi.OutputPlugin;
-import org.embulk.test.TestingEmbulk;
-import org.embulk.util.config.ConfigMapper;
-import org.embulk.util.config.ConfigMapperFactory;
-import org.junit.Rule;
 import org.junit.Test;
 
-public class TestBigqueryConfigResolver {
-  private static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
-      ConfigMapperFactory.builder().addDefaultModules().build();
-  private static final ConfigMapper CONFIG_MAPPER = CONFIG_MAPPER_FACTORY.createConfigMapper();
-  private static final String BASIC_RESOURCE_PATH = "/java/org/embulk/output/bigquery_java/";
-
-  @Rule
-  public TestingEmbulk embulk =
-      TestingEmbulk.builder()
-          .registerPlugin(OutputPlugin.class, "bigquery_java", BigqueryJavaOutputPlugin.class)
-          .build();
-
-  private PluginTask taskWith(Function<ConfigSource, ConfigSource> setup) {
-    ConfigSource config = embulk.loadYamlResource(BASIC_RESOURCE_PATH + "base.yml");
-    return CONFIG_MAPPER.map(setup.apply(config), PluginTask.class);
-  }
-
+public class TestBigqueryConfigResolver extends BigqueryConfigTestBase {
   @Test
   public void resolveReadTimeoutSec_prefersReadTimeoutSec() {
     assertEquals(
