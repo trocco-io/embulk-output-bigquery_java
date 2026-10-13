@@ -366,11 +366,6 @@ public class BigqueryClient {
     return timePartitioningBuilder.build();
   }
 
-  // Package-private (like waitForLoad) so tests can stub the network steps of load().
-  void writeToStream(Path loadFile, OutputStream stream) throws IOException {
-    Files.copy(loadFile, stream);
-  }
-
   public JobStatistics.LoadStatistics load(
       Path loadFile, String table, JobInfo.WriteDisposition writeDisposition)
       throws BigqueryException {
@@ -459,7 +454,6 @@ public class BigqueryClient {
   // the whole upload, so a retry re-sends the file under the same id (as a new resumable session)
   // instead of creating a second job, and retries are immediate. A job that ran and failed is
   // retried by the caller with a new job id, like ruby's with_job_retry.
-  // Private on purpose: the mocked BigqueryClient in tests must run this for real.
   private Job upload(
       Path loadFile,
       String table,
@@ -497,22 +491,28 @@ public class BigqueryClient {
       // that partial file. The session is only closed (and the load job started) when the whole
       // file has been written.
       OutputStream stream = Channels.newOutputStream(writer);
-      writeToStream(loadFile, stream);
+      Files.copy(loadFile, stream);
       stream.close();
-    } catch (IOException | BigQueryException e) {
-      String msg =
-          String.format(
-              "embulk-output-bigquery: failed to upload %s to %s:%s.%s, message: %s",
-              loadFile, destinationProject, destinationDataset, table, e.getMessage());
-      logger.error(msg);
+    } catch (IOException e) {
+      // A file that can't be read won't become readable by retrying; ruby's with_network_retry
+      // only retries socket errors too.
+      throw new BigqueryException(uploadFailureMessage(loadFile, table, e), e);
+    } catch (BigQueryException e) {
+      String msg = uploadFailureMessage(loadFile, table, e);
       // Retry only what the library itself considers retryable (connection reset, 5xx, ...); a
       // 4xx such as an invalid schema fails right away.
-      if (e instanceof BigQueryException && !((BigQueryException) e).isRetryable()) {
+      if (!e.isRetryable()) {
         throw new BigqueryException(msg, e);
       }
       throw new BigqueryUploadException(msg, e);
     }
     return writer.getJob();
+  }
+
+  private String uploadFailureMessage(Path loadFile, String table, Exception cause) {
+    return String.format(
+        "embulk-output-bigquery: failed to upload %s to %s:%s.%s, message: %s",
+        loadFile, destinationProject, destinationDataset, table, cause.getMessage());
   }
 
   public JobStatistics.CopyStatistics copy(
@@ -874,8 +874,7 @@ public class BigqueryClient {
     return bigquery.delete(TableId.of(project, dataset, table));
   }
 
-  // Package-private for the same reason as writeToStream().
-  JobStatistics waitForLoad(Job job) throws BigqueryException {
+  private JobStatistics waitForLoad(Job job) throws BigqueryException {
     return new BigqueryJobWaiter(task, this, job).waitFor("Load");
   }
 

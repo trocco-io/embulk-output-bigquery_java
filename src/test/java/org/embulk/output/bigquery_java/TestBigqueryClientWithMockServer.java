@@ -577,6 +577,94 @@ public class TestBigqueryClientWithMockServer {
     requests.assertNoMore();
   }
 
+  // The counterpart of ...ThenGivesUp above: once the library has given up on the first session,
+  // load()'s own retry re-sends the file in a new session under the same job id and succeeds.
+  @Test
+  public void testLoadReopensUploadSessionAfterServerErrorsThenSucceeds() throws Exception {
+    Path loadFile = newLoadFile("load-5xx-recovery-test.json");
+
+    RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(503, "boom", "backendError"),
+            errorResponse(503, "boom", "backendError"),
+            startResumableUploadResponse(),
+            uploadLoadFileResponse("testjob"),
+            waitForLoadJobResponse("testjob", null));
+
+    RecordedRequest firstOpen = requests.next();
+    assertStartResumableUpload(firstOpen);
+    assertUploadLoadFile(requests.next());
+    assertUploadLoadFile(requests.next()); // the library's retry, same session
+    RecordedRequest secondOpen = assertLoadAttempt(requests, "testjob"); // load()'s retry
+    requests.assertNoMore();
+    assertEquals(jobIdOf(firstOpen), jobIdOf(secondOpen));
+  }
+
+  // A file that can't be read fails the load right away, like ruby, whose with_network_retry
+  // only retries socket errors: the session is opened, nothing is PUT, no second session.
+  @Test
+  public void testLoadFailsAtOnceWhenLoadFileCannotBeRead() throws Exception {
+    Path notAFile = testFolder.newFolder().toPath();
+
+    RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to upload .*",
+            server ->
+                buildTestHostClient(server)
+                    .load(notAFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse());
+
+    assertStartResumableUpload(requests.next());
+    requests.assertNoMore();
+  }
+
+  // Once an upload has failed, its session must not be finalized: closing the channel would PUT
+  // the bytes buffered so far as the last chunk, and BigQuery would start a load job for that
+  // partial file on top of the one issued by the retry. Visible only with more than one chunk:
+  // the first chunk fails for good, and the only PUTs on that session are the two attempts at
+  // it, with no "bytes 0-N/N+1" finalizing PUT before the new session opens.
+  @Test
+  public void testLoadDoesNotFinalizeFailedUploadSession() throws Exception {
+    Path loadFile = testFolder.newFile("load-chunked-fail-test.json").toPath();
+    long size = writeLoadFile(loadFile, UPLOAD_CHUNK_SIZE + 1);
+
+    RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(503, "boom", "backendError"),
+            errorResponse(503, "boom", "backendError"),
+            startResumableUploadResponse(),
+            uploadChunkAcceptedResponse(),
+            uploadLoadFileResponse("testjob"),
+            waitForLoadJobResponse("testjob", null));
+
+    RecordedRequest firstOpen = requests.next();
+    assertStartResumableUpload(firstOpen);
+    assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1);
+    assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1); // the library's retry
+    RecordedRequest secondOpen = requests.next(); // load()'s retry: the whole file again
+    assertStartResumableUpload(secondOpen);
+    assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1);
+    assertUploadChunk(requests.next(), UPLOAD_CHUNK_SIZE, size - 1, size);
+    assertGetJobStatus(requests.next(), "testjob");
+    requests.assertNoMore();
+    assertEquals(jobIdOf(firstOpen), jobIdOf(secondOpen));
+  }
+
   @Test
   public void testCopyRetriesOnInternalErrorThenSucceeds() throws Exception {
     RequestCursor requests =
