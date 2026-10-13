@@ -12,6 +12,7 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.errorResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.firstSchemaField;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.jobResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.loadAttemptResponses;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.loadTestHostConfig;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.requestBodyJson;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.runWithMockServer;
@@ -409,9 +410,8 @@ public class TestBigqueryClientWithMockServer {
                       .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
               assertNotNull(stats);
             },
-            MockResponses.of()
-                .loadAttempt("load-job-1", "internalError")
-                .loadAttempt("load-job-2", null)
+            MockResponses.of(loadAttemptResponses("load-job-1", "internalError"))
+                .add(loadAttemptResponses("load-job-2", null))
                 .toArray());
 
     assertEquals(6, requests.size());
@@ -430,9 +430,8 @@ public class TestBigqueryClientWithMockServer {
             server ->
                 buildTestHostClient(server, c -> c.set("retries", 1))
                     .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
-            MockResponses.of()
-                .loadAttempt("load-job-1", "internalError")
-                .loadAttempt("load-job-2", "internalError")
+            MockResponses.of(loadAttemptResponses("load-job-1", "internalError"))
+                .add(loadAttemptResponses("load-job-2", "internalError"))
                 .toArray());
 
     assertEquals(6, requests.size());

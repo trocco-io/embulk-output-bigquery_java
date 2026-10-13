@@ -493,7 +493,7 @@ public final class BigqueryMockWebServerTestUtil {
 
   // Builds the response list for runWithMockServer() when it includes whole load attempts
   // (loadAttemptResponses()) among single responses, e.g.
-  //   MockResponses.of(datasetResponse()).loadAttempt("job", null).add(tableResponse()).toArray()
+  //   MockResponses.of(datasetResponse()).add(loadAttemptResponses("job", null)).toArray()
   public static final class MockResponses {
     private final List<MockResponse> list = new ArrayList<>();
 
@@ -506,11 +506,6 @@ public final class BigqueryMockWebServerTestUtil {
     public MockResponses add(MockResponse... responses) {
       list.addAll(Arrays.asList(responses));
       return this;
-    }
-
-    // The 3 responses of one load attempt; see loadAttemptResponses().
-    public MockResponses loadAttempt(String jobId, String errorReason) {
-      return add(loadAttemptResponses(jobId, errorReason));
     }
 
     public MockResponse[] toArray() {

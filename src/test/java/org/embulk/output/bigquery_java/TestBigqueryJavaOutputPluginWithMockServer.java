@@ -18,6 +18,7 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.firstSchemaField;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.firstSourceTableId;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.jobConfig;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.loadAttemptResponses;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.loadTestHostConfig;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.requestBodyJson;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableIdOf;
@@ -115,7 +116,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
         runWithMockServer(
             c -> c.set("mode", "append_direct"),
             MockResponses.of(datasetResponse(), tableResponse())
-                .loadAttempt("testjob", null)
+                .add(loadAttemptResponses("testjob", null))
                 .add(tableResponse())
                 .toArray());
 
@@ -145,7 +146,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
         runWithMockServer(
             c -> c.set("mode", "append"),
             MockResponses.of(datasetResponse(), tableResponse())
-                .loadAttempt("testjob", null)
+                .add(loadAttemptResponses("testjob", null))
                 .add(
                     tableResponseWithNumRows(1),
                     createCopyJobResponse("testjob"),
@@ -186,7 +187,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
         runWithMockServer(
             c -> c.set("mode", "replace"),
             MockResponses.of(datasetResponse(), tableResponse())
-                .loadAttempt("testjob", null)
+                .add(loadAttemptResponses("testjob", null))
                 .add(
                     tableResponseWithNumRows(1),
                     createCopyJobResponse("testjob"),
@@ -230,7 +231,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
         runWithMockServer(
             c -> c.set("mode", "replace").set("table", "table_%Y%m%d"),
             MockResponses.of(datasetResponse(), tableResponse())
-                .loadAttempt("testjob", null)
+                .add(loadAttemptResponses("testjob", null))
                 .add(
                     tableResponseWithNumRows(1),
                     createCopyJobResponse("testjob"),
@@ -274,7 +275,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     datasetResponse(),
                     tableResponse(),
                     tableResponseWithOldDescriptionAndPolicyTag())
-                .loadAttempt("testjob", null)
+                .add(loadAttemptResponses("testjob", null))
                 .add(
                     tableResponseWithNumRows(1),
                     createCopyJobResponse("testjob"),
@@ -329,8 +330,8 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
             RuntimeException.class,
             "(?s).*failed during waiting a Load job get_job\\(load-job-1.*",
             MockResponses.of(datasetResponse(), tableResponse())
-                .loadAttempt("load-job-1", "internalError")
-                .loadAttempt("load-job-2", "internalError")
+                .add(loadAttemptResponses("load-job-1", "internalError"))
+                .add(loadAttemptResponses("load-job-2", "internalError"))
                 .add(deleteResponse())
                 .toArray());
 
@@ -365,7 +366,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     tableResponse() // storeCachedSrcFieldsIfNeed() (retain_column_descriptions is
                     // on)
                     )
-                .loadAttempt("testjob", null)
+                .add(loadAttemptResponses("testjob", null))
                 .add(
                     tableResponseWithNumRows(1),
                     createCopyJobResponse("testjob"),
@@ -465,7 +466,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
         runWithMockServer(
             c -> c.set("mode", "delete_in_advance"),
             MockResponses.of(datasetResponse(), deleteResponse(), tableResponse())
-                .loadAttempt("testjob", null)
+                .add(loadAttemptResponses("testjob", null))
                 .add(
                     tableResponseWithNumRows(1),
                     createCopyJobResponse("testjob"),
@@ -515,7 +516,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     datasetResponse(),
                     errorResponse(404, "Not found: Table project:dataset.table", "notFound"),
                     tableResponse())
-                .loadAttempt("testjob", null)
+                .add(loadAttemptResponses("testjob", null))
                 .add(
                     tableResponseWithNumRows(1),
                     createCopyJobResponse("testjob"),
@@ -563,7 +564,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
             // INFORMATION_SCHEMA query job to discover merge keys when none are configured.
             c -> c.set("mode", "merge").set("merge_keys", Arrays.asList("c0")),
             MockResponses.of(datasetResponse(), tableResponse(), tableResponse())
-                .loadAttempt("testjob", null)
+                .add(loadAttemptResponses("testjob", null))
                 .add(
                     tableResponseWithNumRows(1),
                     createQueryJobResponse("testjob"),
