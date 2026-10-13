@@ -18,6 +18,7 @@ public class BigqueryFileWriter {
   private PluginTask task;
   private String compression;
   private OutputStream os;
+  private String path;
   private long count = 0;
 
   public BigqueryFileWriter(PluginTask task) {
@@ -38,6 +39,7 @@ public class BigqueryFileWriter {
   public OutputStream open(String path) throws IOException {
     logger.info("embulk-output-bigquery: create {}", path);
 
+    this.path = path;
     this.os = new FileOutputStream(path);
     if (this.compression.equals("GZIP")) {
       this.os = new GZIPOutputStream(this.os);
@@ -75,6 +77,12 @@ public class BigqueryFileWriter {
 
   public long getCount() {
     return this.count;
+  }
+
+  // The intermediate file this writer opened, or null if it never wrote a record (ruby's
+  // file_writer exposes the same through io.path).
+  public String getPath() {
+    return this.path;
   }
 
   public void close() {

@@ -34,6 +34,7 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -169,6 +170,34 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     assertGetTable(requests.next(), "table");
 
     requests.assertNoMore();
+  }
+
+  // Only the files this run wrote are loaded, like ruby: a file left behind by an earlier run with
+  // the same path_prefix (its name matches path_prefix*file_ext) is neither loaded nor deleted.
+  @Test
+  public void testRunIgnoresStaleIntermediateFilesWithTheSamePrefix() throws Exception {
+    File intermediateDir = testFolder.newFolder();
+    File stale = new File(intermediateDir, "bq_.1.1.jsonl.gz");
+    assertTrue(stale.createNewFile());
+
+    RequestCursor requests =
+        runWithMockServer(
+            c ->
+                c.set("mode", "append_direct")
+                    .set("path_prefix", new File(intermediateDir, "bq_").getPath()),
+            MockResponses.of(datasetResponse(), tableResponse())
+                .add(loadAttemptResponses("testjob", null))
+                .add(tableResponse())
+                .toArray());
+
+    assertGetDataset(requests.next());
+    assertPostTables(requests.next());
+    assertLoadAttempt(requests, "testjob"); // one load: this run's file only
+    assertGetTable(requests.next(), "table");
+    requests.assertNoMore();
+
+    // This run's own file was deleted (delete_from_local_when_job_end); the stale one is untouched.
+    assertEquals(Collections.singletonList(stale.getName()), Arrays.asList(intermediateDir.list()));
   }
 
   @Test
