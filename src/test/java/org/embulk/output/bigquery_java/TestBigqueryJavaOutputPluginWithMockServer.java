@@ -150,7 +150,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
   public void testRunAppendDirectModeWithoutCompression() throws Exception {
     // Same run as above with compression: NONE: the intermediate file, and so the uploaded body,
     // is the plain JSONL.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             c -> c.set("mode", "append_direct").set("compression", "NONE"),
             MockResponses.of(datasetResponse(), tableResponse())
@@ -158,14 +158,18 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                 .add(tableResponse())
                 .toArray());
 
-    assertEquals(6, requests.size());
+    assertGetDataset(requests.next());
+    assertPostTables(requests.next());
 
-    assertGetDataset(requests.get(0));
-    assertPostTables(requests.get(1));
-    assertLoadAttempt(requests, 2, "testjob");
-    assertEquals(
-        Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(requests.get(3), false));
-    assertGetTable(requests.get(5), "table");
+    assertStartResumableUpload(requests.next());
+    RecordedRequest uploadFile = requests.next();
+    assertUploadLoadFile(uploadFile);
+    assertGetJobStatus(requests.next(), "testjob");
+    assertEquals(Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(uploadFile, false));
+
+    assertGetTable(requests.next(), "table");
+
+    requests.assertNoMore();
   }
 
   @Test
