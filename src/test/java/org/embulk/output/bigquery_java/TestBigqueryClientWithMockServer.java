@@ -2,6 +2,7 @@ package org.embulk.output.bigquery_java;
 
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.COPY_CONFIG_BODY;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.QUERY_CONFIG_BODY;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.UPLOAD_CHUNK_SIZE;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertFieldDescriptionAndPolicyTag;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetJobStatus;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetTable;
@@ -9,20 +10,32 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertPatchTable;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertPostJobs;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertPostTables;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertStartResumableUpload;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadChunk;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadLoadFile;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.disconnectDuringUploadResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.errorResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.firstSchemaField;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.jobIdOf;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.jobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.loadAttemptResponses;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.loadTestHostConfig;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.requestBodyJson;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.runWithMockServer;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.runWithMockServerExpectingFailure;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.startResumableUploadResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableIdOf;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableResponseWithNullableC0;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableResponseWithOldDescriptionAndPolicyTag;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableResponseWithSchemaFields;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.unansweredResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.uploadChunkAcceptedResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.uploadLoadFileResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForLoadJobResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.writeLoadFile;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 
 import com.google.cloud.bigquery.JobInfo;
@@ -414,9 +427,11 @@ public class TestBigqueryClientWithMockServer {
                 .add(loadAttemptResponses("load-job-2", null))
                 .toArray());
 
+    // A job that ran and failed is retried as a new job (new job id), like ruby's with_job_retry.
     assertEquals(6, requests.size());
     assertLoadAttempt(requests, 0, "load-job-1");
     assertLoadAttempt(requests, 3, "load-job-2");
+    assertNotEquals(jobIdOf(requests.get(0)), jobIdOf(requests.get(3)));
   }
 
   @Test
@@ -437,6 +452,129 @@ public class TestBigqueryClientWithMockServer {
     assertEquals(6, requests.size());
     assertLoadAttempt(requests, 0, "load-job-1");
     assertLoadAttempt(requests, 3, "load-job-2");
+  }
+
+  // The library itself retries a chunk PUT that fails with a network error (here a connection
+  // reset while sending): the same chunk is re-sent on the same upload session, up to `retries`
+  // more times (test_host.yml: 1), and load() never notices.
+  @Test
+  public void testLoadResendsChunkOnConnectionReset() throws Exception {
+    Path loadFile = newLoadFile("load-reset-test.json");
+    long size = Files.size(loadFile);
+
+    List<RecordedRequest> requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            disconnectDuringUploadResponse(),
+            uploadLoadFileResponse("testjob"),
+            waitForLoadJobResponse("testjob", null));
+
+    assertEquals(4, requests.size());
+    assertStartResumableUpload(requests.get(0));
+    assertUploadChunk(requests.get(1), 0, size - 1, size); // reset while sending
+    assertUploadLoadFile(requests.get(2)); // the library's retry, same session
+    assertGetJobStatus(requests.get(3), "testjob");
+  }
+
+  // A file over the library's chunk size goes up as an intermediate chunk (answered with 308)
+  // followed by the final chunk, which creates the job.
+  @Test
+  public void testLoadUploadsLargeFileInChunks() throws Exception {
+    Path loadFile = testFolder.newFile("load-large-test.json").toPath();
+    long size = writeLoadFile(loadFile, UPLOAD_CHUNK_SIZE + 1);
+
+    List<RecordedRequest> requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            uploadChunkAcceptedResponse(),
+            uploadLoadFileResponse("testjob"),
+            waitForLoadJobResponse("testjob", null));
+
+    assertEquals(4, requests.size());
+    assertStartResumableUpload(requests.get(0));
+    assertUploadChunk(requests.get(1), 0, UPLOAD_CHUNK_SIZE - 1, -1);
+    assertUploadChunk(requests.get(2), UPLOAD_CHUNK_SIZE, size - 1, size);
+    assertGetJobStatus(requests.get(3), "testjob");
+  }
+
+  // A chunk PUT answered with a 5xx is re-sent by the library on the same session, `retries`
+  // more times (test_host.yml: 1); when they are all 5xx the upload fails.
+  @Test
+  public void testLoadResendsChunkOnServerErrorThenGivesUp() throws Exception {
+    Path loadFile = newLoadFile("load-5xx-test.json");
+
+    List<RecordedRequest> requests =
+        runWithMockServerExpectingFailure(
+            RuntimeException.class,
+            "(?s).*BigQueryException: 503 .*",
+            server ->
+                buildTestHostClient(server)
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            errorResponse(503, "boom", "backendError"),
+            errorResponse(503, "boom", "backendError"));
+
+    assertEquals(3, requests.size());
+    assertStartResumableUpload(requests.get(0));
+    assertUploadLoadFile(requests.get(1));
+    assertUploadLoadFile(requests.get(2)); // the library's retry, same session
+  }
+
+  // A chunk PUT answered with a 4xx is not re-sent.
+  @Test
+  public void testLoadDoesNotResendChunkOnClientError() throws Exception {
+    Path loadFile = newLoadFile("load-4xx-test.json");
+
+    List<RecordedRequest> requests =
+        runWithMockServerExpectingFailure(
+            RuntimeException.class,
+            "(?s).*BigQueryException: 400 .*",
+            server ->
+                buildTestHostClient(server)
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            errorResponse(400, "Invalid", "invalid"));
+
+    assertEquals(2, requests.size());
+    assertStartResumableUpload(requests.get(0));
+    assertUploadLoadFile(requests.get(1));
+  }
+
+  // The configured read timeout applies to the chunk PUT as well (#113): a server that never
+  // answers makes the client give up after read_timeout_sec (1 s in test_host.yml), the library
+  // retries that like any network failure, and the upload fails once retries run out. Costs
+  // about 2 s of real waiting.
+  @Test
+  public void testLoadFailsOnReadTimeoutDuringUpload() throws Exception {
+    Path loadFile = newLoadFile("load-timeout-test.json");
+
+    List<RecordedRequest> requests =
+        runWithMockServerExpectingFailure(
+            RuntimeException.class,
+            "(?s).*Read timed out.*",
+            server ->
+                buildTestHostClient(server)
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            unansweredResponse(),
+            unansweredResponse());
+
+    assertEquals(3, requests.size());
+    assertStartResumableUpload(requests.get(0));
+    assertUploadLoadFile(requests.get(1));
+    assertUploadLoadFile(requests.get(2)); // the library's retry, same session
   }
 
   @Test
