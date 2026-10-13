@@ -132,7 +132,8 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     assertEquals("table", tableIdOf(loadConfig, "destinationTable"));
     assertEquals("WRITE_APPEND", loadConfig.getString("writeDisposition"));
     // The uploaded bytes are the intermediate file itself: the input row as JSONL.
-    assertEquals(Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(requests.get(3)));
+    assertEquals(
+        Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(requests.get(3), true));
 
     assertGetTable(requests.get(5), "table");
   }

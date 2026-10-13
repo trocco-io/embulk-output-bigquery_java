@@ -272,15 +272,13 @@ public final class BigqueryMockWebServerTestUtil {
   }
 
   // The lines of the intermediate file as uploaded by assertUploadLoadFile()'s request. The body
-  // is the file itself, gzipped under compression: GZIP (test_host.yml's default) or plain.
-  public static List<String> uploadedLines(RecordedRequest request) throws IOException {
+  // is the file itself; `gzipped` states what the test's compression setting demands of it
+  // (true for compression: GZIP, test_host.yml's default), so a plain body fails to gunzip.
+  public static List<String> uploadedLines(RecordedRequest request, boolean gzipped)
+      throws IOException {
     byte[] body = request.getBody().readByteArray();
-    String content = isGzip(body) ? gunzip(body) : new String(body, StandardCharsets.UTF_8);
+    String content = gzipped ? gunzip(body) : new String(body, StandardCharsets.UTF_8);
     return Arrays.asList(content.split("\n"));
-  }
-
-  private static boolean isGzip(byte[] bytes) {
-    return bytes.length >= 2 && (bytes[0] & 0xff) == 0x1f && (bytes[1] & 0xff) == 0x8b;
   }
 
   public static void assertGetTable(RecordedRequest request, String tableId) {
