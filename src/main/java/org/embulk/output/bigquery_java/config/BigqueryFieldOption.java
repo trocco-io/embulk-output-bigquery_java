@@ -23,8 +23,8 @@ public interface BigqueryFieldOption extends Task {
   Optional<String> getTimestampFormat();
 
   @Config("timezone")
-  @ConfigDefault("\"UTC\"")
-  String getTimezone();
+  @ConfigDefault("null")
+  Optional<String> getTimezone();
 
   @Config("description")
   @ConfigDefault("null")

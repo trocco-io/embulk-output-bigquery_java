@@ -37,6 +37,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.mockito.Mockito;
+import org.threeten.bp.Duration;
 
 public class TestBigqueryClient {
   protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
@@ -316,6 +317,42 @@ public class TestBigqueryClient {
   }
 
   @Test
+  public void testBuildRetrySettingsDefaultsLiftTotalTimeoutSoMaxAttemptsIsTheLimit() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task = CONFIG_MAPPER.map(config.set("retries", 10), PluginTask.class);
+
+    RetrySettings retrySettings = BigqueryClient.buildRetrySettings(task);
+
+    assertEquals(11, retrySettings.getMaxAttempts());
+    assertEquals(Duration.ofMillis(1000), retrySettings.getInitialRetryDelay());
+    assertEquals(Duration.ofMillis(32000), retrySettings.getMaxRetryDelay());
+    assertEquals(2.0, retrySettings.getRetryDelayMultiplier(), 0.0);
+    assertFalse(retrySettings.isJittered());
+    // gax's default would be 50s, under which 11 attempts with the default backoff can't fit.
+    assertEquals(Duration.ofDays(1), retrySettings.getTotalTimeout());
+  }
+
+  @Test
+  public void testBuildRetrySettingsReflectsConfiguredBackoff() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config
+                .set("retry_initial_delay_sec", 5)
+                .set("retry_max_delay_sec", 50)
+                .set("retry_delay_multiplier", 1.5)
+                .set("retry_total_timeout_sec", 500),
+            PluginTask.class);
+
+    RetrySettings retrySettings = BigqueryClient.buildRetrySettings(task);
+
+    assertEquals(Duration.ofSeconds(5), retrySettings.getInitialRetryDelay());
+    assertEquals(Duration.ofSeconds(50), retrySettings.getMaxRetryDelay());
+    assertEquals(1.5, retrySettings.getRetryDelayMultiplier(), 0.0);
+    assertEquals(Duration.ofSeconds(500), retrySettings.getTotalTimeout());
+  }
+
+  @Test
   public void testBuildTransportOptionsReflectsConfiguredTimeouts() {
     ConfigSource config = loadYamlResource(embulk, "takeover.yml");
     PluginTask task =
@@ -333,5 +370,58 @@ public class TestBigqueryClient {
     assertEquals(12 * 1000, httpTransportOptions.getConnectTimeout());
     // See README.md for why send_timeout_sec folds into read_timeout_sec here.
     assertEquals((34 + 56) * 1000, httpTransportOptions.getReadTimeout());
+  }
+
+  private static int readTimeoutMillis(PluginTask task) {
+    return ((HttpTransportOptions) BigqueryClient.buildTransportOptions(task)).getReadTimeout();
+  }
+
+  @Test
+  public void testBuildTransportOptionsFallsBackToDeprecatedTimeoutSec() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config.set("timeout_sec", 34).set("send_timeout_sec", 56), PluginTask.class);
+
+    assertEquals((34 + 56) * 1000, readTimeoutMillis(task));
+  }
+
+  @Test
+  public void testBuildTransportOptionsPrefersReadTimeoutSecOverTimeoutSec() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config.set("read_timeout_sec", 34).set("timeout_sec", 99).set("send_timeout_sec", 56),
+            PluginTask.class);
+
+    assertEquals((34 + 56) * 1000, readTimeoutMillis(task));
+  }
+
+  @Test
+  public void testBuildTransportOptionsDefaultsReadTimeoutWhenNeitherIsSet() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task = CONFIG_MAPPER.map(config.set("send_timeout_sec", 56), PluginTask.class);
+
+    // 300 = BigqueryConfigResolver.DEFAULT_READ_TIMEOUT_SEC
+    assertEquals((300 + 56) * 1000, readTimeoutMillis(task));
+  }
+
+  @Test
+  public void testBuildTransportOptionsAcceptsMaxTimeout() {
+    // 2147483 = BigqueryConfigValidator.MAX_TIMEOUT_SEC (Integer.MAX_VALUE / 1000), so
+    // 2147483000 ms is the largest int timeout HttpTransportOptions accepts.
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config
+                .set("open_timeout_sec", 2147483)
+                .set("read_timeout_sec", 2147483)
+                .set("send_timeout_sec", 0),
+            PluginTask.class);
+
+    HttpTransportOptions options =
+        (HttpTransportOptions) BigqueryClient.buildTransportOptions(task);
+    assertEquals(2147483000, options.getConnectTimeout());
+    assertEquals(2147483000, options.getReadTimeout());
   }
 }

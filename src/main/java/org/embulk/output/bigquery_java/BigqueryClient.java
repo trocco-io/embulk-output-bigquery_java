@@ -51,6 +51,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.embulk.config.ConfigException;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
+import org.embulk.output.bigquery_java.config.BigqueryConfigResolver;
 import org.embulk.output.bigquery_java.config.BigqueryFieldOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
 import org.embulk.output.bigquery_java.config.PluginTask;
@@ -157,58 +158,41 @@ public class BigqueryClient {
         .getService();
   }
 
-  // Optional env var overrides for retry backoff tuning; see README.md for details.
-  private static Optional<Long> envMillis(String name) {
-    String value = System.getenv(name);
-    return value == null ? Optional.empty() : Optional.of(Long.parseLong(value));
-  }
-
-  private static Optional<Double> envDouble(String name) {
-    String value = System.getenv(name);
-    return value == null ? Optional.empty() : Optional.of(Double.parseDouble(value));
-  }
-
   static RetrySettings buildRetrySettings(PluginTask task) {
-    RetrySettings.Builder builder =
-        ServiceOptions.getDefaultRetrySettings()
-            .toBuilder()
-            // +1: task.getRetries() means "number of retries", matching
-            // RetryExecutor#withRetryLimit usage elsewhere in this class, while
-            // RetrySettings#setMaxAttempts counts total attempts.
-            .setMaxAttempts(task.getRetries() + 1);
-    envMillis("BIGQUERY_OUTPUT_OPTION_RETRY_INITIAL_DELAY_MS")
-        .ifPresent(v -> builder.setInitialRetryDelay(Duration.ofMillis(v)));
-    envMillis("BIGQUERY_OUTPUT_OPTION_RETRY_MAX_DELAY_MS")
-        .ifPresent(v -> builder.setMaxRetryDelay(Duration.ofMillis(v)));
-    envDouble("BIGQUERY_OUTPUT_OPTION_RETRY_DELAY_MULTIPLIER")
-        .ifPresent(builder::setRetryDelayMultiplier);
-    envMillis("BIGQUERY_OUTPUT_OPTION_RETRY_TOTAL_TIMEOUT_MS")
-        .ifPresent(v -> builder.setTotalTimeout(Duration.ofMillis(v)));
-    return builder.build();
+    return ServiceOptions.getDefaultRetrySettings()
+        .toBuilder()
+        // +1: task.getRetries() means "number of retries", matching
+        // RetryExecutor#withRetryLimit usage elsewhere in this class, while
+        // RetrySettings#setMaxAttempts counts total attempts.
+        .setMaxAttempts(task.getRetries() + 1)
+        .setInitialRetryDelay(Duration.ofSeconds(task.getRetryInitialDelaySec()))
+        .setMaxRetryDelay(Duration.ofSeconds(task.getRetryMaxDelaySec()))
+        .setRetryDelayMultiplier(task.getRetryDelayMultiplier())
+        // gax would otherwise draw each delay from [0, delay], halving the expected wait. Ruby's
+        // client library randomizes around the nominal value (0.5x to 1.5x) instead, so applying
+        // the delays as configured keeps java inside ruby's range.
+        .setJittered(false)
+        .setTotalTimeout(Duration.ofSeconds(task.getRetryTotalTimeoutSec()))
+        .build();
   }
 
+  // Ranges are checked up front by BigqueryConfigValidator#validateTimeouts, so the int
+  // millisecond conversions here can't overflow.
   static TransportOptions buildTransportOptions(PluginTask task) {
-    // See README.md for why send_timeout_sec is folded in here.
-    int readTimeoutSec = task.getReadTimeoutSec() + task.getSendTimeoutSec();
     return HttpTransportOptions.newBuilder()
         .setConnectTimeout(task.getOpenTimeoutSec() * 1000)
-        .setReadTimeout(readTimeoutSec * 1000)
+        .setReadTimeout((int) (BigqueryConfigResolver.effectiveReadTimeoutSec(task) * 1000))
         .build();
   }
 
   // Backs load()/copy()/runQuery()/executeQuery()'s job-level retry (a fresh job resubmission
   // after a completed-but-errored job), separate from the gax RetrySettings above.
   private RetryExecutor buildJobRetryExecutor() {
-    RetryExecutor.Builder builder =
-        RetryExecutor.builder()
-            .withRetryLimit(task.getRetries())
-            .withInitialRetryWaitMillis(2 * 1000)
-            .withMaxRetryWaitMillis(10 * 1000);
-    envMillis("BIGQUERY_OUTPUT_OPTION_JOB_RETRY_INITIAL_WAIT_MS")
-        .ifPresent(v -> builder.withInitialRetryWaitMillis(v.intValue()));
-    envMillis("BIGQUERY_OUTPUT_OPTION_JOB_RETRY_MAX_WAIT_MS")
-        .ifPresent(v -> builder.withMaxRetryWaitMillis(v.intValue()));
-    return builder.build();
+    return RetryExecutor.builder()
+        .withRetryLimit(task.getRetries())
+        .withInitialRetryWaitMillis(task.getJobRetryInitialWaitSec() * 1000)
+        .withMaxRetryWaitMillis(task.getJobRetryMaxWaitSec() * 1000)
+        .build();
   }
 
   public Dataset createDataset() {

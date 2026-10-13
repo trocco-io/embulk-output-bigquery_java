@@ -165,6 +165,18 @@ public class JsonColumnVisitor implements BigqueryColumnVisitor {
         } catch (Exception e) {
           throw new RuntimeException(e);
         }
+      } else if (columnOption.isPresent()
+          && columnOption.get().getType().isPresent()
+          && columnOption.get().getType().get().equals("JSON")) {
+        // JSON->JSON: set the parsed value itself, matching ruby's json_converter (which just
+        // returns the value as-is for type: JSON). Passing jsonStr straight to node.put() below
+        // would double-encode it, since put() treats a String argument as a JSON string value,
+        // not as raw JSON to embed.
+        try {
+          node.set(column.getName(), BigqueryUtil.getObjectMapper().readTree(jsonStr));
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
       } else {
         node.put(column.getName(), jsonStr);
       }

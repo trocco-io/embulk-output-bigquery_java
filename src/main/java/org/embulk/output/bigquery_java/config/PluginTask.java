@@ -42,6 +42,8 @@ public interface PluginTask extends Task {
   @Config("table")
   String getTable();
 
+  void setTable(String table);
+
   @Config("old_dataset")
   @ConfigDefault("null")
   Optional<String> getOldDataset();
@@ -49,6 +51,8 @@ public interface PluginTask extends Task {
   @Config("old_table")
   @ConfigDefault("null")
   Optional<String> getOldTable();
+
+  void setOldTable(Optional<String> oldTable);
 
   @Config("location")
   @ConfigDefault("null")
@@ -76,7 +80,7 @@ public interface PluginTask extends Task {
   String getDefaultTimezone();
 
   @Config("default_timestamp_format")
-  @ConfigDefault("\"%Y-%m-%d %H:%M:%S.%6N %:z\"")
+  @ConfigDefault("\"%Y-%m-%d %H:%M:%S.%6N\"")
   String getDefaultTimestampFormat();
 
   // TODO: make this optional
@@ -153,13 +157,49 @@ public interface PluginTask extends Task {
   @ConfigDefault("5")
   int getRetries();
 
+  // Backoff for retrying individual BigQuery API calls (gax RetrySettings). The delay defaults
+  // mirror gax's own (ServiceOptions.getDefaultRetrySettings()).
+  @Config("retry_initial_delay_sec")
+  @ConfigDefault("1")
+  int getRetryInitialDelaySec();
+
+  @Config("retry_max_delay_sec")
+  @ConfigDefault("32")
+  int getRetryMaxDelaySec();
+
+  @Config("retry_delay_multiplier")
+  @ConfigDefault("2.0")
+  double getRetryDelayMultiplier();
+
+  // One day rather than gax's default 50s: gax stops retrying once the elapsed time plus the next
+  // delay would exceed the total timeout, which would cap `retries` at ~6 attempts (or 0 after a
+  // single long read timeout). Ruby's HTTP client library applies a fixed 15-minute cap of its
+  // own; here `retries` is kept as the effective limit instead.
+  @Config("retry_total_timeout_sec")
+  @ConfigDefault("86400")
+  int getRetryTotalTimeoutSec();
+
+  // Wait between job-level retries (resubmitting a completed-but-errored load/copy/query job).
+  @Config("job_retry_initial_wait_sec")
+  @ConfigDefault("2")
+  int getJobRetryInitialWaitSec();
+
+  @Config("job_retry_max_wait_sec")
+  @ConfigDefault("10")
+  int getJobRetryMaxWaitSec();
+
   @Config("open_timeout_sec")
   @ConfigDefault("300")
   int getOpenTimeoutSec();
 
   @Config("read_timeout_sec")
-  @ConfigDefault("300")
-  int getReadTimeoutSec();
+  @ConfigDefault("null")
+  Optional<Integer> getReadTimeoutSec();
+
+  // Deprecated alias of read_timeout_sec, kept for config compatibility with the ruby plugin.
+  @Config("timeout_sec")
+  @ConfigDefault("null")
+  Optional<Integer> getTimeoutSec();
 
   // Kept only for config compatibility with the ruby plugin; see README.md for details.
   @Config("send_timeout_sec")

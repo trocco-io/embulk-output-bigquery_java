@@ -228,6 +228,40 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
   }
 
   @Test
+  public void testRunExpandsStrftimeInTableName() throws Exception {
+    // table: table_%Y%m%d is expanded to the current date before any BigQuery request is made
+    // (BigqueryTaskBuilder.build()), so every reference to the destination table in the recorded
+    // requests already reflects the expanded name, not the literal "table_%Y%m%d" pattern.
+    List<RecordedRequest> requests =
+        runWithMockServer(
+            c -> c.set("mode", "replace").set("table", "table_%Y%m%d"),
+            datasetResponse(),
+            tableResponse(),
+            createLoadJobResponse("testjob"),
+            waitForLoadJobResponse("testjob"),
+            tableResponseWithNumRows(1),
+            createCopyJobResponse("testjob"),
+            waitForCopyJobResponse("testjob"),
+            tableResponse(),
+            deleteResponse());
+
+    assertEquals(9, requests.size());
+
+    assertPostTables(requests.get(1));
+    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
+    assertMatches(tempTableId, "LOAD_TEMP_.*_table_\\d{8}");
+
+    assertPostJobs(requests.get(5));
+    JSONObject copyConfig = jobConfig(requests.get(5), "copy");
+    assertEquals(tempTableId, firstSourceTableId(copyConfig));
+    String destinationTable = tableIdOf(copyConfig, "destinationTable");
+    assertMatches(destinationTable, "table_\\d{8}");
+
+    assertGetTable(requests.get(7), destinationTable); // updateTableIfNeed()
+    assertDeleteTable(requests.get(8), tempTableId);
+  }
+
+  @Test
   public void testRunReplaceModeRestoresRetainedDescriptionAndPolicyTags() throws Exception {
     // With retain_column_descriptions/retain_column_policy_tags on, isNeedUpdateTable() is true:
     // storeCachedSrcFieldsIfNeed() GETs the (pre-existing) destination table right after autoCreate
