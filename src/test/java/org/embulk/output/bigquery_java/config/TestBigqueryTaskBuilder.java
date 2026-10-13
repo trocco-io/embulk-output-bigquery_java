@@ -2,6 +2,7 @@ package org.embulk.output.bigquery_java.config;
 
 import static org.embulk.output.bigquery_java.util.AssertUtil.assertMatches;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.time.Instant;
@@ -140,6 +141,47 @@ public class TestBigqueryTaskBuilder {
     assertEquals("NEWLINE_DELIMITED_JSON", task.getSourceFormat());
     assertEquals("GZIP", task.getCompression());
     assertEquals(".jsonl.gz", task.getFileExt().get());
+  }
+
+  @Test
+  public void setTempTable_assignsDefaultForReplace() {
+    config = loadYamlResource(embulk, "base.yml").set("mode", "replace");
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+    BigqueryTaskBuilder.setTempTable(task);
+
+    assertMatches(task.getTempTable().get(), "LOAD_TEMP_.*_table");
+  }
+
+  @Test
+  public void setTempTable_keepsConfiguredValueForReplace() {
+    config = loadYamlResource(embulk, "base.yml").set("mode", "replace").set("temp_table", "foo");
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+    BigqueryTaskBuilder.setTempTable(task);
+
+    assertEquals("foo", task.getTempTable().get());
+  }
+
+  @Test
+  public void setTempTable_clearsConfiguredValueForDeleteInAdvance() {
+    // Ruby sets temp_table to nil for every mode other than replace/append/merge/replace_backup.
+    config =
+        loadYamlResource(embulk, "base.yml")
+            .set("mode", "delete_in_advance")
+            .set("temp_table", "foo");
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+    BigqueryTaskBuilder.setTempTable(task);
+
+    assertFalse(task.getTempTable().isPresent());
+  }
+
+  @Test
+  public void setTempTable_clearsConfiguredValueForAppendDirect() {
+    config =
+        loadYamlResource(embulk, "base.yml").set("mode", "append_direct").set("temp_table", "foo");
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+    BigqueryTaskBuilder.setTempTable(task);
+
+    assertFalse(task.getTempTable().isPresent());
   }
 
   @Test

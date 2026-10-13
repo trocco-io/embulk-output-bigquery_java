@@ -110,11 +110,23 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
 
   @Test
   public void testRunAppendDirectMode() throws Exception {
-    // append_direct has no temp table: autoCreate() creates the destination table directly, load
-    // uploads straight into it, and there is no copy/merge step or temp table to delete afterward.
+    assertAppendDirectRun(c -> c);
+  }
+
+  @Test
+  public void testRunAppendDirectModeIgnoresConfiguredTempTable() throws Exception {
+    // A configured temp_table must not reroute append_direct through a temp table and a
+    // WRITE_TRUNCATE copy; ruby sets temp_table to nil for this mode.
+    assertAppendDirectRun(c -> c.set("temp_table", "configured_temp"));
+  }
+
+  // append_direct has no temp table: autoCreate() creates the destination table directly, load
+  // uploads straight into it, and there is no copy/merge step or temp table to delete afterward.
+  private void assertAppendDirectRun(Function<ConfigSource, ConfigSource> customizeConfig)
+      throws Exception {
     List<RecordedRequest> requests =
         runWithMockServer(
-            c -> c.set("mode", "append_direct"),
+            c -> customizeConfig.apply(c.set("mode", "append_direct")),
             datasetResponse(),
             tableResponse(),
             createLoadJobResponse("testjob"),
@@ -464,13 +476,25 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
 
   @Test
   public void testRunDeleteInAdvanceMode() throws Exception {
-    // autoCreate() deletes the destination table (or partition), then immediately recreates the
-    // same (now empty) destination table, and load uploads straight into it: no temp table, no
-    // copy/merge step, matching ruby (and avoiding the destination table being left deleted if a
-    // later step fails).
+    assertDeleteInAdvanceRun(c -> c);
+  }
+
+  @Test
+  public void testRunDeleteInAdvanceModeIgnoresConfiguredTempTable() throws Exception {
+    // A configured temp_table must not reroute delete_in_advance through a temp table and a
+    // WRITE_TRUNCATE copy; ruby sets temp_table to nil for this mode.
+    assertDeleteInAdvanceRun(c -> c.set("temp_table", "configured_temp"));
+  }
+
+  // autoCreate() deletes the destination table (or partition), then immediately recreates the
+  // same (now empty) destination table, and load uploads straight into it: no temp table, no
+  // copy/merge step, matching ruby (and avoiding the destination table being left deleted if a
+  // later step fails).
+  private void assertDeleteInAdvanceRun(Function<ConfigSource, ConfigSource> customizeConfig)
+      throws Exception {
     List<RecordedRequest> requests =
         runWithMockServer(
-            c -> c.set("mode", "delete_in_advance"),
+            c -> customizeConfig.apply(c.set("mode", "delete_in_advance")),
             datasetResponse(),
             deleteResponse(),
             tableResponse(),

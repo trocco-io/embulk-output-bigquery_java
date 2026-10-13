@@ -69,6 +69,11 @@ public class BigqueryTaskBuilder {
       String tempTable =
           task.getTempTable().orElse(String.format("LOAD_TEMP_%s_%s", uniqueName, task.getTable()));
       task.setTempTable(Optional.of(tempTable));
+    } else {
+      // append_direct and delete_in_advance load straight into the destination table. Mirror ruby,
+      // which sets temp_table to nil for every other mode, so a configured temp_table can't reroute
+      // the load through a temp table and a WRITE_TRUNCATE copy.
+      task.setTempTable(Optional.empty());
     }
   }
 
