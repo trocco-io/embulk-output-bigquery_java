@@ -202,14 +202,44 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
 
   @Test
   public void testRunFailsImmediatelyOnRecordConversionError() throws Exception {
+    File intermediateDir = runFailingOnRecordConversion(true);
+
+    // The run died inside control.run(), before the intermediate files are normally closed and
+    // deleted; they must not be left behind, or a later run with the same path_prefix would load
+    // the half-written file.
+    assertEquals(Collections.emptyList(), Arrays.asList(intermediateDir.list()));
+  }
+
+  @Test
+  public void testRunFailsImmediatelyOnRecordConversionErrorKeepingTheFile() throws Exception {
+    File intermediateDir = runFailingOnRecordConversion(false);
+
+    // With delete_from_local_when_job_end off the file is kept, as after a normal run; this also
+    // shows the test above had a file to delete.
+    assertEquals(1, intermediateDir.list().length);
+    assertMatches(intermediateDir.list()[0], "bq_\\.\\d+\\.\\d+\\.jsonl\\.gz");
+  }
+
+  // Runs append_direct over two rows with c0 typed INTEGER: the first row ("1") is written to the
+  // intermediate file, the second ("hello") can't be converted and fails the run with that file
+  // still open. path_prefix points into a fresh directory, which is returned.
+  private File runFailingOnRecordConversion(boolean deleteFromLocalWhenJobEnd) throws Exception {
+    File intermediateDir = testFolder.newFolder();
     RequestCursor requests =
-        runWithMockServerExpectingFailure(
-            c ->
-                c.set("mode", "append_direct")
-                    .set(
-                        "column_options",
-                        Collections.singletonList(
-                            embulk.newConfig().set("name", "c0").set("type", "INTEGER"))),
+        BigqueryMockWebServerTestUtil.runWithMockServerExpectingFailure(
+            embulk,
+            testFolder,
+            loadTestHostConfig(
+                embulk,
+                c ->
+                    c.set("mode", "append_direct")
+                        .set("path_prefix", new File(intermediateDir, "bq_").getPath())
+                        .set("delete_from_local_when_job_end", deleteFromLocalWhenJobEnd)
+                        .set(
+                            "column_options",
+                            Collections.singletonList(
+                                embulk.newConfig().set("name", "c0").set("type", "INTEGER")))),
+            Arrays.asList("c0:string", "1", "hello"),
             PartialExecutionException.class,
             "(?s).*hello cannot be converted to INTEGER.*",
             datasetResponse(),
@@ -217,8 +247,8 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
 
     assertGetDataset(requests.next());
     assertPostTables(requests.next());
-
     requests.assertNoMore();
+    return intermediateDir;
   }
 
   @Test

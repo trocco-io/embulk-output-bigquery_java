@@ -87,7 +87,7 @@ public class BigqueryFileWriter {
 
   public void close() {
     // A writer that never wrote a record never opened its file; don't create an empty one now
-    // (it would be picked up as a load file by getIntermediateFiles()).
+    // (it would be picked up as a load file).
     if (this.os == null) {
       return;
     }

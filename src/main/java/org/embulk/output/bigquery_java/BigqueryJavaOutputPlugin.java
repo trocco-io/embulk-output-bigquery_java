@@ -137,14 +137,19 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
 
       client.updateTableIfNeed();
     } finally {
+      // control.run() may have thrown before the writers were closed above (a record that can't
+      // be converted, say): close them here too (a no-op the second time) and apply
+      // delete_from_local_when_job_end to their files as after a normal run.
+      // ruby (verified): its ensure only sees the paths of a run that got past the data phase,
+      // so such a half-written file is left behind, open. It is never loaded again (see above),
+      // but it stays on disk until someone removes it. This goes one step further on purpose.
+      this.writers.values().forEach(BigqueryFileWriter::close);
       try {
         if (task.getTempTable().isPresent()) {
           client.deleteTable(task.getTempTable().get());
         }
       } finally {
-        if (paths != null) {
-          deleteOrKeepIntermediateFiles(task, paths);
-        }
+        deleteOrKeepIntermediateFiles(task, intermediateFilesOf(this.writers.values()));
       }
     }
 
