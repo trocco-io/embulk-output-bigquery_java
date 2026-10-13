@@ -264,15 +264,14 @@ public final class BigqueryMockWebServerTestUtil {
   }
 
   // The PUT of the whole file as the single, final chunk of the resumable upload session opened
-  // by startResumableUploadResponse(). A file larger than the library's chunk size would be sent
-  // as several PUTs (the intermediate ones answered with 308), which these helpers don't model.
+  // by startResumableUploadResponse(), sized from the recorded body. A file over the library's
+  // chunk size is sent as several PUTs instead; assert those with assertUploadChunk().
   public static void assertUploadLoadFile(RecordedRequest request) {
-    assertRequest(request, "PUT", RESUMABLE_UPLOAD_PATH + "&upload_id=" + RESUMABLE_UPLOAD_ID);
     long size = request.getBodySize();
     assertTrue(
-        "uploaded " + size + " bytes, more than one chunk; see assertUploadLoadFile()",
+        "uploaded " + size + " bytes, more than one chunk; see assertUploadChunk()",
         size <= UPLOAD_CHUNK_SIZE);
-    assertEquals("bytes 0-" + (size - 1) + "/" + size, request.getHeader("Content-Range"));
+    assertUploadChunk(request, 0, size - 1, size);
   }
 
   // One chunk PUT of a multi-chunk upload (a file over UPLOAD_CHUNK_SIZE): Content-Range is
