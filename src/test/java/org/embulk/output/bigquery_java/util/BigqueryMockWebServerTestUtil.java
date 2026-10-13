@@ -271,6 +271,37 @@ public final class BigqueryMockWebServerTestUtil {
     assertGetJobStatus(requests.get(offset + 2), jobId);
   }
 
+  // The 3 requests matching loadAttemptResponses(), consumed from the cursor.
+  public static void assertLoadAttempt(RequestCursor requests, String jobId) {
+    assertStartResumableUpload(requests.next());
+    assertUploadLoadFile(requests.next());
+    assertGetJobStatus(requests.next(), jobId);
+  }
+
+  // Walks the recorded requests in order, so that a test asserts them as a sequence
+  // (assertGetDataset(requests.next()), ...) instead of by position: when a step gains or loses a
+  // request, only the assertions for that step change, not every index after it.
+  public static final class RequestCursor {
+    private final List<RecordedRequest> requests;
+    private int position = 0;
+
+    public RequestCursor(List<RecordedRequest> requests) {
+      this.requests = requests;
+    }
+
+    public RecordedRequest next() {
+      assertTrue(
+          "expected another request after " + position + " but the run made only " + position,
+          position < requests.size());
+      return requests.get(position++);
+    }
+
+    // Every recorded request has been asserted on.
+    public void assertNoMore() {
+      assertEquals("unasserted requests remain", requests.size(), position);
+    }
+  }
+
   // The lines of the intermediate file as uploaded by assertUploadLoadFile()'s request. The body
   // is the file itself; `gzipped` states what the test's compression setting demands of it
   // (true for compression: GZIP, test_host.yml's default), so a plain body fails to gunzip.
