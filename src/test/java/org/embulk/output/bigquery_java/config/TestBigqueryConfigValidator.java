@@ -49,6 +49,19 @@ public class TestBigqueryConfigValidator extends BigqueryConfigTestBase {
   }
 
   @Test
+  public void validateModeAndAutoCreteTable_replaceBackup_autoCreateTable_False_configException() {
+    ConfigSource config = loadYamlResource("base.yml");
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+    task.setMode("replace_backup");
+    task.setAutoCreateTable(false);
+    ConfigException e =
+        assertThrows(
+            ConfigException.class,
+            () -> BigqueryConfigValidator.validateModeAndAutoCreteTable(task));
+    assertEquals("`mode: replace_backup` requires `auto_create_table: true`", e.getMessage());
+  }
+
+  @Test
   public void validateRetrySettings_defaultsAreValid() {
     validateRetrySettings(taskWith(c -> c));
   }

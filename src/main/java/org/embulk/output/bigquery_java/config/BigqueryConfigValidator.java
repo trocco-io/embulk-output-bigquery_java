@@ -73,9 +73,8 @@ public class BigqueryConfigValidator {
   }
 
   public static void validateModeAndAutoCreteTable(PluginTask task) throws ConfigException {
-    // TODO: modes are append replace delete_in_advance replace_backup and
-    // !task['auto_create_table']
-    String[] modes = {"replace", "append", "merge", "delete_in_advance"};
+    // Same list as ruby; replace_backup is kept although validateMode still rejects it.
+    String[] modes = {"replace", "append", "merge", "delete_in_advance", "replace_backup"};
     if (Arrays.asList(modes).contains(task.getMode().toLowerCase()) && !task.getAutoCreateTable()) {
       throw new ConfigException(
           String.format("`mode: %s` requires `auto_create_table: true`", task.getMode()));
