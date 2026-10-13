@@ -1,17 +1,18 @@
 package org.embulk.output.bigquery_java;
 
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.COPY_CONFIG_BODY;
-import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.LOAD_CONFIG_BODY;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.QUERY_CONFIG_BODY;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertFieldDescriptionAndPolicyTag;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetJobStatus;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetTable;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertLoadAttempt;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertPatchTable;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertPostJobs;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertPostTables;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.errorResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.firstSchemaField;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.jobResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.loadAttemptResponses;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.loadTestHostConfig;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.requestBodyJson;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.runWithMockServer;
@@ -26,6 +27,7 @@ import static org.junit.Assert.assertNotNull;
 
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -40,6 +42,7 @@ import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
+import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockResponses;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockServerAction;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.Column;
@@ -149,15 +152,11 @@ public class TestBigqueryClientWithMockServer {
 
   @Test
   public void testCreateTableIfNotExistRetriesTransientErrorsThenSucceeds() throws Exception {
-    // This retry count currently comes from the client library's own default (maxAttempts=6 via
-    // ServiceOptions.getDefaultRetrySettings()); it is not yet driven by our task's `retries`
-    // config. If createTableIfNotExist() is ever changed to honor `retries`, this test should be
-    // updated to reflect that config value instead of the library default.
-    // TODO: reflect task's `retries` config in createTableIfNotExist()'s retry behavior.
+    // test_host.yml sets retries: 1, so 1 failure then a success should still go through (1
+    // initial attempt + 1 retry = 2 total), driven by the task's `retries` config (see
+    // buildRetrySettings() in BigqueryClient).
     List<MockResponse> responses = new ArrayList<>();
-    for (int i = 0; i < 5; i++) {
-      responses.add(errorResponse(500, "boom", "internalError"));
-    }
+    responses.add(errorResponse(500, "boom", "internalError"));
     responses.add(tableResponse());
 
     List<RecordedRequest> requests =
@@ -165,7 +164,7 @@ public class TestBigqueryClientWithMockServer {
             server -> buildTestHostClient(server).createTableIfNotExist("table"),
             responses.toArray(new MockResponse[0]));
 
-    assertEquals(6, requests.size());
+    assertEquals(2, requests.size());
     for (RecordedRequest request : requests) {
       assertPostTables(request);
     }
@@ -173,11 +172,10 @@ public class TestBigqueryClientWithMockServer {
 
   @Test
   public void testCreateTableIfNotExistGivesUpAfterMaxTransientErrors() throws Exception {
-    // As above, this retry count currently comes from the client library's own default
-    // (maxAttempts=6), not our task's `retries` config; update this test if that ever changes.
-    // TODO: reflect task's `retries` config in createTableIfNotExist()'s retry behavior.
+    // test_host.yml sets retries: 1, so 2 consecutive failures (1 initial attempt + 1 retry)
+    // should exhaust the budget and give up, driven by the task's `retries` config.
     List<MockResponse> responses = new ArrayList<>();
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 2; i++) {
       responses.add(errorResponse(500, "boom", "internalError"));
     }
 
@@ -188,7 +186,7 @@ public class TestBigqueryClientWithMockServer {
             server -> buildTestHostClient(server).createTableIfNotExist("table"),
             responses.toArray(new MockResponse[0]));
 
-    assertEquals(6, requests.size());
+    assertEquals(2, requests.size());
     for (RecordedRequest request : requests) {
       assertPostTables(request);
     }
@@ -391,9 +389,18 @@ public class TestBigqueryClientWithMockServer {
     assertGetJobStatus(requests.get(3), jobId2);
   }
 
+  // A load differs from copy/query in how the job is created: the file goes through a resumable
+  // upload session, so each attempt is the 3 requests of loadAttemptResponses(), and every retry
+  // re-uploads the whole file as a new load job.
+  private Path newLoadFile(String name) throws Exception {
+    Path loadFile = testFolder.newFile(name).toPath();
+    Files.write(loadFile, Collections.singletonList("{\"c0\":\"hello\"}"));
+    return loadFile;
+  }
+
   @Test
   public void testLoadRetriesOnInternalErrorThenSucceeds() throws Exception {
-    Path loadFile = testFolder.newFile("load-retry-test.json").toPath();
+    Path loadFile = newLoadFile("load-retry-test.json");
 
     List<RecordedRequest> requests =
         runWithMockServer(
@@ -403,14 +410,18 @@ public class TestBigqueryClientWithMockServer {
                       .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
               assertNotNull(stats);
             },
-            jobRetrySucceedsResponses("load", LOAD_CONFIG_BODY, "load-job-1", "load-job-2"));
+            MockResponses.of(loadAttemptResponses("load-job-1", "internalError"))
+                .add(loadAttemptResponses("load-job-2", null))
+                .toArray());
 
-    assertJobRetryRequests(requests, "load-job-1", "load-job-2");
+    assertEquals(6, requests.size());
+    assertLoadAttempt(requests, 0, "load-job-1");
+    assertLoadAttempt(requests, 3, "load-job-2");
   }
 
   @Test
   public void testLoadGivesUpAfterMaxRetries() throws Exception {
-    Path loadFile = testFolder.newFile("load-giveup-test.json").toPath();
+    Path loadFile = newLoadFile("load-giveup-test.json");
 
     List<RecordedRequest> requests =
         runWithMockServerExpectingFailure(
@@ -419,9 +430,13 @@ public class TestBigqueryClientWithMockServer {
             server ->
                 buildTestHostClient(server, c -> c.set("retries", 1))
                     .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
-            jobRetryGivesUpResponses("load", LOAD_CONFIG_BODY, "load-job-1", "load-job-2"));
+            MockResponses.of(loadAttemptResponses("load-job-1", "internalError"))
+                .add(loadAttemptResponses("load-job-2", "internalError"))
+                .toArray());
 
-    assertJobRetryRequests(requests, "load-job-1", "load-job-2");
+    assertEquals(6, requests.size());
+    assertLoadAttempt(requests, 0, "load-job-1");
+    assertLoadAttempt(requests, 3, "load-job-2");
   }
 
   @Test

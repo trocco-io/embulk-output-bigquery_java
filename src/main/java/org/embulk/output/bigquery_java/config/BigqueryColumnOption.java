@@ -39,8 +39,8 @@ public interface BigqueryColumnOption extends Task {
   public Optional<String> getTimestampFormat();
 
   @Config("timezone")
-  @ConfigDefault("\"UTC\"")
-  public String getTimezone();
+  @ConfigDefault("null")
+  public Optional<String> getTimezone();
 
   @Config("description")
   @ConfigDefault("null")

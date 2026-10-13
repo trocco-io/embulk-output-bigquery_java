@@ -267,4 +267,21 @@ public class TestBigqueryStringConverter {
     assertTrue(node.get("key").isBigDecimal());
     assertEquals(123.456, node.get("key").asDouble(), 0);
   }
+
+  @Test
+  public void testConvertStringToTimestamp_usesDefaultTimezone() {
+    ObjectNode node = BigqueryUtil.getObjectMapper().createObjectNode();
+    config = loadYamlResource(embulk, "base.yml").set("default_timezone", "Asia/Tokyo");
+    ConfigSource configSource = embulk.newConfig();
+    configSource.set("type", "TIMESTAMP");
+    configSource.set("name", "key");
+    configSource.set("timestamp_format", "%Y/%m/%d %H:%M:%S");
+    BigqueryColumnOption columnOption = CONFIG_MAPPER.map(configSource, BigqueryColumnOption.class);
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+
+    BigqueryStringConverter.convertAndSet(
+        node, "key", "2020/05/01 00:00:00", BigqueryColumnOptionType.TIMESTAMP, columnOption, task);
+
+    assertEquals("2020-05-01 00:00:00.000000 +09:00", node.get("key").asText());
+  }
 }

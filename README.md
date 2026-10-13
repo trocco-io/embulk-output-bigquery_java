@@ -42,7 +42,7 @@ Under construction
 |  project  (x)                           | string      | required unless service\_account's `json_keyfile` is given. | | project\_id |
 |  dataset                             | string      | required   |                          | dataset |
 |  location                            | string      | optional   | nil                      | geographic location of dataset. See [Location](#location) |
-|  table                               | string      | required   |                          | table name, or table name with a partition decorator such as `table_name$20160929`|
+|  table                               | string      | required   |                          | table name (see [Table id formatting](#table-id-formatting) for strftime support), or table name with a partition decorator such as `table_name$20160929` |
 |  auto_create_dataset                 | boolean     | optional   | false                    | automatically create dataset |
 |  auto_create_table                   | boolean     | optional   | true                     | `false` is available only for `append_direct` mode. Other modes require `true`. See [Dynamic Table Creating](#dynamic-table-creating) and [Time Partitioning](#time-partitioning) |
 |  schema_file   (x)                      | string      | optional   |                          | /path/to/schema.json |
@@ -70,13 +70,21 @@ Client or request options
 
 | name                                 | type        | required?  | default                  | description            |
 |:-------------------------------------|:------------|:-----------|:-------------------------|:-----------------------|
-|  open_timeout_sec  (x)                  | integer     | optional   | 300                      | Seconds to wait for the connection to open |
-|  timeout_sec       (x)                  | integer     | optional   | 300                      | Seconds to wait for one block to be read (google-api-ruby-client < v0.11.0) |
-|  send_timeout_sec   (x)                 | integer     | optional   | 300                      | Seconds to wait to send a request (google-api-ruby-client >= v0.11.0) |
-|  read_timeout_sec   (x)                 | integer     | optional   | 300                      | Seconds to wait to read a response (google-api-ruby-client >= v0.11.0) |
-|  retries                            | integer     | optional   | 5                        | Number of retries |
+|  open_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait for the connection to open. 0 means no timeout, as in the ruby plugin |
+|  send_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait to send a request. The underlying HTTP transport has no timeout for the send phase itself, so this value is added onto `read_timeout_sec` instead for config compatibility with the ruby plugin. This is expected to change to something based on the java library's own settings in the future |
+|  read_timeout_sec                    | integer     | optional   | 300                      | Seconds to wait to read a response. The effective timeout applied is `read_timeout_sec + send_timeout_sec`; when that sum is 0 there is no timeout, as in the ruby plugin. See `send_timeout_sec` |
+|  timeout_sec                         | integer     | optional   | nil                      | Deprecated. Used as `read_timeout_sec` when that is not set, for config compatibility with the ruby plugin |
+|  retries                            | integer     | optional   | 5                        | Number of retries. Used for both individual BigQuery API call retries and job-level retries (a fresh job resubmission after a completed-but-errored job), matching the ruby plugin's behavior of using the same value for both |
+|  retry_initial_delay_sec             | integer     | optional   | 1                        | Initial backoff before retrying a failed BigQuery API call (seconds). Same as the library default. Delays are applied as configured, without the library's random jitter |
+|  retry_max_delay_sec                 | integer     | optional   | 32                       | Maximum backoff between API call retries (seconds). Same as the library default. See `retry_initial_delay_sec` |
+|  retry_delay_multiplier              | float       | optional   | 2.0                      | Backoff multiplier between API call retries. Same as the library default |
+|  retry_total_timeout_sec             | integer     | optional   | 86400                    | Wall-clock budget for API call retries (seconds). Defaults to 1 day rather than the library's 50 seconds, so that `retries` is the effective limit. The ruby plugin's HTTP client library applies a fixed 15 minute cap instead |
+|  job_retry_initial_wait_sec          | integer     | optional   | 2                        | Initial wait before resubmitting a completed-but-errored load/copy/query job (seconds) |
+|  job_retry_max_wait_sec              | integer     | optional   | 10                       | Maximum wait between job-level retries (seconds) |
 |  application_name   (x)                  | string      | optional   | "Embulk BigQuery plugin" | User-Agent |
 |  sdk_log_level      (x)                 | string      | optional   | nil (WARN)               | Log level of google api client library |
+
+The `retry_*` / `job_retry_*` options above are java-only additions; the ruby plugin has no equivalent. Its API call retries are backed off by its HTTP client library (1s initial delay doubling up to 60s, randomized by +/-50%, with a fixed 15 minute wall-clock cap), and its job-level retries resubmit immediately.
 
 
 Options for intermediate local files
@@ -112,6 +120,22 @@ Following options are same as [bq command-line tools](https://cloud.google.com/b
 |  clustering.fields  (x)               | array    | required  | nil     | One or more fields on which data should be clustered. The order of the specified columns determines the sort order of the data. |
 |  schema_update_options  (x)           | array    | optional  | nil     | (Experimental) List of `ALLOW_FIELD_ADDITION` or `ALLOW_FIELD_RELAXATION` or both. See [jobs#configuration.load.schemaUpdateOptions](https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.schemaUpdateOptions). NOTE for the current status: `schema_update_options` does not work for `copy` job, that is, is not effective for most of modes such as `append`, `replace` and `replace_backup`. `delete_in_advance` deletes origin table so does not need to update schema. Only `append_direct` can utilize schema update. |
 
+
+### Table id formatting
+
+`table` accepts a [Time#strftime](https://docs.ruby-lang.org/en/2.6.0/Time.html#method-i-strftime)
+format to construct table ids (via [embulk-util-timestamp](https://github.com/embulk/embulk-util-timestamp)'s
+legacy Embulk-style formatter, which reimplements ruby's strftime rather than the C library's).
+Table ids are formatted at runtime using the local time of the embulk server.
+
+For example, with the configuration below,
+data is inserted into tables `table_20150503`, `table_20150504` and so on.
+
+```yaml
+out:
+  type: bigquery_java
+  table: table_%Y%m%d
+```
 
 ### Workload Identity Federation
 
@@ -203,7 +227,7 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
     - long (x):      `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `INTEGER`)
     - double (x):    `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP` (default: `FLOAT`)
     - string:    `BOOLEAN`, `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE`, `RECORD` (default: `STRING`)
-    - timestamp (x): `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE` (default: `TIMESTAMP`)
+    - timestamp (x): `INTEGER`, `FLOAT`, `STRING`, `TIMESTAMP`, `DATETIME`, `DATE` (default: `TIMESTAMP`). `INTEGER`/`FLOAT` output epoch seconds (not milliseconds)
     - json (x):      `STRING`,  `RECORD`, `JSON` (default: `STRING`)
     - numeric (x): `STRING`
   - **mode**: BigQuery mode such as `NULLABLE`, `REQUIRED`, and `REPEATED` (string, default: `NULLABLE`)
@@ -214,6 +238,8 @@ Column options are used to aid guessing BigQuery schema, or to define conversion
   - **scale**: optional, [scale](https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types?hl=ja#decimal_types) for numeric column (long, default is 9).
 - **default_timestamp_format**: default timestamp format for column_options (string, default is "%Y-%m-%d %H:%M:%S.%6N")
 - **default_timezone**: default timezone for column_options (string, default is "UTC")
+
+Note for users upgrading from earlier versions of this plugin: `timestamp` columns written as `STRING` without an explicit `timestamp_format` used to include a timezone offset (`%Y-%m-%d %H:%M:%S.%6N %:z`). To keep that output, set `default_timestamp_format: "%Y-%m-%d %H:%M:%S.%6N %:z"`. `timestamp` columns written as `INTEGER`/`FLOAT` used to be epoch milliseconds and are now epoch seconds; there is no option to restore milliseconds, so downstream queries such as `TIMESTAMP_MILLIS(col)` must be changed to `TIMESTAMP_SECONDS(col)`.
 
 Example)
 
@@ -259,4 +285,4 @@ $ EMBULK_OUTPUT_BIGQUERY_TEST_CONFIG="example/test.yml" ./gradlew test # Create 
 
 `test_host` is an internal, undocumented-for-users config option used by this plugin's own test suite (`TestBigqueryClientWithMockServer`, `TestBigqueryJavaOutputPluginWithMockServer`) to redirect all BigQuery API calls to a local `MockWebServer` instead of the real BigQuery API, and to bypass credential setup entirely (`NoCredentials`). It is not intended for use outside of tests, and is a no-op unless the `TEST_HOST_ENABLED` environment variable is also set to `true` (as the `test` task in `build.gradle` does), so a plugin config alone can't redirect a real embulk run at an arbitrary host.
 
-When set, `BigqueryClient#load()` also takes a different code path: instead of `TableDataWriteChannel`'s resumable upload session (which `google-cloud-bigquery:2.14.0` hardcodes to the real `googleapis.com` host regardless of `test_host`), it submits the load job configuration directly via `jobs.insert`, without actually streaming the file content. This lets tests observe and assert on load job requests (e.g. the destination table, schema, write disposition) through `MockWebServer`, at the cost of not exercising the real resumable-upload code path.
+When set, the resumable upload session that `BigqueryClient#load()` streams the file through is redirected to `test_host` as well: `google-cloud-bigquery:2.14.0` hardcodes the real `googleapis.com` host for the request that opens that session (`HttpBigQueryRpc#open()`), so `TestHostBigQueryRpc` overrides just that method to use the configured host, the way newer library versions do. Everything else about the upload, including the chunk `PUT`s and the library's own retries, is the real code path, so tests can observe the load job request, the uploaded bytes, and upload failures through `MockWebServer`.
