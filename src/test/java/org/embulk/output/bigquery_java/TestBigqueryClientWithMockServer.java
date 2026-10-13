@@ -57,6 +57,7 @@ import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockResponses;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockServerAction;
+import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.RequestCursor;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.Column;
 import org.embulk.spi.FileInputPlugin;
@@ -114,20 +115,19 @@ public class TestBigqueryClientWithMockServer {
 
   @Test
   public void testCreateTableIfNotExistIgnoresAlreadyExists() throws Exception {
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             // Should swallow the 409 and return normally.
             server -> buildTestHostClient(server).createTableIfNotExist("table"),
             errorResponse(409, "Already Exists: Table project:dataset.table", "duplicate"));
+    assertPostTables(requests.next());
 
-    assertEquals(1, requests.size());
-
-    assertPostTables(requests.get(0));
+    requests.assertNoMore();
   }
 
   @Test
   public void testCreateTableIfNotExistThrowsOnOtherError() throws Exception {
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             BigqueryException.class,
             "(?s).*failed to create table.*",
@@ -135,10 +135,9 @@ public class TestBigqueryClientWithMockServer {
             // 400 (not 500/503/429) so the BigQuery client library's own transport-level retry
             // doesn't kick in before this reaches BigqueryClient's error handling.
             errorResponse(400, "Invalid table definition", "invalid"));
+    assertPostTables(requests.next());
 
-    assertEquals(1, requests.size());
-
-    assertPostTables(requests.get(0));
+    requests.assertNoMore();
   }
 
   @Test
@@ -149,18 +148,17 @@ public class TestBigqueryClientWithMockServer {
     // through as-is, so BigQuery rejects the decorator as part of a table ID and this fails.
     // TODO: strip the partition decorator from the table name before creating the table, like
     // ruby does, instead of passing it through and letting BigQuery reject it.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             BigqueryException.class,
             "(?s).*failed to create table.*",
             server -> buildTestHostClient(server).createTableIfNotExist("table$20160929"),
             errorResponse(400, "Invalid table ID", "invalid"));
-
-    assertEquals(1, requests.size());
-
-    RecordedRequest request = requests.get(0);
+    RecordedRequest request = requests.next();
     assertPostTables(request);
     assertEquals("table$20160929", tableIdOf(requestBodyJson(request), "tableReference"));
+
+    requests.assertNoMore();
   }
 
   @Test
@@ -172,15 +170,14 @@ public class TestBigqueryClientWithMockServer {
     responses.add(errorResponse(500, "boom", "internalError"));
     responses.add(tableResponse());
 
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             server -> buildTestHostClient(server).createTableIfNotExist("table"),
             responses.toArray(new MockResponse[0]));
 
-    assertEquals(2, requests.size());
-    for (RecordedRequest request : requests) {
-      assertPostTables(request);
-    }
+    assertPostTables(requests.next());
+    assertPostTables(requests.next());
+    requests.assertNoMore();
   }
 
   @Test
@@ -192,17 +189,16 @@ public class TestBigqueryClientWithMockServer {
       responses.add(errorResponse(500, "boom", "internalError"));
     }
 
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             BigqueryException.class,
             "(?s).*failed to create table.*",
             server -> buildTestHostClient(server).createTableIfNotExist("table"),
             responses.toArray(new MockResponse[0]));
 
-    assertEquals(2, requests.size());
-    for (RecordedRequest request : requests) {
-      assertPostTables(request);
-    }
+    assertPostTables(requests.next());
+    assertPostTables(requests.next());
+    requests.assertNoMore();
   }
 
   private static final String COLUMN_OPTION_DESCRIPTION = "column-option-description";
@@ -266,7 +262,7 @@ public class TestBigqueryClientWithMockServer {
   private void assertPatchedField(
       MockServerAction action, String expectedDescription, String expectedPolicyTag)
       throws Exception {
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             action,
             // storeCachedSrcFieldsIfNeed(): GET table returns the old schema, with both a
@@ -276,28 +272,26 @@ public class TestBigqueryClientWithMockServer {
             // the PATCH request should restore whichever cached fields are retained.
             tableResponseWithNullableC0(),
             tableResponseWithSchemaFields("[{\"name\":\"c0\",\"type\":\"STRING\"}]"));
+    assertGetTable(requests.next(), "table"); // storeCachedSrcFieldsIfNeed()
 
-    assertEquals(3, requests.size());
+    assertGetTable(requests.next(), "table"); // updateTableIfNeed()
 
-    assertGetTable(requests.get(0), "table"); // storeCachedSrcFieldsIfNeed()
-
-    assertGetTable(requests.get(1), "table"); // updateTableIfNeed()
-
-    RecordedRequest patchRequest = requests.get(2);
+    RecordedRequest patchRequest = requests.next();
     assertPatchTable(patchRequest, "table");
     assertFieldDescriptionAndPolicyTag(
         firstSchemaField(requestBodyJson(patchRequest)), expectedDescription, expectedPolicyTag);
+
+    requests.assertNoMore();
   }
 
   // Runs `action` (storeCachedSrcFieldsIfNeed() + updateTableIfNeed()) and asserts it makes no
   // PATCH: just a single GET table request from updateTableIfNeed() (storeCachedSrcFieldsIfNeed()
   // makes no request at all when isNeedUpdateTable() is false).
   private void assertNoPatch(MockServerAction action) throws Exception {
-    List<RecordedRequest> requests = runWithMockServer(action, tableResponseWithNullableC0());
+    RequestCursor requests = runWithMockServer(action, tableResponseWithNullableC0());
+    assertGetTable(requests.next(), "table"); // updateTableIfNeed()
 
-    assertEquals(1, requests.size());
-
-    assertGetTable(requests.get(0), "table"); // updateTableIfNeed()
+    requests.assertNoMore();
   }
 
   // With the retain flags left at their false default, isNeedUpdateTable() is false regardless of
@@ -389,17 +383,12 @@ public class TestBigqueryClientWithMockServer {
 
   // Asserts the POST job + GET status pair recorded for each of the two attempts built by
   // jobRetrySucceedsResponses()/jobRetryGivesUpResponses() above.
-  private static void assertJobRetryRequests(
-      List<RecordedRequest> requests, String jobId1, String jobId2) {
-    assertEquals(4, requests.size());
-
-    assertPostJobs(requests.get(0));
-
-    assertGetJobStatus(requests.get(1), jobId1);
-
-    assertPostJobs(requests.get(2));
-
-    assertGetJobStatus(requests.get(3), jobId2);
+  private static void assertJobRetryRequests(RequestCursor requests, String jobId1, String jobId2) {
+    assertPostJobs(requests.next());
+    assertGetJobStatus(requests.next(), jobId1);
+    assertPostJobs(requests.next());
+    assertGetJobStatus(requests.next(), jobId2);
+    requests.assertNoMore();
   }
 
   // A load differs from copy/query in how the job is created: the file goes through a resumable
@@ -415,7 +404,7 @@ public class TestBigqueryClientWithMockServer {
   public void testLoadRetriesOnInternalErrorThenSucceeds() throws Exception {
     Path loadFile = newLoadFile("load-retry-test.json");
 
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             server -> {
               JobStatistics.LoadStatistics stats =
@@ -428,17 +417,17 @@ public class TestBigqueryClientWithMockServer {
                 .toArray());
 
     // A job that ran and failed is retried as a new job (new job id), like ruby's with_job_retry.
-    assertEquals(6, requests.size());
-    assertLoadAttempt(requests, 0, "load-job-1");
-    assertLoadAttempt(requests, 3, "load-job-2");
-    assertNotEquals(jobIdOf(requests.get(0)), jobIdOf(requests.get(3)));
+    RecordedRequest firstOpen = assertLoadAttempt(requests, "load-job-1");
+    RecordedRequest secondOpen = assertLoadAttempt(requests, "load-job-2");
+    requests.assertNoMore();
+    assertNotEquals(jobIdOf(firstOpen), jobIdOf(secondOpen));
   }
 
   @Test
   public void testLoadGivesUpAfterMaxRetries() throws Exception {
     Path loadFile = newLoadFile("load-giveup-test.json");
 
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             BigqueryInternalException.class,
             "(?s).*failed during waiting a Load job get_job\\(load-job-1.*",
@@ -449,9 +438,9 @@ public class TestBigqueryClientWithMockServer {
                 .add(loadAttemptResponses("load-job-2", "internalError"))
                 .toArray());
 
-    assertEquals(6, requests.size());
-    assertLoadAttempt(requests, 0, "load-job-1");
-    assertLoadAttempt(requests, 3, "load-job-2");
+    assertLoadAttempt(requests, "load-job-1");
+    assertLoadAttempt(requests, "load-job-2");
+    requests.assertNoMore();
   }
 
   // The library itself retries a chunk PUT that fails with a network error (here a connection
@@ -462,7 +451,7 @@ public class TestBigqueryClientWithMockServer {
     Path loadFile = newLoadFile("load-reset-test.json");
     long size = Files.size(loadFile);
 
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             server -> {
               JobStatistics.LoadStatistics stats =
@@ -474,12 +463,12 @@ public class TestBigqueryClientWithMockServer {
             disconnectDuringUploadResponse(),
             uploadLoadFileResponse("testjob"),
             waitForLoadJobResponse("testjob", null));
+    assertStartResumableUpload(requests.next());
+    assertUploadChunk(requests.next(), 0, size - 1, size); // reset while sending
+    assertUploadLoadFile(requests.next()); // the library's retry, same session
+    assertGetJobStatus(requests.next(), "testjob");
 
-    assertEquals(4, requests.size());
-    assertStartResumableUpload(requests.get(0));
-    assertUploadChunk(requests.get(1), 0, size - 1, size); // reset while sending
-    assertUploadLoadFile(requests.get(2)); // the library's retry, same session
-    assertGetJobStatus(requests.get(3), "testjob");
+    requests.assertNoMore();
   }
 
   // A file over the library's chunk size goes up as an intermediate chunk (answered with 308)
@@ -489,7 +478,7 @@ public class TestBigqueryClientWithMockServer {
     Path loadFile = testFolder.newFile("load-large-test.json").toPath();
     long size = writeLoadFile(loadFile, UPLOAD_CHUNK_SIZE + 1);
 
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             server -> {
               JobStatistics.LoadStatistics stats =
@@ -501,12 +490,12 @@ public class TestBigqueryClientWithMockServer {
             uploadChunkAcceptedResponse(),
             uploadLoadFileResponse("testjob"),
             waitForLoadJobResponse("testjob", null));
+    assertStartResumableUpload(requests.next());
+    assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1);
+    assertUploadChunk(requests.next(), UPLOAD_CHUNK_SIZE, size - 1, size);
+    assertGetJobStatus(requests.next(), "testjob");
 
-    assertEquals(4, requests.size());
-    assertStartResumableUpload(requests.get(0));
-    assertUploadChunk(requests.get(1), 0, UPLOAD_CHUNK_SIZE - 1, -1);
-    assertUploadChunk(requests.get(2), UPLOAD_CHUNK_SIZE, size - 1, size);
-    assertGetJobStatus(requests.get(3), "testjob");
+    requests.assertNoMore();
   }
 
   // A chunk PUT answered with a 5xx is re-sent by the library on the same session, `retries`
@@ -515,7 +504,7 @@ public class TestBigqueryClientWithMockServer {
   public void testLoadResendsChunkOnServerErrorThenGivesUp() throws Exception {
     Path loadFile = newLoadFile("load-5xx-test.json");
 
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             RuntimeException.class,
             "(?s).*BigQueryException: 503 .*",
@@ -525,11 +514,11 @@ public class TestBigqueryClientWithMockServer {
             startResumableUploadResponse(),
             errorResponse(503, "boom", "backendError"),
             errorResponse(503, "boom", "backendError"));
+    assertStartResumableUpload(requests.next());
+    assertUploadLoadFile(requests.next());
+    assertUploadLoadFile(requests.next()); // the library's retry, same session
 
-    assertEquals(3, requests.size());
-    assertStartResumableUpload(requests.get(0));
-    assertUploadLoadFile(requests.get(1));
-    assertUploadLoadFile(requests.get(2)); // the library's retry, same session
+    requests.assertNoMore();
   }
 
   // A chunk PUT answered with a 4xx is not re-sent.
@@ -537,7 +526,7 @@ public class TestBigqueryClientWithMockServer {
   public void testLoadDoesNotResendChunkOnClientError() throws Exception {
     Path loadFile = newLoadFile("load-4xx-test.json");
 
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             RuntimeException.class,
             "(?s).*BigQueryException: 400 .*",
@@ -546,10 +535,10 @@ public class TestBigqueryClientWithMockServer {
                     .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
             startResumableUploadResponse(),
             errorResponse(400, "Invalid", "invalid"));
+    assertStartResumableUpload(requests.next());
+    assertUploadLoadFile(requests.next());
 
-    assertEquals(2, requests.size());
-    assertStartResumableUpload(requests.get(0));
-    assertUploadLoadFile(requests.get(1));
+    requests.assertNoMore();
   }
 
   // The configured read timeout applies to the chunk PUT as well (#113): a server that never
@@ -560,7 +549,7 @@ public class TestBigqueryClientWithMockServer {
   public void testLoadFailsOnReadTimeoutDuringUpload() throws Exception {
     Path loadFile = newLoadFile("load-timeout-test.json");
 
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             RuntimeException.class,
             "(?s).*Read timed out.*",
@@ -570,16 +559,16 @@ public class TestBigqueryClientWithMockServer {
             startResumableUploadResponse(),
             unansweredResponse(),
             unansweredResponse());
+    assertStartResumableUpload(requests.next());
+    assertUploadLoadFile(requests.next());
+    assertUploadLoadFile(requests.next()); // the library's retry, same session
 
-    assertEquals(3, requests.size());
-    assertStartResumableUpload(requests.get(0));
-    assertUploadLoadFile(requests.get(1));
-    assertUploadLoadFile(requests.get(2)); // the library's retry, same session
+    requests.assertNoMore();
   }
 
   @Test
   public void testCopyRetriesOnInternalErrorThenSucceeds() throws Exception {
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             server -> {
               JobStatistics.CopyStatistics stats =
@@ -594,7 +583,7 @@ public class TestBigqueryClientWithMockServer {
 
   @Test
   public void testCopyGivesUpAfterMaxRetries() throws Exception {
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             BigqueryInternalException.class,
             "(?s).*failed during waiting a Copy job get_job\\(copy-job-1.*",
@@ -608,7 +597,7 @@ public class TestBigqueryClientWithMockServer {
 
   @Test
   public void testExecuteQueryRetriesOnInternalErrorThenSucceeds() throws Exception {
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             server -> {
               JobStatistics.QueryStatistics stats =
@@ -622,7 +611,7 @@ public class TestBigqueryClientWithMockServer {
 
   @Test
   public void testExecuteQueryGivesUpAfterMaxRetries() throws Exception {
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             BigqueryInternalException.class,
             "(?s).*failed during waiting a Query job get_job\\(query-job-1.*",
@@ -638,7 +627,7 @@ public class TestBigqueryClientWithMockServer {
   // executeQuery()'s.
   @Test
   public void testMergeWithMergeKeysRetriesOnInternalErrorThenSucceeds() throws Exception {
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             server -> {
               JobStatistics.QueryStatistics stats =
@@ -653,7 +642,7 @@ public class TestBigqueryClientWithMockServer {
 
   @Test
   public void testMergeWithMergeKeysGivesUpAfterMaxRetries() throws Exception {
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             BigqueryInternalException.class,
             "(?s).*failed during waiting a Query job get_job\\(merge-job-1.*",

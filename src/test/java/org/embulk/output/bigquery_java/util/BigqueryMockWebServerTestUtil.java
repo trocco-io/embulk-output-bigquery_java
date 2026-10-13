@@ -61,12 +61,13 @@ public final class BigqueryMockWebServerTestUtil {
     return customizeConfig.apply(embulk.loadYamlResource(TEST_HOST_RESOURCE_PATH));
   }
 
-  // Starts a MockWebServer, enqueues `responses` on it, runs `action` against it, and returns the
-  // requests it recorded, in order. `action` is expected to make exactly responses.length HTTP
+  // Starts a MockWebServer, enqueues `responses` on it, runs `action` against it, and returns a
+  // cursor over the requests it recorded, in order. `action` is expected to make exactly
+  // responses.length HTTP
   // calls against the server (e.g. via a BigqueryClient built with buildTestHostClient(), or by
   // running the plugin via runOutput()).
-  public static List<RecordedRequest> runWithMockServer(
-      MockServerAction action, MockResponse... responses) throws Exception {
+  public static RequestCursor runWithMockServer(MockServerAction action, MockResponse... responses)
+      throws Exception {
     try (MockWebServer server = new MockWebServer()) {
       // A request with no enqueued response is a test bug: answer it right away instead of
       // leaving the client waiting for its read timeout.
@@ -94,14 +95,14 @@ public final class BigqueryMockWebServerTestUtil {
       for (int i = 0; i < responses.length; i++) {
         requests.add(server.takeRequest());
       }
-      return requests;
+      return new RequestCursor(requests);
     }
   }
 
   // Like runWithMockServer() above, but for an action expected to fail: `expectedFailureType` is
   // the exception type `action` should throw, and `errorMessagePattern` is a regex the thrown
   // exception's message must match.
-  public static List<RecordedRequest> runWithMockServerExpectingFailure(
+  public static RequestCursor runWithMockServerExpectingFailure(
       Class<? extends Exception> expectedFailureType,
       String errorMessagePattern,
       MockServerAction action,
@@ -118,7 +119,7 @@ public final class BigqueryMockWebServerTestUtil {
   // Runs the plugin with one input row against a MockWebServer standing in for the real BigQuery
   // API, and returns the requests it recorded, in order. outConfig is expected to come from
   // loadTestHostConfig(); test_host is set here once the server is up.
-  public static List<RecordedRequest> runWithMockServer(
+  public static RequestCursor runWithMockServer(
       TestingEmbulk embulk,
       TemporaryFolder testFolder,
       ConfigSource outConfig,
@@ -132,7 +133,7 @@ public final class BigqueryMockWebServerTestUtil {
   // exception type the plugin run should throw (e.g. RuntimeException, since transaction() wraps
   // whatever it encounters, such as a job/API failure, in one), and `errorMessagePattern` is a
   // regex the thrown exception's message must match.
-  public static List<RecordedRequest> runWithMockServerExpectingFailure(
+  public static RequestCursor runWithMockServerExpectingFailure(
       TestingEmbulk embulk,
       TemporaryFolder testFolder,
       ConfigSource outConfig,
@@ -282,18 +283,14 @@ public final class BigqueryMockWebServerTestUtil {
     assertEquals("bytes " + from + "-" + to + "/" + totalPart, request.getHeader("Content-Range"));
   }
 
-  // The 3 requests matching loadAttemptResponses(), starting at requests.get(offset).
-  public static void assertLoadAttempt(List<RecordedRequest> requests, int offset, String jobId) {
-    assertStartResumableUpload(requests.get(offset));
-    assertUploadLoadFile(requests.get(offset + 1));
-    assertGetJobStatus(requests.get(offset + 2), jobId);
-  }
-
-  // The 3 requests matching loadAttemptResponses(), consumed from the cursor.
-  public static void assertLoadAttempt(RequestCursor requests, String jobId) {
-    assertStartResumableUpload(requests.next());
+  // The 3 requests matching loadAttemptResponses(), consumed from the cursor. Returns the POST
+  // that opened the session, whose body is the load job (see jobConfig() and jobIdOf()).
+  public static RecordedRequest assertLoadAttempt(RequestCursor requests, String jobId) {
+    RecordedRequest openUpload = requests.next();
+    assertStartResumableUpload(openUpload);
     assertUploadLoadFile(requests.next());
     assertGetJobStatus(requests.next(), jobId);
+    return openUpload;
   }
 
   // Walks the recorded requests in order, so that a test asserts them as a sequence
