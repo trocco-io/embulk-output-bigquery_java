@@ -59,6 +59,7 @@ import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
 import org.embulk.output.bigquery_java.exception.BigqueryRateLimitExceededException;
+import org.embulk.output.bigquery_java.testhost.TestHostBigQueryOptions;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
 import org.embulk.spi.type.BooleanType;
@@ -147,8 +148,8 @@ public class BigqueryClient {
   }
 
   private BigQuery getBigQueryService() throws IOException {
-    return (BigqueryTestHostSupport.isEnabled(task)
-            ? BigqueryTestHostSupport.getBigQueryOptionsBuilder(task)
+    return (TestHostBigQueryOptions.isEnabled(task)
+            ? TestHostBigQueryOptions.builder(task)
             : BigQueryOptions.newBuilder()
                 .setCredentials(new Auth(task).getCredentials(BigqueryScopes.BIGQUERY)))
         .setRetrySettings(buildRetrySettings(task))
@@ -396,17 +397,6 @@ public class BigqueryClient {
                   }
 
                   TableId tableId = TableId.of(destinationProject, destinationDataset, table);
-                  if (BigqueryTestHostSupport.isEnabled(task)) {
-                    Job job =
-                        BigqueryTestHostSupport.createLoadJob(
-                            bigquery,
-                            task,
-                            tableId,
-                            jobId,
-                            writeDisposition,
-                            buildSchema(schema, columnOptions));
-                    return (JobStatistics.LoadStatistics) waitForLoad(job);
-                  }
                   WriteChannelConfiguration writeChannelConfiguration =
                       WriteChannelConfiguration.newBuilder(tableId)
                           .setFormatOptions(FormatOptions.json())
