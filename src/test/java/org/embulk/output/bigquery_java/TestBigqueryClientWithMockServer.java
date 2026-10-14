@@ -410,8 +410,8 @@ public class TestBigqueryClientWithMockServer {
                 .add(loadAttemptResponses("load-job-2", null))
                 .toArray())) {
       // A job that ran and failed is retried as a new job (new job id), like ruby's with_job_retry.
-      RecordedRequest firstOpen = assertLoadAttempt(requests, "load-job-1");
-      RecordedRequest secondOpen = assertLoadAttempt(requests, "load-job-2");
+      RecordedRequest firstOpen = assertLoadAttempt(requests, "load-job-1").openUpload;
+      RecordedRequest secondOpen = assertLoadAttempt(requests, "load-job-2").openUpload;
       assertNotEquals(jobIdOf(firstOpen), jobIdOf(secondOpen));
     }
   }
