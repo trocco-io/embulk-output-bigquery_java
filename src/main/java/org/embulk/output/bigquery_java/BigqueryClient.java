@@ -36,6 +36,8 @@ import com.google.cloud.http.HttpTransportOptions;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -516,14 +518,34 @@ public class BigqueryClient {
         }
       }
       String msg = uploadFailureMessage(loadFile, table, e);
-      // Retry only what the library itself considers retryable (connection reset, 5xx, ...); a
-      // 4xx such as an invalid schema fails right away.
-      if (!e.isRetryable()) {
+      // Retry only what the library itself considers retryable (connection reset, 5xx, ...) plus
+      // the TLS-level network failures it misses; a 4xx such as an invalid schema fails right
+      // away.
+      if (!isRetryableUploadFailure(e)) {
         throw new BigqueryException(msg, e);
       }
       throw new BigqueryUploadException(msg, e);
     }
     return writer.getJob();
+  }
+
+  // google-cloud-core 2.8.0 considers a SocketException / SocketTimeoutException retryable, but
+  // only when it is the exception itself: on a TLS connection the JDK reports a reset or a broken
+  // pipe as javax.net.ssl.SSLException with the socket error attached as its cause, and that
+  // outer type is not retryable. Apply the same rule down the cause chain, so such a failure is
+  // retried the way ruby's with_network_retry (google_client.rb) retries the same socket errors
+  // (which reach it wrapped in SSLError by httpclient). Package-private for the unit test: a
+  // TLS-level failure can't be staged on the plain-HTTP MockWebServer.
+  static boolean isRetryableUploadFailure(BigQueryException e) {
+    if (e.isRetryable()) {
+      return true;
+    }
+    for (Throwable cause = e.getCause(); cause != null; cause = cause.getCause()) {
+      if (cause instanceof SocketException || cause instanceof SocketTimeoutException) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private String uploadFailureMessage(Path loadFile, String table, Exception cause) {

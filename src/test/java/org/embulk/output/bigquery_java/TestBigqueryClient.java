@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.cloud.TransportOptions;
+import com.google.cloud.bigquery.BigQueryException;
 import com.google.cloud.bigquery.Field;
 import com.google.cloud.bigquery.FieldList;
 import com.google.cloud.bigquery.PolicyTags;
@@ -16,12 +17,15 @@ import com.google.cloud.bigquery.StandardSQLTypeName;
 import com.google.cloud.bigquery.Table;
 import com.google.cloud.bigquery.TableDefinition;
 import com.google.cloud.http.HttpTransportOptions;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLException;
 import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
@@ -423,5 +427,31 @@ public class TestBigqueryClient {
         (HttpTransportOptions) BigqueryClient.buildTransportOptions(task);
     assertEquals(2147483000, options.getConnectTimeout());
     assertEquals(2147483000, options.getReadTimeout());
+  }
+
+  // A socket error under the TLS layer reaches the client as an SSLException with the socket
+  // error as its cause; the library judges only the outer type and says not retryable, load()
+  // looks down the cause chain and retries it like ruby's with_network_retry. (MockWebServer
+  // speaks plain HTTP, so this can't be staged there.)
+  @Test
+  public void testUploadRetriesSocketErrorUnderTls() {
+    BigQueryException reset =
+        new BigQueryException(
+            new SSLException("Connection reset", new SocketException("Connection reset")));
+    assertFalse(reset.isRetryable());
+    assertTrue(BigqueryClient.isRetryableUploadFailure(reset));
+
+    BigQueryException timeout =
+        new BigQueryException(
+            new SSLException("Read timed out", new SocketTimeoutException("Read timed out")));
+    assertTrue(BigqueryClient.isRetryableUploadFailure(timeout));
+  }
+
+  // A TLS failure with no socket error behind it (a handshake problem, say) is still not retried.
+  @Test
+  public void testUploadDoesNotRetryOtherTlsFailures() {
+    BigQueryException handshake =
+        new BigQueryException(new SSLException("Received fatal alert: handshake_failure"));
+    assertFalse(BigqueryClient.isRetryableUploadFailure(handshake));
   }
 }
