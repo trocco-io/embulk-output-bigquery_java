@@ -74,7 +74,7 @@ public class TestBigqueryMockWebServerTestUtil {
                   }
                 },
                 new MockResponse().setResponseCode(200))
-            .get(0);
+            .next();
 
     for (int i = 0; i < 2; i++) {
       assertEquals(1, requestBodyJson(request).getInt("a"));
