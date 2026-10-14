@@ -50,7 +50,7 @@ public class TestBigqueryMockWebServerTestUtil {
 
     assertEquals(200, codes[0]);
     assertEquals(599, codes[1]);
-    assertTrue(thrown.getMessage(), thrown.getMessage().contains("expected:<1> but was:<2>"));
+    assertTrue(thrown.getMessage(), thrown.getMessage().contains("unexpected request count"));
   }
 
   // The body helpers read a copy of the recorded body, so the same request can be asserted more
