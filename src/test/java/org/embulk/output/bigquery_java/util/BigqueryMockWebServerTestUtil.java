@@ -97,7 +97,7 @@ public final class BigqueryMockWebServerTestUtil {
 
       action.run(server);
 
-      assertEquals(responses.length, server.getRequestCount());
+      assertEquals("unexpected request count", responses.length, server.getRequestCount());
       List<RecordedRequest> requests = new ArrayList<>();
       for (int i = 0; i < responses.length; i++) {
         requests.add(server.takeRequest());
