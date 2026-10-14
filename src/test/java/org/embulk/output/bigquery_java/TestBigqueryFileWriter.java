@@ -59,9 +59,10 @@ public class TestBigqueryFileWriter {
             Mockito.any(IOException.class));
   }
 
-  // Matches ruby's `io.close rescue nil`: no exception and no log output.
+  // Like ruby's `io.close rescue nil`, no exception; unlike ruby, the failure is logged (WARN),
+  // since a file truncated here is not always caught by a later check.
   @Test
-  public void testCloseSwallowsIOExceptionSilently()
+  public void testCloseSwallowsIOExceptionWithAWarning()
       throws IOException, ReflectiveOperationException {
     BigqueryFileWriter writer = openWriterWithClosedFile();
     Logger mockLogger = mockLogger(writer);
@@ -70,7 +71,9 @@ public class TestBigqueryFileWriter {
     writer.close();
 
     assertEquals(1, writer.getCount());
-    Mockito.verifyZeroInteractions(mockLogger);
+    Mockito.verify(mockLogger)
+        .warn(Mockito.anyString(), Mockito.any(), Mockito.any(IOException.class));
+    Mockito.verifyNoMoreInteractions(mockLogger);
   }
 
   // A failed flush() must not leak the file: close() has to be called on the stream regardless.

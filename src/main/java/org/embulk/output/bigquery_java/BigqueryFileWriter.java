@@ -95,10 +95,11 @@ public class BigqueryFileWriter {
     // underlying file when that flush fails, so no separate flush() and no finally needed.
     try {
       this.os.close();
-    } catch (IOException ignored) {
-      // Swallowed silently to match ruby (file_writer#close does `io.close rescue nil`). Note that
+    } catch (IOException e) {
+      // Swallowed to match ruby (file_writer#close does `io.close rescue nil`), but logged, since
       // a file truncated here is not always caught later: the row-count check is skipped when
       // abort_on_error is false (max_bad_records > 0) or is_skip_job_result_check is true.
+      logger.warn("embulk-output-bigquery: failed to close {}", this.path, e);
     }
   }
 }
