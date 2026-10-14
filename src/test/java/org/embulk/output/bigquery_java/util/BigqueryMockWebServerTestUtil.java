@@ -301,14 +301,28 @@ public final class BigqueryMockWebServerTestUtil {
     assertEquals("bytes " + from + "-" + to + "/" + totalPart, request.getHeader("Content-Range"));
   }
 
-  // The 3 requests matching loadAttemptResponses(), consumed from the cursor. Returns the POST
-  // that opened the session, whose body is the load job (see jobConfig() and jobIdOf()).
-  public static RecordedRequest assertLoadAttempt(RequestCursor requests, String jobId) {
+  // The 3 requests matching loadAttemptResponses(), consumed from the cursor. Returns the two a
+  // test may want to look into; a change to what one attempt consists of lands here only.
+  public static LoadAttempt assertLoadAttempt(RequestCursor requests, String jobId) {
     RecordedRequest openUpload = requests.next();
     assertStartResumableUpload(openUpload);
-    assertUploadLoadFile(requests.next());
+    RecordedRequest uploadFile = requests.next();
+    assertUploadLoadFile(uploadFile);
     assertGetJobStatus(requests.next(), jobId);
-    return openUpload;
+    return new LoadAttempt(openUpload, uploadFile);
+  }
+
+  // The requests of one load attempt as checked by assertLoadAttempt(): the POST that opened the
+  // session, whose body is the load job (see jobConfig() and jobIdOf()), and the PUT of the file,
+  // whose body is the file itself (see uploadedLines()).
+  public static final class LoadAttempt {
+    public final RecordedRequest openUpload;
+    public final RecordedRequest uploadFile;
+
+    private LoadAttempt(RecordedRequest openUpload, RecordedRequest uploadFile) {
+      this.openUpload = openUpload;
+      this.uploadFile = uploadFile;
+    }
   }
 
   // Walks the recorded requests in order, so that a test asserts them as a sequence
