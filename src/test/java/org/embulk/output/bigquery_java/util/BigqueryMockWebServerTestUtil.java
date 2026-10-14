@@ -170,11 +170,17 @@ public final class BigqueryMockWebServerTestUtil {
 
   // The BigQuery client library gzip-compresses request bodies by default.
   private static String readRequestBodyAsString(RecordedRequest request) throws IOException {
-    byte[] rawBytes = request.getBody().readByteArray();
+    byte[] rawBytes = requestBodyBytes(request);
     if (!"gzip".equals(request.getHeader("Content-Encoding"))) {
       return new String(rawBytes, StandardCharsets.UTF_8);
     }
     return gunzip(rawBytes);
+  }
+
+  // Reading a RecordedRequest's Buffer directly drains it, so a second read of the same request
+  // would see an empty body; read a clone so a request can be asserted more than once.
+  private static byte[] requestBodyBytes(RecordedRequest request) {
+    return request.getBody().clone().readByteArray();
   }
 
   private static String gunzip(byte[] rawBytes) throws IOException {
@@ -294,7 +300,7 @@ public final class BigqueryMockWebServerTestUtil {
   // (true for compression: GZIP, test_host.yml's default), so a plain body fails to gunzip.
   public static List<String> uploadedLines(RecordedRequest request, boolean gzipped)
       throws IOException {
-    byte[] body = request.getBody().readByteArray();
+    byte[] body = requestBodyBytes(request);
     String content = gzipped ? gunzip(body) : new String(body, StandardCharsets.UTF_8);
     return Arrays.asList(content.split("\n"));
   }
