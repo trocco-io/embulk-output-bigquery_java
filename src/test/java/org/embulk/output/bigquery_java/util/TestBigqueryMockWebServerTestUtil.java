@@ -15,6 +15,7 @@ import java.util.Collections;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
+import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.RequestCursor;
 import org.junit.Test;
 
 // Tests of the test harness itself.
@@ -31,26 +32,41 @@ public class TestBigqueryMockWebServerTestUtil {
   }
 
   // A request beyond the enqueued responses is answered right away with a 599 (instead of
-  // blocking until the client's read timeout), and the run is still reported as having made
-  // more requests than expected. The JUnit timeout is the safety net should it block after all.
+  // blocking until the client's read timeout), is still recorded, and is what assertNoMore()
+  // names once the expected requests have been walked. The JUnit timeout is the safety net
+  // should it block after all.
   @Test(timeout = 10_000)
-  public void runWithMockServerAnswersUnexpectedRequestsRightAway() {
+  public void runWithMockServerAnswersUnexpectedRequestsRightAway() throws Exception {
     int[] codes = new int[2];
 
-    AssertionError thrown =
-        assertThrows(
-            AssertionError.class,
-            () ->
-                runWithMockServer(
-                    server -> {
-                      codes[0] = get(server, "/one");
-                      codes[1] = get(server, "/two");
-                    },
-                    new MockResponse().setResponseCode(200)));
+    RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              codes[0] = get(server, "/one");
+              codes[1] = get(server, "/two");
+            },
+            new MockResponse().setResponseCode(200));
 
     assertEquals(200, codes[0]);
     assertEquals(599, codes[1]);
-    assertTrue(thrown.getMessage(), thrown.getMessage().contains("unexpected request count"));
+    assertEquals("/one", requests.next().getPath());
+    AssertionError thrown = assertThrows(AssertionError.class, requests::assertNoMore);
+    assertTrue(thrown.getMessage(), thrown.getMessage().contains("GET /two"));
+  }
+
+  // A run that made fewer requests than there are responses is not rejected up front: the cursor
+  // hands out what was recorded, and the first next() with nothing left is the failure, so it
+  // points at the step that didn't happen.
+  @Test(timeout = 10_000)
+  public void runWithMockServerLetsTheCursorReportMissingRequests() throws Exception {
+    RequestCursor requests =
+        runWithMockServer(
+            server -> get(server, "/one"),
+            new MockResponse().setResponseCode(200),
+            new MockResponse().setResponseCode(200));
+
+    assertEquals("/one", requests.next().getPath());
+    assertThrows(AssertionError.class, requests::next);
   }
 
   // The body helpers read a copy of the recorded body, so the same request can be asserted more
