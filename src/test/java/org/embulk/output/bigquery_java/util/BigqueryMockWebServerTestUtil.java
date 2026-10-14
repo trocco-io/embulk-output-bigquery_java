@@ -40,7 +40,7 @@ public final class BigqueryMockWebServerTestUtil {
   private static final String E2E_INPUT_FILE_NAME = "embulk-output-bigquery_java-e2e-test.csv";
 
   // Stands in for the MockWebServer's scheme://host:port in responses built before the server is
-  // started; runWithMockServer() substitutes the real one when enqueueing.
+  // started; runWithMockServer() substitutes the real one (testHostOf()) when enqueueing.
   private static final String TEST_HOST_PLACEHOLDER = "{{test_host}}";
 
   private static final String RESUMABLE_UPLOAD_PATH =
@@ -52,6 +52,13 @@ public final class BigqueryMockWebServerTestUtil {
   public static final long UPLOAD_CHUNK_SIZE = 15L * 1024 * 1024;
 
   private BigqueryMockWebServerTestUtil() {}
+
+  // The server's origin as the client is pointed at it ("scheme://host:port/"): the value of
+  // test_host, and the prefix of any absolute URL a response sends the client to (a resumable
+  // upload's Location). Every such URL must come from here, so they never disagree on the origin.
+  public static String testHostOf(MockWebServer server) {
+    return server.url("/").toString();
+  }
 
   // Loads test_host.yml, customized by `customizeConfig` (e.g. to set mode or flip a flag).
   // test_host itself is not set here: callers wire it to a specific MockWebServer separately,
@@ -78,11 +85,12 @@ public final class BigqueryMockWebServerTestUtil {
 
       for (MockResponse response : responses) {
         // A resumable upload session's Location must be an absolute URL, and the server's URL is
-        // only known now; see startResumableUploadResponse().
+        // only known now; see startResumableUploadResponse(). testHostOf() ends with "/", so it
+        // replaces the placeholder together with the "/" that starts the path after it.
         String location = response.getHeaders().get("Location");
-        if (location != null && location.contains(TEST_HOST_PLACEHOLDER)) {
-          String testHost = "http://" + server.getHostName() + ":" + server.getPort();
-          response.setHeader("Location", location.replace(TEST_HOST_PLACEHOLDER, testHost));
+        String placeholderOrigin = TEST_HOST_PLACEHOLDER + "/";
+        if (location != null && location.startsWith(placeholderOrigin)) {
+          response.setHeader("Location", location.replace(placeholderOrigin, testHostOf(server)));
         }
         server.enqueue(response);
       }
@@ -154,7 +162,7 @@ public final class BigqueryMockWebServerTestUtil {
       ConfigSource outConfig,
       List<String> inputLines) {
     return server -> {
-      outConfig.set("test_host", server.url("/").toString());
+      outConfig.set("test_host", testHostOf(server));
       File in = testFolder.newFile(E2E_INPUT_FILE_NAME);
       Files.write(in.toPath(), inputLines);
       embulk.runOutput(outConfig, in.toPath());

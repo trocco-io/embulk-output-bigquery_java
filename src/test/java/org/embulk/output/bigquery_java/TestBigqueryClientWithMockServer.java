@@ -29,6 +29,7 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableResponseWithNullableC0;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableResponseWithOldDescriptionAndPolicyTag;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.tableResponseWithSchemaFields;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.testHostOf;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.unansweredResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.uploadChunkAcceptedResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.uploadLoadFileResponse;
@@ -95,7 +96,7 @@ public class TestBigqueryClientWithMockServer {
       Function<ConfigSource, ConfigSource> customizeConfig,
       org.embulk.spi.Schema schema) {
     ConfigSource config =
-        loadTestHostConfig(embulk, customizeConfig).set("test_host", server.url("/").toString());
+        loadTestHostConfig(embulk, customizeConfig).set("test_host", testHostOf(server));
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
     return new BigqueryClient(task, schema);
   }
