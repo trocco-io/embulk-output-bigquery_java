@@ -340,9 +340,14 @@ public final class BigqueryMockWebServerTestUtil {
       this.requests = requests;
     }
 
+    // Fails when the run made fewer requests than the test asserts; the message counts from 1,
+    // so "#10" is the 10th response in the test's list.
     public RecordedRequest next() {
       assertTrue(
-          "expected another request after " + position + " but the run made only " + position,
+          "the test asserts request #"
+              + (position + 1)
+              + " but the run recorded only "
+              + requests.size(),
           position < requests.size());
       return requests.get(position++);
     }

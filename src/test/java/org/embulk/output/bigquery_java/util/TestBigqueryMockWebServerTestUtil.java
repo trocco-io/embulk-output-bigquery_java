@@ -66,7 +66,10 @@ public class TestBigqueryMockWebServerTestUtil {
             new MockResponse().setResponseCode(200));
 
     assertEquals("/one", requests.next().getPath());
-    assertThrows(AssertionError.class, requests::next);
+    AssertionError thrown = assertThrows(AssertionError.class, requests::next);
+    assertTrue(
+        thrown.getMessage(),
+        thrown.getMessage().contains("request #2") && thrown.getMessage().contains("only 1"));
   }
 
   // The body helpers read a copy of the recorded body, so the same request can be asserted more
