@@ -386,17 +386,18 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
             MockResponses.of(
                     datasetResponse(),
                     tableResponse(),
-                    tableResponse() // storeCachedSrcFieldsIfNeed() (retain_column_descriptions is
-                    // on)
-                    )
+                    // storeCachedSrcFieldsIfNeed() (retain_column_descriptions is on)
+                    tableResponse())
                 .add(loadAttemptResponses("testjob", null))
                 .add(
                     tableResponseWithNumRows(1),
                     createCopyJobResponse("testjob"),
                     waitForCopyJobResponse("testjob"),
-                    tableResponse(), // updateTableIfNeed(), no schema so it returns before patching
+                    // updateTableIfNeed(), no schema so it returns before patching
+                    tableResponse(),
+                    // delete temp table (finally)
                     errorResponse(400, "boom", "invalid"))
-                .toArray()); // delete temp table (finally)
+                .toArray());
 
     assertEquals(11, requests.size());
 
