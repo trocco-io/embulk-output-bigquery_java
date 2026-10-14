@@ -403,15 +403,16 @@ public class TestBigqueryClientWithMockServer {
     assertGetJobStatus(requests.get(3), jobId2);
   }
 
-  // A load differs from copy/query in how the job is created: the file goes through a resumable
-  // upload session, so each attempt is the 3 requests of loadAttemptResponses(), and every retry
-  // re-uploads the whole file as a new load job.
+  // A one-row JSONL file for load() to upload.
   private Path newLoadFile(String name) throws Exception {
     Path loadFile = testFolder.newFile(name).toPath();
     Files.write(loadFile, Collections.singletonList("{\"c0\":\"hello\"}"));
     return loadFile;
   }
 
+  // A load differs from copy/query in how the job is created: the file goes through a resumable
+  // upload session, so each attempt is the 3 requests of loadAttemptResponses(), and every retry
+  // re-uploads the whole file as a new load job.
   @Test
   public void testLoadRetriesOnInternalErrorThenSucceeds() throws Exception {
     Path loadFile = newLoadFile("load-retry-test.json");
