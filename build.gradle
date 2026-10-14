@@ -57,7 +57,7 @@ dependencies {
 }
 
 test {
-    // Lets BigqueryTestHostSupport honor PluginTask#getTestHost() only inside `./gradlew test`,
+    // Lets TestHostBigQueryOptions honor PluginTask#getTestHost() only inside `./gradlew test`,
     // so a plugin config can't redirect a real embulk run at an arbitrary host.
     environment "TEST_HOST_ENABLED", "true"
 }
