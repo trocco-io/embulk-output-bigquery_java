@@ -73,9 +73,10 @@ public final class BigqueryMockWebServerTestUtil {
   // responses.length HTTP calls against the server (e.g. via a BigqueryClient built with
   // buildTestHostClient(), or by running the plugin via runOutput()), but the count is not
   // checked here: a run that made fewer calls fails at the first next() with nothing left to
-  // return, and one that made more fails at assertNoMore(), which names the extra requests (if
-  // the 599 they were answered with didn't already fail the action). Either way the failure
-  // points at the step that diverged, which a bare count comparison couldn't.
+  // return, and one that made more fails when the cursor is closed, which names the extra
+  // requests (if the 599 they were answered with didn't already fail the action). Either way the
+  // failure points at the step that diverged, which a bare count comparison couldn't. Use the
+  // cursor in a try-with-resources so that close() runs; see RequestCursor.
   public static RequestCursor runWithMockServer(MockServerAction action, MockResponse... responses)
       throws Exception {
     try (MockWebServer server = new MockWebServer()) {
@@ -313,7 +314,11 @@ public final class BigqueryMockWebServerTestUtil {
   // Walks the recorded requests in order, so that a test asserts them as a sequence
   // (assertGetDataset(requests.next()), ...) instead of by position: when a step gains or loses a
   // request, only the assertions for that step change, not every index after it.
-  public static final class RequestCursor {
+  //
+  // AutoCloseable so that a test holds it in a try-with-resources and close() checks that every
+  // request was walked: completeness then doesn't depend on remembering a final call, which is
+  // how the strftime test came to silently skip requests (#112 / #119).
+  public static final class RequestCursor implements AutoCloseable {
     private final List<RecordedRequest> requests;
     private int position = 0;
 
@@ -329,8 +334,10 @@ public final class BigqueryMockWebServerTestUtil {
     }
 
     // Every recorded request has been asserted on. The failure message lists the requests that
-    // were not, so an unexpected extra call can be read off it directly.
-    public void assertNoMore() {
+    // were not, so an unexpected extra call can be read off it directly. When the try body has
+    // already failed, this failure is attached to that one as suppressed, not reported instead.
+    @Override
+    public void close() {
       List<String> remaining = new ArrayList<>();
       for (RecordedRequest request : requests.subList(position, requests.size())) {
         remaining.add(request.getMethod() + " " + request.getPath());

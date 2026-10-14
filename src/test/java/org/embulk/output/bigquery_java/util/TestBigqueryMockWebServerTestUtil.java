@@ -32,7 +32,7 @@ public class TestBigqueryMockWebServerTestUtil {
   }
 
   // A request beyond the enqueued responses is answered right away with a 599 (instead of
-  // blocking until the client's read timeout), is still recorded, and is what assertNoMore()
+  // blocking until the client's read timeout), is still recorded, and is what closing the cursor
   // names once the expected requests have been walked. The JUnit timeout is the safety net
   // should it block after all.
   @Test(timeout = 10_000)
@@ -50,7 +50,7 @@ public class TestBigqueryMockWebServerTestUtil {
     assertEquals(200, codes[0]);
     assertEquals(599, codes[1]);
     assertEquals("/one", requests.next().getPath());
-    AssertionError thrown = assertThrows(AssertionError.class, requests::assertNoMore);
+    AssertionError thrown = assertThrows(AssertionError.class, requests::close);
     assertTrue(thrown.getMessage(), thrown.getMessage().contains("GET /two"));
   }
 
@@ -73,28 +73,28 @@ public class TestBigqueryMockWebServerTestUtil {
   // than once (e.g. jobIdOf() then jobConfig() on the same POST).
   @Test(timeout = 10_000)
   public void requestBodyCanBeReadMoreThanOnce() throws Exception {
-    RecordedRequest request =
+    try (RequestCursor requests =
         runWithMockServer(
-                server -> {
-                  HttpURLConnection connection =
-                      (HttpURLConnection) server.url("/json").url().openConnection();
-                  connection.setRequestMethod("POST");
-                  connection.setDoOutput(true);
-                  try (OutputStream out = connection.getOutputStream()) {
-                    out.write("{\"a\":1}".getBytes(StandardCharsets.UTF_8));
-                  }
-                  try {
-                    connection.getResponseCode();
-                  } finally {
-                    connection.disconnect();
-                  }
-                },
-                new MockResponse().setResponseCode(200))
-            .next();
-
-    for (int i = 0; i < 2; i++) {
-      assertEquals(1, requestBodyJson(request).getInt("a"));
-      assertEquals(Collections.singletonList("{\"a\":1}"), uploadedLines(request, false));
+            server -> {
+              HttpURLConnection connection =
+                  (HttpURLConnection) server.url("/json").url().openConnection();
+              connection.setRequestMethod("POST");
+              connection.setDoOutput(true);
+              try (OutputStream out = connection.getOutputStream()) {
+                out.write("{\"a\":1}".getBytes(StandardCharsets.UTF_8));
+              }
+              try {
+                connection.getResponseCode();
+              } finally {
+                connection.disconnect();
+              }
+            },
+            new MockResponse().setResponseCode(200))) {
+      RecordedRequest request = requests.next();
+      for (int i = 0; i < 2; i++) {
+        assertEquals(1, requestBodyJson(request).getInt("a"));
+        assertEquals(Collections.singletonList("{\"a\":1}"), uploadedLines(request, false));
+      }
     }
   }
 }
