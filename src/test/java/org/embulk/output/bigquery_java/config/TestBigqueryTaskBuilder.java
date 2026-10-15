@@ -143,54 +143,42 @@ public class TestBigqueryTaskBuilder {
     assertEquals(".jsonl.gz", task.getFileExt().get());
   }
 
-  @Test
-  public void setTempTable_assignsDefaultForReplace() {
-    config = loadYamlResource(embulk, "base.yml").set("mode", "replace");
+  // The task for base.yml in `mode`, with temp_table configured to `tempTable` unless null, after
+  // BigqueryTaskBuilder.setTempTable().
+  private PluginTask setTempTable(String mode, String tempTable) {
+    config = loadYamlResource(embulk, "base.yml").set("mode", mode);
+    if (tempTable != null) {
+      config = config.set("temp_table", tempTable);
+    }
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
     BigqueryTaskBuilder.setTempTable(task);
+    return task;
+  }
 
-    assertMatches(task.getTempTable().get(), "LOAD_TEMP_.*_table");
+  @Test
+  public void setTempTable_assignsDefaultForReplace() {
+    assertMatches(setTempTable("replace", null).getTempTable().get(), "LOAD_TEMP_.*_table");
   }
 
   @Test
   public void setTempTable_assignsDefaultForReplaceBackup() {
-    config = loadYamlResource(embulk, "base.yml").set("mode", "replace_backup");
-    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
-    BigqueryTaskBuilder.setTempTable(task);
-
-    assertMatches(task.getTempTable().get(), "LOAD_TEMP_.*_table");
+    assertMatches(setTempTable("replace_backup", null).getTempTable().get(), "LOAD_TEMP_.*_table");
   }
 
   @Test
   public void setTempTable_keepsConfiguredValueForReplace() {
-    config = loadYamlResource(embulk, "base.yml").set("mode", "replace").set("temp_table", "foo");
-    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
-    BigqueryTaskBuilder.setTempTable(task);
-
-    assertEquals("foo", task.getTempTable().get());
+    assertEquals("foo", setTempTable("replace", "foo").getTempTable().get());
   }
 
   @Test
   public void setTempTable_clearsConfiguredValueForDeleteInAdvance() {
     // Ruby sets temp_table to nil for every mode other than replace/append/merge/replace_backup.
-    config =
-        loadYamlResource(embulk, "base.yml")
-            .set("mode", "delete_in_advance")
-            .set("temp_table", "foo");
-    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
-    BigqueryTaskBuilder.setTempTable(task);
-
-    assertFalse(task.getTempTable().isPresent());
+    assertFalse(setTempTable("delete_in_advance", "foo").getTempTable().isPresent());
   }
 
   @Test
   public void setTempTable_clearsConfiguredValueForAppendDirect() {
-    config =
-        loadYamlResource(embulk, "base.yml").set("mode", "append_direct").set("temp_table", "foo");
-    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
-    BigqueryTaskBuilder.setTempTable(task);
-
-    assertFalse(task.getTempTable().isPresent());
+    assertFalse(setTempTable("append_direct", "foo").getTempTable().isPresent());
   }
 
   @Test
