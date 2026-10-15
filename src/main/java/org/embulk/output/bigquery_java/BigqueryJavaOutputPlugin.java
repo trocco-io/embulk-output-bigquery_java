@@ -143,13 +143,17 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       // ruby (verified): its ensure only sees the paths of a run that got past the data phase,
       // so such a half-written file is left behind, open. It is never loaded again (see above),
       // but it stays on disk until someone removes it. This goes one step further on purpose.
-      this.writers.values().forEach(BigqueryFileWriter::close);
+      // Nested so that each of the three steps runs even if the one before it throws.
       try {
-        if (task.getTempTable().isPresent()) {
-          client.deleteTable(task.getTempTable().get());
-        }
+        this.writers.values().forEach(BigqueryFileWriter::close);
       } finally {
-        deleteOrKeepIntermediateFiles(task, intermediateFilesOf(this.writers.values()));
+        try {
+          if (task.getTempTable().isPresent()) {
+            client.deleteTable(task.getTempTable().get());
+          }
+        } finally {
+          deleteOrKeepIntermediateFiles(task, intermediateFilesOf(this.writers.values()));
+        }
       }
     }
 
