@@ -2,13 +2,28 @@ package org.embulk.output.bigquery_java;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.*;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 
 public class BigqueryUtil {
   private static final String PARTITION_DECORATOR_REGEXP = "\\$.+\\z";
+
+  // The intermediate files the given writers opened (a writer that never wrote has none), as in
+  // ruby (`file_writers.map(&:io).map(&:path)`). Globbing path_prefix*file_ext instead, as before,
+  // also picked up files left behind by an earlier run with the same path_prefix and loaded their
+  // rows again; ruby only globs under skip_file_generation, which this plugin doesn't support.
+  public static List<Path> getIntermediateFiles(Collection<BigqueryFileWriter> writers) {
+    return writers.stream()
+        .map(BigqueryFileWriter::getPath)
+        .filter(Objects::nonNull)
+        .map(Paths::get)
+        .collect(Collectors.toList());
+  }
 
   public static long getPID() {
     String processName = java.lang.management.ManagementFactory.getRuntimeMXBean().getName();

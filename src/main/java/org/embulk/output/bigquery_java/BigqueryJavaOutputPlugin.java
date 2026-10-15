@@ -3,14 +3,13 @@ package org.embulk.output.bigquery_java;
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.Table;
+import java.io.File;
 import java.math.BigInteger;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,11 +58,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       this.writers.values().forEach(BigqueryFileWriter::close);
       logger.info("embulk-output-bigquery: finish to create intermediate files");
 
-      // The files this run's writers opened, as in ruby (`file_writers.map(&:io).map(&:path)`).
-      // Globbing path_prefix*file_ext instead, as before, also picked up files left behind by an
-      // earlier run with the same path_prefix and loaded their rows again; ruby only globs under
-      // skip_file_generation, which this plugin doesn't support.
-      paths = intermediateFilesOf(this.writers.values());
+      paths = BigqueryUtil.getIntermediateFiles(this.writers.values());
       if (paths.isEmpty()) {
         logger.info("embulk-output-bigquery: Nothing for transfer");
         client.createTableIfNotExist(task.getTable());
@@ -152,34 +147,25 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
             client.deleteTable(task.getTempTable().get());
           }
         } finally {
-          deleteOrKeepIntermediateFiles(task, intermediateFilesOf(this.writers.values()));
+          paths = BigqueryUtil.getIntermediateFiles(this.writers.values());
+          if (paths != null) {
+            if (task.getDeleteFromLocalWhenJobEnd()) {
+              paths.forEach(p -> p.toFile().delete());
+            } else {
+              paths.forEach(
+                  p -> {
+                    File intermediateFile = new File(p.toString());
+                    if (intermediateFile.exists()) {
+                      logger.info("embulk-output-bigquery: keep {}", p.toString());
+                    }
+                  });
+            }
+          }
         }
       }
     }
 
     return CONFIG_MAPPER_FACTORY.newConfigDiff();
-  }
-
-  // The intermediate files the given writers opened (a writer that never wrote has none).
-  private static List<Path> intermediateFilesOf(Collection<BigqueryFileWriter> writers) {
-    return writers.stream()
-        .map(BigqueryFileWriter::getPath)
-        .filter(Objects::nonNull)
-        .map(Paths::get)
-        .collect(Collectors.toList());
-  }
-
-  private void deleteOrKeepIntermediateFiles(PluginTask task, List<Path> paths) {
-    if (task.getDeleteFromLocalWhenJobEnd()) {
-      paths.forEach(p -> p.toFile().delete());
-    } else {
-      paths.forEach(
-          p -> {
-            if (p.toFile().exists()) {
-              logger.info("embulk-output-bigquery: keep {}", p.toString());
-            }
-          });
-    }
   }
 
   @Override
