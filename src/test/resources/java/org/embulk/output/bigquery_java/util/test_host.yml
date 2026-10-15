@@ -1,0 +1,25 @@
+type: bigquery_java
+mode: replace
+auth_method: compute_engine
+project: project
+dataset: dataset
+table: table
+source_format: NEWLINE_DELIMITED_JSON
+compression: GZIP
+auto_create_dataset: false
+auto_create_table: true
+is_skip_job_result_check: false
+retries: 1
+# Keep retry/job-retry backoff near zero so retry tests don't incur real wait time. The total
+# timeout stays generous so a slow first attempt can never cut the expected retry short.
+retry_initial_delay_sec: 0
+retry_max_delay_sec: 0
+retry_delay_multiplier: 1.0
+retry_total_timeout_sec: 60
+job_retry_initial_wait_sec: 0
+job_retry_max_wait_sec: 0
+# Short HTTP timeouts so a MockWebServer that never answers (e.g. SocketPolicy.NO_RESPONSE)
+# fails the test in a second instead of the production default (300 + 300 s read timeout).
+open_timeout_sec: 1
+read_timeout_sec: 1
+send_timeout_sec: 0
