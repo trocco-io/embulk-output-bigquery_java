@@ -10,6 +10,8 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertPatchTable;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertPostJobs;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertPostTables;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertStartResumableUpload;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadLoadFile;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.createCopyJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.createQueryJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.datasetResponse;
@@ -42,6 +44,7 @@ import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockResponses;
+import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.RequestCursor;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.FileInputPlugin;
 import org.embulk.spi.OutputPlugin;
@@ -79,8 +82,8 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
   @Rule public TemporaryFolder testFolder = new TemporaryFolder();
 
   // Runs the plugin against a MockWebServer, from test_host.yml customized by `customizeConfig`,
-  // and returns the requests it recorded, in order.
-  private List<RecordedRequest> runWithMockServer(
+  // and returns a cursor over the requests it recorded, in order.
+  private RequestCursor runWithMockServer(
       Function<ConfigSource, ConfigSource> customizeConfig, MockResponse... responses)
       throws Exception {
     return BigqueryMockWebServerTestUtil.runWithMockServer(
@@ -92,7 +95,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
   }
 
   // Like runWithMockServer() above, but for a run expected to fail.
-  private List<RecordedRequest> runWithMockServerExpectingFailure(
+  private RequestCursor runWithMockServerExpectingFailure(
       Function<ConfigSource, ConfigSource> customizeConfig,
       Class<? extends Exception> expectedFailureType,
       String errorMessagePattern,
@@ -112,37 +115,40 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
   public void testRunAppendDirectMode() throws Exception {
     // append_direct has no temp table: autoCreate() creates the destination table directly, load
     // uploads straight into it, and there is no copy/merge step or temp table to delete afterward.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             c -> c.set("mode", "append_direct"),
             MockResponses.of(datasetResponse(), tableResponse())
                 .add(loadAttemptResponses("testjob", null))
                 .add(tableResponse())
                 .toArray());
+    assertGetDataset(requests.next());
 
-    assertEquals(6, requests.size());
+    RecordedRequest createTable = requests.next();
+    assertPostTables(createTable);
+    assertEquals("table", tableIdOf(requestBodyJson(createTable), "tableReference"));
 
-    assertGetDataset(requests.get(0));
-
-    assertPostTables(requests.get(1));
-    assertEquals("table", tableIdOf(requestBodyJson(requests.get(1)), "tableReference"));
-
-    assertLoadAttempt(requests, 2, "testjob");
-    JSONObject loadConfig = jobConfig(requests.get(2), "load");
+    RecordedRequest openUpload = requests.next();
+    assertStartResumableUpload(openUpload);
+    RecordedRequest uploadFile = requests.next();
+    assertUploadLoadFile(uploadFile);
+    assertGetJobStatus(requests.next(), "testjob");
+    JSONObject loadConfig = jobConfig(openUpload, "load");
     assertEquals("table", tableIdOf(loadConfig, "destinationTable"));
     assertEquals("WRITE_APPEND", loadConfig.getString("writeDisposition"));
     // The uploaded bytes are the intermediate file itself: the input row as JSONL.
-    assertEquals(
-        Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(requests.get(3), true));
+    assertEquals(Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(uploadFile, true));
 
-    assertGetTable(requests.get(5), "table");
+    assertGetTable(requests.next(), "table");
+
+    requests.assertNoMore();
   }
 
   @Test
   public void testRunAppendDirectModeWithoutCompression() throws Exception {
     // Same run as above with compression: NONE: the intermediate file, and so the uploaded body,
     // is the plain JSONL.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             c -> c.set("mode", "append_direct").set("compression", "NONE"),
             MockResponses.of(datasetResponse(), tableResponse())
@@ -150,14 +156,18 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                 .add(tableResponse())
                 .toArray());
 
-    assertEquals(6, requests.size());
+    assertGetDataset(requests.next());
+    assertPostTables(requests.next());
 
-    assertGetDataset(requests.get(0));
-    assertPostTables(requests.get(1));
-    assertLoadAttempt(requests, 2, "testjob");
-    assertEquals(
-        Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(requests.get(3), false));
-    assertGetTable(requests.get(5), "table");
+    assertStartResumableUpload(requests.next());
+    RecordedRequest uploadFile = requests.next();
+    assertUploadLoadFile(uploadFile);
+    assertGetJobStatus(requests.next(), "testjob");
+    assertEquals(Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(uploadFile, false));
+
+    assertGetTable(requests.next(), "table");
+
+    requests.assertNoMore();
   }
 
   @Test
@@ -165,7 +175,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // GET dataset, POST temp table, load into temp table (POST to open the upload session + PUT
     // file + GET status), GET temp table row count (getTransactionReport), copy temp to final
     // table (POST job + GET status), GET table (updateTableIfNeed), DELETE temp table.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             c -> c.set("mode", "append"),
             MockResponses.of(datasetResponse(), tableResponse())
@@ -177,36 +187,37 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     tableResponse(),
                     deleteResponse())
                 .toArray());
+    assertGetDataset(requests.next());
 
-    assertEquals(10, requests.size());
-
-    assertGetDataset(requests.get(0));
-
-    assertPostTables(requests.get(1));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
     assertMatches(tempTableId, "LOAD_TEMP_.*_table");
 
-    assertLoadAttempt(requests, 2, "testjob");
-    assertEquals(tempTableId, tableIdOf(jobConfig(requests.get(2), "load"), "destinationTable"));
+    RecordedRequest openUpload = assertLoadAttempt(requests, "testjob");
+    assertEquals(tempTableId, tableIdOf(jobConfig(openUpload, "load"), "destinationTable"));
 
-    assertGetTable(requests.get(5), tempTableId); // getTransactionReport()
+    assertGetTable(requests.next(), tempTableId); // getTransactionReport()
 
-    assertPostJobs(requests.get(6));
-    JSONObject copyConfig = jobConfig(requests.get(6), "copy");
+    RecordedRequest createJob = requests.next();
+    assertPostJobs(createJob);
+    JSONObject copyConfig = jobConfig(createJob, "copy");
     assertEquals(tempTableId, firstSourceTableId(copyConfig));
     assertEquals("table", tableIdOf(copyConfig, "destinationTable"));
     assertEquals("WRITE_APPEND", copyConfig.getString("writeDisposition"));
 
-    assertGetJobStatus(requests.get(7), "testjob");
+    assertGetJobStatus(requests.next(), "testjob");
 
-    assertGetTable(requests.get(8), "table"); // updateTableIfNeed()
+    assertGetTable(requests.next(), "table"); // updateTableIfNeed()
 
-    assertDeleteTable(requests.get(9), tempTableId);
+    assertDeleteTable(requests.next(), tempTableId);
+
+    requests.assertNoMore();
   }
 
   @Test
   public void testRunReplaceMode() throws Exception {
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             c -> c.set("mode", "replace"),
             MockResponses.of(datasetResponse(), tableResponse())
@@ -218,31 +229,32 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     tableResponse(),
                     deleteResponse())
                 .toArray());
+    assertGetDataset(requests.next());
 
-    assertEquals(10, requests.size());
-
-    assertGetDataset(requests.get(0));
-
-    assertPostTables(requests.get(1));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
     assertMatches(tempTableId, "LOAD_TEMP_.*_table");
 
-    assertLoadAttempt(requests, 2, "testjob");
-    assertEquals(tempTableId, tableIdOf(jobConfig(requests.get(2), "load"), "destinationTable"));
+    RecordedRequest openUpload = assertLoadAttempt(requests, "testjob");
+    assertEquals(tempTableId, tableIdOf(jobConfig(openUpload, "load"), "destinationTable"));
 
-    assertGetTable(requests.get(5), tempTableId); // getTransactionReport()
+    assertGetTable(requests.next(), tempTableId); // getTransactionReport()
 
-    assertPostJobs(requests.get(6));
-    JSONObject copyConfig = jobConfig(requests.get(6), "copy");
+    RecordedRequest createJob = requests.next();
+    assertPostJobs(createJob);
+    JSONObject copyConfig = jobConfig(createJob, "copy");
     assertEquals(tempTableId, firstSourceTableId(copyConfig));
     assertEquals("table", tableIdOf(copyConfig, "destinationTable"));
     assertEquals("WRITE_TRUNCATE", copyConfig.getString("writeDisposition"));
 
-    assertGetJobStatus(requests.get(7), "testjob");
+    assertGetJobStatus(requests.next(), "testjob");
 
-    assertGetTable(requests.get(8), "table"); // updateTableIfNeed()
+    assertGetTable(requests.next(), "table"); // updateTableIfNeed()
 
-    assertDeleteTable(requests.get(9), tempTableId);
+    assertDeleteTable(requests.next(), tempTableId);
+
+    requests.assertNoMore();
   }
 
   @Test
@@ -250,7 +262,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // table: table_%Y%m%d is expanded to the current date before any BigQuery request is made
     // (BigqueryTaskBuilder.build()), so every reference to the destination table in the recorded
     // requests already reflects the expanded name, not the literal "table_%Y%m%d" pattern.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             c -> c.set("mode", "replace").set("table", "table_%Y%m%d"),
             MockResponses.of(datasetResponse(), tableResponse())
@@ -262,24 +274,31 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     tableResponse(),
                     deleteResponse())
                 .toArray());
+    assertGetDataset(requests.next());
 
-    assertEquals(10, requests.size());
-
-    assertPostTables(requests.get(1));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
     assertMatches(tempTableId, "LOAD_TEMP_.*_table_\\d{8}");
 
-    assertLoadAttempt(requests, 2, "testjob");
-    assertEquals(tempTableId, tableIdOf(jobConfig(requests.get(2), "load"), "destinationTable"));
+    RecordedRequest openUpload = assertLoadAttempt(requests, "testjob");
+    assertEquals(tempTableId, tableIdOf(jobConfig(openUpload, "load"), "destinationTable"));
 
-    assertPostJobs(requests.get(6));
-    JSONObject copyConfig = jobConfig(requests.get(6), "copy");
+    assertGetTable(requests.next(), tempTableId); // getTransactionReport()
+
+    RecordedRequest createJob = requests.next();
+    assertPostJobs(createJob);
+    JSONObject copyConfig = jobConfig(createJob, "copy");
     assertEquals(tempTableId, firstSourceTableId(copyConfig));
     String destinationTable = tableIdOf(copyConfig, "destinationTable");
     assertMatches(destinationTable, "table_\\d{8}");
 
-    assertGetTable(requests.get(8), destinationTable); // updateTableIfNeed()
-    assertDeleteTable(requests.get(9), tempTableId);
+    assertGetJobStatus(requests.next(), "testjob");
+
+    assertGetTable(requests.next(), destinationTable); // updateTableIfNeed()
+    assertDeleteTable(requests.next(), tempTableId);
+
+    requests.assertNoMore();
   }
 
   @Test
@@ -288,7 +307,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // storeCachedSrcFieldsIfNeed() GETs the (pre-existing) destination table right after autoCreate
     // creates the temp table, and updateTableIfNeed() PATCHes the destination afterward (before the
     // temp table delete) to restore the cached description/policy tag onto its post-replace schema.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             c ->
                 c.set("mode", "replace")
@@ -307,38 +326,39 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     tableResponse(),
                     deleteResponse())
                 .toArray());
+    assertGetDataset(requests.next());
 
-    assertEquals(12, requests.size());
-
-    assertGetDataset(requests.get(0));
-
-    assertPostTables(requests.get(1));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
     assertMatches(tempTableId, "LOAD_TEMP_.*_table");
 
-    assertGetTable(requests.get(2), "table"); // storeCachedSrcFieldsIfNeed()
+    assertGetTable(requests.next(), "table"); // storeCachedSrcFieldsIfNeed()
 
-    assertLoadAttempt(requests, 3, "testjob");
-    assertEquals(tempTableId, tableIdOf(jobConfig(requests.get(3), "load"), "destinationTable"));
+    RecordedRequest openUpload = assertLoadAttempt(requests, "testjob");
+    assertEquals(tempTableId, tableIdOf(jobConfig(openUpload, "load"), "destinationTable"));
 
-    assertGetTable(requests.get(6), tempTableId); // getTransactionReport()
+    assertGetTable(requests.next(), tempTableId); // getTransactionReport()
 
-    assertPostJobs(requests.get(7));
-    JSONObject copyConfig = jobConfig(requests.get(7), "copy");
+    RecordedRequest createJob = requests.next();
+    assertPostJobs(createJob);
+    JSONObject copyConfig = jobConfig(createJob, "copy");
     assertEquals(tempTableId, firstSourceTableId(copyConfig));
     assertEquals("table", tableIdOf(copyConfig, "destinationTable"));
     assertEquals("WRITE_TRUNCATE", copyConfig.getString("writeDisposition"));
 
-    assertGetJobStatus(requests.get(8), "testjob");
+    assertGetJobStatus(requests.next(), "testjob");
 
-    assertGetTable(requests.get(9), "table"); // updateTableIfNeed()
+    assertGetTable(requests.next(), "table"); // updateTableIfNeed()
 
-    RecordedRequest patchRequest = requests.get(10);
+    RecordedRequest patchRequest = requests.next();
     assertPatchTable(patchRequest, "table");
     assertFieldDescriptionAndPolicyTag(
         firstSchemaField(requestBodyJson(patchRequest)), "old-description", "old-policy-tag");
 
-    assertDeleteTable(requests.get(11), tempTableId);
+    assertDeleteTable(requests.next(), tempTableId);
+
+    requests.assertNoMore();
   }
 
   @Test
@@ -347,7 +367,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // one retry) before giving up; two consecutive internalError job failures exhaust that budget
     // and the whole plugin run fails. The temp table delete is guaranteed via finally, so it still
     // runs even though the load itself failed.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             c -> c.set("mode", "replace").set("retries", 1),
             RuntimeException.class,
@@ -357,20 +377,20 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                 .add(loadAttemptResponses("load-job-2", "internalError"))
                 .add(deleteResponse())
                 .toArray());
+    assertGetDataset(requests.next());
 
-    assertEquals(9, requests.size());
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
 
-    assertGetDataset(requests.get(0));
-
-    assertPostTables(requests.get(1));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
-
-    assertLoadAttempt(requests, 2, "load-job-1");
+    assertLoadAttempt(requests, "load-job-1");
 
     // The retry re-uploads the whole file as a new load job.
-    assertLoadAttempt(requests, 5, "load-job-2");
+    assertLoadAttempt(requests, "load-job-2");
 
-    assertDeleteTable(requests.get(8), tempTableId);
+    assertDeleteTable(requests.next(), tempTableId);
+
+    requests.assertNoMore();
   }
 
   @Test
@@ -378,7 +398,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // Like ruby, the schema update now runs before the temp table delete, and the delete is
     // guaranteed via finally, so a delete failure no longer blocks the schema update from being
     // attempted (it still surfaces the delete failure as the run's exception, though).
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             c -> c.set("mode", "replace").set("retain_column_descriptions", true),
             RuntimeException.class,
@@ -398,27 +418,27 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     // delete temp table (finally)
                     errorResponse(400, "boom", "invalid"))
                 .toArray());
+    assertGetDataset(requests.next());
 
-    assertEquals(11, requests.size());
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
 
-    assertGetDataset(requests.get(0));
+    assertGetTable(requests.next(), "table"); // storeCachedSrcFieldsIfNeed()
 
-    assertPostTables(requests.get(1));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
+    assertLoadAttempt(requests, "testjob");
 
-    assertGetTable(requests.get(2), "table"); // storeCachedSrcFieldsIfNeed()
+    assertGetTable(requests.next(), tempTableId); // getTransactionReport()
 
-    assertLoadAttempt(requests, 3, "testjob");
+    assertPostJobs(requests.next());
 
-    assertGetTable(requests.get(6), tempTableId); // getTransactionReport()
+    assertGetJobStatus(requests.next(), "testjob");
 
-    assertPostJobs(requests.get(7));
+    assertGetTable(requests.next(), "table"); // updateTableIfNeed()
 
-    assertGetJobStatus(requests.get(8), "testjob");
+    assertDeleteTable(requests.next(), tempTableId);
 
-    assertGetTable(requests.get(9), "table"); // updateTableIfNeed()
-
-    assertDeleteTable(requests.get(10), tempTableId);
+    requests.assertNoMore();
   }
 
   @Test
@@ -427,7 +447,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // storeCachedSrcFieldsIfNeed() runs first inside the (now widened) try block, right after
     // autoCreate() creates the temp table. Even when it fails outright, the temp table delete in
     // finally still runs, guaranteeing cleanup.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServerExpectingFailure(
             c -> c.set("mode", "replace").set("retain_column_descriptions", true),
             RuntimeException.class,
@@ -436,17 +456,17 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
             tableResponse(),
             errorResponse(400, "boom", "invalid"), // storeCachedSrcFieldsIfNeed()
             deleteResponse());
+    assertGetDataset(requests.next());
 
-    assertEquals(4, requests.size());
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
 
-    assertGetDataset(requests.get(0));
+    assertGetTable(requests.next(), "table"); // storeCachedSrcFieldsIfNeed(), fails with "boom"
 
-    assertPostTables(requests.get(1));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
+    assertDeleteTable(requests.next(), tempTableId);
 
-    assertGetTable(requests.get(2), "table"); // storeCachedSrcFieldsIfNeed(), fails with "boom"
-
-    assertDeleteTable(requests.get(3), tempTableId);
+    requests.assertNoMore();
   }
 
   @Test
@@ -456,7 +476,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // returns right after creating the destination table, before ever reaching the load/copy
     // logic. The temp table (already created by autoCreate()) must still be deleted via the
     // guaranteed finally block.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         BigqueryMockWebServerTestUtil.runWithMockServer(
             embulk,
             testFolder,
@@ -467,18 +487,20 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
             tableResponse(),
             deleteResponse());
 
-    assertEquals(4, requests.size());
+    assertGetDataset(requests.next());
 
-    assertGetDataset(requests.get(0));
-
-    assertPostTables(requests.get(1));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
     assertMatches(tempTableId, "LOAD_TEMP_.*_table");
 
-    assertPostTables(requests.get(2));
-    assertEquals("table", tableIdOf(requestBodyJson(requests.get(2)), "tableReference"));
+    RecordedRequest createTable = requests.next();
+    assertPostTables(createTable);
+    assertEquals("table", tableIdOf(requestBodyJson(createTable), "tableReference"));
 
-    assertDeleteTable(requests.get(3), tempTableId);
+    assertDeleteTable(requests.next(), tempTableId);
+
+    requests.assertNoMore();
   }
 
   @Test
@@ -486,7 +508,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // autoCreate() deletes the destination table (or partition) before creating the temp table;
     // load into the temp table, copy (WRITE_TRUNCATE) to the destination, delete the temp table.
     // TODO: avoid going through a temp table.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             c -> c.set("mode", "delete_in_advance"),
             MockResponses.of(datasetResponse(), deleteResponse(), tableResponse())
@@ -498,33 +520,34 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     tableResponse(),
                     deleteResponse())
                 .toArray());
+    assertGetDataset(requests.next());
 
-    assertEquals(11, requests.size());
+    assertDeleteTable(requests.next(), "table");
 
-    assertGetDataset(requests.get(0));
-
-    assertDeleteTable(requests.get(1), "table");
-
-    assertPostTables(requests.get(2));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(2)), "tableReference");
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
     assertMatches(tempTableId, "LOAD_TEMP_.*_table");
 
-    assertLoadAttempt(requests, 3, "testjob");
-    assertEquals(tempTableId, tableIdOf(jobConfig(requests.get(3), "load"), "destinationTable"));
+    RecordedRequest openUpload = assertLoadAttempt(requests, "testjob");
+    assertEquals(tempTableId, tableIdOf(jobConfig(openUpload, "load"), "destinationTable"));
 
-    assertGetTable(requests.get(6), tempTableId); // getTransactionReport()
+    assertGetTable(requests.next(), tempTableId); // getTransactionReport()
 
-    assertPostJobs(requests.get(7));
-    JSONObject copyConfig = jobConfig(requests.get(7), "copy");
+    RecordedRequest createJob = requests.next();
+    assertPostJobs(createJob);
+    JSONObject copyConfig = jobConfig(createJob, "copy");
     assertEquals(tempTableId, firstSourceTableId(copyConfig));
     assertEquals("table", tableIdOf(copyConfig, "destinationTable"));
     assertEquals("WRITE_TRUNCATE", copyConfig.getString("writeDisposition"));
 
-    assertGetJobStatus(requests.get(8), "testjob");
+    assertGetJobStatus(requests.next(), "testjob");
 
-    assertGetTable(requests.get(9), "table"); // updateTableIfNeed()
+    assertGetTable(requests.next(), "table"); // updateTableIfNeed()
 
-    assertDeleteTable(requests.get(10), tempTableId);
+    assertDeleteTable(requests.next(), tempTableId);
+
+    requests.assertNoMore();
   }
 
   @Test
@@ -533,7 +556,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // tables.delete in autoCreate() gets a 404. The BigQuery client library maps that to
     // BigQuery#delete() returning false rather than throwing, and the plugin ignores the return
     // value, so the run proceeds exactly as when the delete succeeds.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             c -> c.set("mode", "delete_in_advance"),
             MockResponses.of(
@@ -548,33 +571,34 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     tableResponse(),
                     deleteResponse())
                 .toArray());
+    assertGetDataset(requests.next());
 
-    assertEquals(11, requests.size());
+    assertDeleteTable(requests.next(), "table");
 
-    assertGetDataset(requests.get(0));
-
-    assertDeleteTable(requests.get(1), "table");
-
-    assertPostTables(requests.get(2));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(2)), "tableReference");
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
     assertMatches(tempTableId, "LOAD_TEMP_.*_table");
 
-    assertLoadAttempt(requests, 3, "testjob");
-    assertEquals(tempTableId, tableIdOf(jobConfig(requests.get(3), "load"), "destinationTable"));
+    RecordedRequest openUpload = assertLoadAttempt(requests, "testjob");
+    assertEquals(tempTableId, tableIdOf(jobConfig(openUpload, "load"), "destinationTable"));
 
-    assertGetTable(requests.get(6), tempTableId); // getTransactionReport()
+    assertGetTable(requests.next(), tempTableId); // getTransactionReport()
 
-    assertPostJobs(requests.get(7));
-    JSONObject copyConfig = jobConfig(requests.get(7), "copy");
+    RecordedRequest createJob = requests.next();
+    assertPostJobs(createJob);
+    JSONObject copyConfig = jobConfig(createJob, "copy");
     assertEquals(tempTableId, firstSourceTableId(copyConfig));
     assertEquals("table", tableIdOf(copyConfig, "destinationTable"));
     assertEquals("WRITE_TRUNCATE", copyConfig.getString("writeDisposition"));
 
-    assertGetJobStatus(requests.get(8), "testjob");
+    assertGetJobStatus(requests.next(), "testjob");
 
-    assertGetTable(requests.get(9), "table"); // updateTableIfNeed()
+    assertGetTable(requests.next(), "table"); // updateTableIfNeed()
 
-    assertDeleteTable(requests.get(10), tempTableId);
+    assertDeleteTable(requests.next(), tempTableId);
+
+    requests.assertNoMore();
   }
 
   @Test
@@ -582,7 +606,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // autoCreate() creates both the temp table and the final table (merge needs the final table
     // to exist for its MERGE statement); load into the temp table, then MERGE it into the
     // destination via a query job, then delete the temp table.
-    List<RecordedRequest> requests =
+    RequestCursor requests =
         runWithMockServer(
             // merge_keys is set explicitly to avoid merge mode issuing an extra
             // INFORMATION_SCHEMA query job to discover merge keys when none are configured.
@@ -596,33 +620,35 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     tableResponse(),
                     deleteResponse())
                 .toArray());
+    assertGetDataset(requests.next());
 
-    assertEquals(11, requests.size());
-
-    assertGetDataset(requests.get(0));
-
-    assertPostTables(requests.get(1));
-    String tempTableId = tableIdOf(requestBodyJson(requests.get(1)), "tableReference");
+    RecordedRequest createTempTable = requests.next();
+    assertPostTables(createTempTable);
+    String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
     assertMatches(tempTableId, "LOAD_TEMP_.*_table");
 
-    assertPostTables(requests.get(2));
-    assertEquals("table", tableIdOf(requestBodyJson(requests.get(2)), "tableReference"));
+    RecordedRequest createTable = requests.next();
+    assertPostTables(createTable);
+    assertEquals("table", tableIdOf(requestBodyJson(createTable), "tableReference"));
 
-    assertLoadAttempt(requests, 3, "testjob");
-    assertEquals(tempTableId, tableIdOf(jobConfig(requests.get(3), "load"), "destinationTable"));
+    RecordedRequest openUpload = assertLoadAttempt(requests, "testjob");
+    assertEquals(tempTableId, tableIdOf(jobConfig(openUpload, "load"), "destinationTable"));
 
-    assertGetTable(requests.get(6), tempTableId); // getTransactionReport()
+    assertGetTable(requests.next(), tempTableId); // getTransactionReport()
 
-    assertPostJobs(requests.get(7));
-    String mergeQuery = jobConfig(requests.get(7), "query").getString("query");
+    RecordedRequest createJob = requests.next();
+    assertPostJobs(createJob);
+    String mergeQuery = jobConfig(createJob, "query").getString("query");
     assertTrue(
         mergeQuery.matches(
             "(?s).*MERGE.*`table`.*" + java.util.regex.Pattern.quote(tempTableId) + ".*"));
 
-    assertGetJobStatus(requests.get(8), "testjob");
+    assertGetJobStatus(requests.next(), "testjob");
 
-    assertGetTable(requests.get(9), "table"); // updateTableIfNeed()
+    assertGetTable(requests.next(), "table"); // updateTableIfNeed()
 
-    assertDeleteTable(requests.get(10), tempTableId);
+    assertDeleteTable(requests.next(), tempTableId);
+
+    requests.assertNoMore();
   }
 }
