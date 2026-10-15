@@ -461,19 +461,54 @@ public class BigqueryClient {
       String table,
       String jobId,
       WriteChannelConfiguration writeChannelConfiguration) {
-    int retries = 0;
-    while (true) {
-      try {
-        return uploadOnce(loadFile, table, jobId, writeChannelConfiguration);
-      } catch (BigqueryUploadException e) {
-        if (retries < task.getRetries()) {
-          retries++;
-          logger.warn("embulk-output-bigquery: retry #{}, {}", retries, e.getMessage());
-        } else {
-          logger.error("embulk-output-bigquery: retry exhausted #{}, {}", retries, e.getMessage());
-          throw e;
-        }
+    try {
+      return RetryExecutor.builder()
+          .withRetryLimit(task.getRetries())
+          .withInitialRetryWaitMillis(0)
+          .withMaxRetryWaitMillis(0)
+          .build()
+          .runInterruptible(
+              new Retryable<Job>() {
+                @Override
+                public Job call() {
+                  return uploadOnce(loadFile, table, jobId, writeChannelConfiguration);
+                }
+
+                @Override
+                public boolean isRetryableException(Exception exception) {
+                  return exception instanceof BigqueryUploadException;
+                }
+
+                @Override
+                public void onRetry(
+                    Exception exception, int retryCount, int retryLimit, int retryWait) {
+                  logger.warn(
+                      "embulk-output-bigquery: retry #{}, {}", retryCount, exception.getMessage());
+                }
+
+                // Reached both when the retries are used up and for a failure that is not
+                // retryable at all; only the former gets the "exhausted" line.
+                @Override
+                public void onGiveup(Exception firstException, Exception lastException)
+                    throws RetryGiveupException {
+                  if (lastException instanceof BigqueryUploadException) {
+                    logger.error(
+                        "embulk-output-bigquery: retry exhausted #{}, {}",
+                        task.getRetries(),
+                        lastException.getMessage());
+                  }
+                  // RetryExecutor would wrap the first failure; the last one is the one to report
+                  // (e.g. a 4xx after a 5xx).
+                  throw new RetryGiveupException(lastException);
+                }
+              });
+    } catch (RetryGiveupException ex) {
+      if (ex.getCause() instanceof BigqueryException) {
+        throw (BigqueryException) ex.getCause();
       }
+      throw new RuntimeException(ex);
+    } catch (InterruptedException ex) {
+      throw new BigqueryException("interrupted");
     }
   }
 
