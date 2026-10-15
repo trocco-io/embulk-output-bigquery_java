@@ -240,6 +240,45 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     return intermediateDir;
   }
 
+  // A writer whose close() throws must not stop the cleanup: the temp table is still deleted and
+  // the intermediate files (its own included) still removed. The writer is registered under a
+  // thread id no page output uses, so it is closed only by transaction() itself; the first
+  // close(), right after the data phase, fails the run, and the finally block's close() throws
+  // again before the nested cleanup steps.
+  @Test
+  public void testRunStillCleansUpWhenClosingAWriterThrows() throws Exception {
+    File brokenFile = testFolder.newFile("broken.jsonl");
+    BigqueryFileWriter brokenWriter =
+        new BigqueryFileWriter() {
+          @Override
+          public void close() {
+            super.close();
+            throw new RuntimeException("boom: close failed");
+          }
+        };
+    brokenWriter.setCompression("NONE");
+    brokenWriter.open(brokenFile.getPath());
+    BigqueryUtil.getFileWriters().put(-1L, brokenWriter);
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            c -> c.set("mode", "replace"),
+            RuntimeException.class,
+            "(?s).*boom: close failed.*",
+            datasetResponse(),
+            tableResponse(),
+            deleteResponse())) {
+      assertGetDataset(requests.next());
+
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
+
+      assertDeleteTable(requests.next(), tempTableId);
+    }
+    assertTrue("intermediate file not removed", !brokenFile.exists());
+  }
+
   @Test
   public void testRunAppendMode() throws Exception {
     // GET dataset, POST temp table, load into temp table (POST to open the upload session + PUT
