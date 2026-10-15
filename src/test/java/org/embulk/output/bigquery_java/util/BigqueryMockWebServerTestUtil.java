@@ -69,10 +69,14 @@ public final class BigqueryMockWebServerTestUtil {
   }
 
   // Starts a MockWebServer, enqueues `responses` on it, runs `action` against it, and returns a
-  // cursor over the requests it recorded, in order. `action` is expected to make exactly
-  // responses.length HTTP
-  // calls against the server (e.g. via a BigqueryClient built with buildTestHostClient(), or by
-  // running the plugin via runOutput()).
+  // cursor over every request it recorded, in order. `action` is expected to make exactly
+  // responses.length HTTP calls against the server (e.g. via a BigqueryClient built with
+  // buildTestHostClient(), or by running the plugin via runOutput()), but the count is not
+  // checked here: a run that made fewer calls fails at the first next() with nothing left to
+  // return, and one that made more fails when the cursor is closed, which names the extra
+  // requests (if the 599 they were answered with didn't already fail the action). Either way the
+  // failure points at the step that diverged, which a bare count comparison couldn't. Use the
+  // cursor in a try-with-resources so that close() runs; see RequestCursor.
   public static RequestCursor runWithMockServer(MockServerAction action, MockResponse... responses)
       throws Exception {
     try (MockWebServer server = new MockWebServer()) {
@@ -98,9 +102,9 @@ public final class BigqueryMockWebServerTestUtil {
 
       action.run(server);
 
-      assertEquals("unexpected request count", responses.length, server.getRequestCount());
       List<RecordedRequest> requests = new ArrayList<>();
-      for (int i = 0; i < responses.length; i++) {
+      int requestCount = server.getRequestCount();
+      for (int i = 0; i < requestCount; i++) {
         requests.add(server.takeRequest());
       }
       return new RequestCursor(requests);
@@ -297,20 +301,38 @@ public final class BigqueryMockWebServerTestUtil {
     assertEquals("bytes " + from + "-" + to + "/" + totalPart, request.getHeader("Content-Range"));
   }
 
-  // The 3 requests matching loadAttemptResponses(), consumed from the cursor. Returns the POST
-  // that opened the session, whose body is the load job (see jobConfig() and jobIdOf()).
-  public static RecordedRequest assertLoadAttempt(RequestCursor requests, String jobId) {
+  // The 3 requests matching loadAttemptResponses(), consumed from the cursor. Returns the two a
+  // test may want to look into; a change to what one attempt consists of lands here only.
+  public static LoadAttempt assertLoadAttempt(RequestCursor requests, String jobId) {
     RecordedRequest openUpload = requests.next();
     assertStartResumableUpload(openUpload);
-    assertUploadLoadFile(requests.next());
+    RecordedRequest uploadFile = requests.next();
+    assertUploadLoadFile(uploadFile);
     assertGetJobStatus(requests.next(), jobId);
-    return openUpload;
+    return new LoadAttempt(openUpload, uploadFile);
+  }
+
+  // The requests of one load attempt as checked by assertLoadAttempt(): the POST that opened the
+  // session, whose body is the load job (see jobConfig() and jobIdOf()), and the PUT of the file,
+  // whose body is the file itself (see uploadedLines()).
+  public static final class LoadAttempt {
+    public final RecordedRequest openUpload;
+    public final RecordedRequest uploadFile;
+
+    private LoadAttempt(RecordedRequest openUpload, RecordedRequest uploadFile) {
+      this.openUpload = openUpload;
+      this.uploadFile = uploadFile;
+    }
   }
 
   // Walks the recorded requests in order, so that a test asserts them as a sequence
   // (assertGetDataset(requests.next()), ...) instead of by position: when a step gains or loses a
   // request, only the assertions for that step change, not every index after it.
-  public static final class RequestCursor {
+  //
+  // AutoCloseable so that a test holds it in a try-with-resources and close() checks that every
+  // request was walked: completeness then doesn't depend on remembering a final call, which is
+  // how the strftime test came to silently skip requests (#112 / #119).
+  public static final class RequestCursor implements AutoCloseable {
     private final List<RecordedRequest> requests;
     private int position = 0;
 
@@ -318,16 +340,28 @@ public final class BigqueryMockWebServerTestUtil {
       this.requests = requests;
     }
 
+    // Fails when the run made fewer requests than the test asserts; the message counts from 1,
+    // so "#10" is the 10th response in the test's list.
     public RecordedRequest next() {
       assertTrue(
-          "expected another request after " + position + " but the run made only " + position,
+          "the test asserts request #"
+              + (position + 1)
+              + " but the run recorded only "
+              + requests.size(),
           position < requests.size());
       return requests.get(position++);
     }
 
-    // Every recorded request has been asserted on.
-    public void assertNoMore() {
-      assertEquals("unasserted requests remain", requests.size(), position);
+    // Every recorded request has been asserted on. The failure message lists the requests that
+    // were not, so an unexpected extra call can be read off it directly. When the try body has
+    // already failed, this failure is attached to that one as suppressed, not reported instead.
+    @Override
+    public void close() {
+      List<String> remaining = new ArrayList<>();
+      for (RecordedRequest request : requests.subList(position, requests.size())) {
+        remaining.add(request.getMethod() + " " + request.getPath());
+      }
+      assertTrue("unasserted requests remain: " + remaining, remaining.isEmpty());
     }
   }
 
