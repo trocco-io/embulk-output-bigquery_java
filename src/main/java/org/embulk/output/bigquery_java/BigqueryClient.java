@@ -199,6 +199,19 @@ public class BigqueryClient {
         .build();
   }
 
+  // For re-sending a whole upload (upload()). The library already retries each request of an
+  // upload with the backoff from buildRetrySettings(); this sits outside that and catches what
+  // the library won't retry (a socket error under TLS, see isRetryableUploadFailure()) or gave up
+  // on, by starting a new session. No wait between attempts: the library's backoff has already
+  // been spent by the time this runs, and ruby's with_network_retry retries at once as well.
+  private RetryExecutor buildUploadRetryExecutor() {
+    return RetryExecutor.builder()
+        .withRetryLimit(task.getRetries())
+        .withInitialRetryWaitMillis(0)
+        .withMaxRetryWaitMillis(0)
+        .build();
+  }
+
   public Dataset createDataset() {
     return createDataset(destinationDataset);
   }
@@ -462,11 +475,7 @@ public class BigqueryClient {
       String jobId,
       WriteChannelConfiguration writeChannelConfiguration) {
     try {
-      return RetryExecutor.builder()
-          .withRetryLimit(task.getRetries())
-          .withInitialRetryWaitMillis(0)
-          .withMaxRetryWaitMillis(0)
-          .build()
+      return buildUploadRetryExecutor()
           .runInterruptible(
               new Retryable<Job>() {
                 @Override
