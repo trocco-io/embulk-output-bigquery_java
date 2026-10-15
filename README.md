@@ -141,14 +141,14 @@ This is not transactional, i.e., if fails, the target table could have some rows
 1. Load to temporary table (Create and WRITE_APPEND in parallel)
 2. Copy temporary table to destination table (or partition). (WRITE_TRUNCATE)
 
-```is_skip_job_result_check``` must be false when replace mode
-
 NOTE: BigQuery does not support replacing (actually, copying into) a non-partitioned table with a paritioned table atomically. You must once delete the non-partitioned table, otherwise, you get `Incompatible table partitioning specification when copying to the column partitioned table` error.
 
 ##### delete_in_advance
 
 1. Delete destination table (or partition), if it exists.
 2. Load to destination table (or partition).
+
+NOTE: A `table` with a partition decorator (such as `table_name$20160929`) is not supported in this mode yet. The destination table is recreated with the decorator still in its id after the partition is deleted, which BigQuery rejects, so the run fails with the partition already deleted. Partition decorator support is tracked separately.
 
 ##### merge
 
