@@ -18,3 +18,8 @@ retry_delay_multiplier: 1.0
 retry_total_timeout_sec: 60
 job_retry_initial_wait_sec: 0
 job_retry_max_wait_sec: 0
+# Short HTTP timeouts so a MockWebServer that never answers (e.g. SocketPolicy.NO_RESPONSE)
+# fails the test in a second instead of the production default (300 + 300 s read timeout).
+open_timeout_sec: 1
+read_timeout_sec: 1
+send_timeout_sec: 0

@@ -18,6 +18,14 @@ import java.io.IOException;
 // This override builds that one URL from the configured host instead, which is what upstream
 // does since googleapis/java-bigquery#2696. Everything else, including the chunk uploads
 // (write() follows the Location returned here), is the library's own code.
+//
+// This class re-creates private internals of the library, so it is tied to the exact version
+// pinned in shadow-google-cloud-bigquery-helper/build.gradle (2.14.0; nothing else requires that
+// version, it just hasn't been bumped). Once google-cloud-bigquery is upgraded to 2.26.1 or
+// later, which ships the upstream fix, delete this class and the setServiceRpcFactory() call in
+// TestHostBigQueryOptions. Until then, check this class on any library bump: a change to the
+// constructor's request-factory setup, or to how write() uses the Location open() returns, would
+// still compile but change behavior.
 final class TestHostBigQueryRpc extends HttpBigQueryRpc {
   private static final String RESUMABLE_PATH = "upload/bigquery/v2/projects/";
 

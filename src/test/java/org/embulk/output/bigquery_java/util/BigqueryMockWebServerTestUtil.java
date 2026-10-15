@@ -4,12 +4,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -17,7 +20,9 @@ import java.util.function.Function;
 import java.util.zip.GZIPInputStream;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.QueueDispatcher;
 import okhttp3.mockwebserver.RecordedRequest;
+import okhttp3.mockwebserver.SocketPolicy;
 import org.embulk.config.ConfigSource;
 import org.embulk.test.TestingEmbulk;
 import org.json.JSONArray;
@@ -35,7 +40,7 @@ public final class BigqueryMockWebServerTestUtil {
   private static final String E2E_INPUT_FILE_NAME = "embulk-output-bigquery_java-e2e-test.csv";
 
   // Stands in for the MockWebServer's scheme://host:port in responses built before the server is
-  // started; runWithMockServer() substitutes the real one when enqueueing.
+  // started; runWithMockServer() substitutes the real one (testHostOf()) when enqueueing.
   private static final String TEST_HOST_PLACEHOLDER = "{{test_host}}";
 
   private static final String RESUMABLE_UPLOAD_PATH =
@@ -43,10 +48,17 @@ public final class BigqueryMockWebServerTestUtil {
   private static final String RESUMABLE_UPLOAD_ID = "test-upload";
 
   // BaseWriteChannel.DEFAULT_CHUNK_SIZE (google-cloud-core 2.8.0): a file up to this size is
-  // uploaded as one PUT.
-  private static final long UPLOAD_CHUNK_SIZE = 15L * 1024 * 1024;
+  // uploaded as one PUT; a larger one as 15 MB chunks (answered with 308) plus a final chunk.
+  public static final long UPLOAD_CHUNK_SIZE = 15L * 1024 * 1024;
 
   private BigqueryMockWebServerTestUtil() {}
+
+  // The server's origin as the client is pointed at it ("scheme://host:port/"): the value of
+  // test_host, and the prefix of any absolute URL a response sends the client to (a resumable
+  // upload's Location). Every such URL must come from here, so they never disagree on the origin.
+  public static String testHostOf(MockWebServer server) {
+    return server.url("/").toString();
+  }
 
   // Loads test_host.yml, customized by `customizeConfig` (e.g. to set mode or flip a flag).
   // test_host itself is not set here: callers wire it to a specific MockWebServer separately,
@@ -56,41 +68,53 @@ public final class BigqueryMockWebServerTestUtil {
     return customizeConfig.apply(embulk.loadYamlResource(TEST_HOST_RESOURCE_PATH));
   }
 
-  // Starts a MockWebServer, enqueues `responses` on it, runs `action` against it, and returns the
-  // requests it recorded, in order. `action` is expected to make exactly responses.length HTTP
-  // calls against the server (e.g. via a BigqueryClient built with buildTestHostClient(), or by
-  // running the plugin via runOutput()).
-  public static List<RecordedRequest> runWithMockServer(
-      MockServerAction action, MockResponse... responses) throws Exception {
+  // Starts a MockWebServer, enqueues `responses` on it, runs `action` against it, and returns a
+  // cursor over every request it recorded, in order. `action` is expected to make exactly
+  // responses.length HTTP calls against the server (e.g. via a BigqueryClient built with
+  // buildTestHostClient(), or by running the plugin via runOutput()), but the count is not
+  // checked here: a run that made fewer calls fails at the first next() with nothing left to
+  // return, and one that made more fails when the cursor is closed, which names the extra
+  // requests (if the 599 they were answered with didn't already fail the action). Either way the
+  // failure points at the step that diverged, which a bare count comparison couldn't. Use the
+  // cursor in a try-with-resources so that close() runs; see RequestCursor.
+  public static RequestCursor runWithMockServer(MockServerAction action, MockResponse... responses)
+      throws Exception {
     try (MockWebServer server = new MockWebServer()) {
+      // A request with no enqueued response is a test bug: answer it right away instead of
+      // leaving the client waiting for its read timeout.
+      QueueDispatcher dispatcher = new QueueDispatcher();
+      dispatcher.setFailFast(
+          new MockResponse().setResponseCode(599).setBody("no response enqueued for this request"));
+      server.setDispatcher(dispatcher);
       server.start();
 
       for (MockResponse response : responses) {
         // A resumable upload session's Location must be an absolute URL, and the server's URL is
-        // only known now; see startResumableUploadResponse().
+        // only known now; see startResumableUploadResponse(). testHostOf() ends with "/", so it
+        // replaces the placeholder together with the "/" that starts the path after it.
         String location = response.getHeaders().get("Location");
-        if (location != null && location.contains(TEST_HOST_PLACEHOLDER)) {
-          String testHost = "http://" + server.getHostName() + ":" + server.getPort();
-          response.setHeader("Location", location.replace(TEST_HOST_PLACEHOLDER, testHost));
+        String placeholderOrigin = TEST_HOST_PLACEHOLDER + "/";
+        if (location != null && location.startsWith(placeholderOrigin)) {
+          response.setHeader("Location", location.replace(placeholderOrigin, testHostOf(server)));
         }
         server.enqueue(response);
       }
 
       action.run(server);
 
-      assertEquals(responses.length, server.getRequestCount());
       List<RecordedRequest> requests = new ArrayList<>();
-      for (int i = 0; i < responses.length; i++) {
+      int requestCount = server.getRequestCount();
+      for (int i = 0; i < requestCount; i++) {
         requests.add(server.takeRequest());
       }
-      return requests;
+      return new RequestCursor(requests);
     }
   }
 
   // Like runWithMockServer() above, but for an action expected to fail: `expectedFailureType` is
   // the exception type `action` should throw, and `errorMessagePattern` is a regex the thrown
   // exception's message must match.
-  public static List<RecordedRequest> runWithMockServerExpectingFailure(
+  public static RequestCursor runWithMockServerExpectingFailure(
       Class<? extends Exception> expectedFailureType,
       String errorMessagePattern,
       MockServerAction action,
@@ -107,7 +131,7 @@ public final class BigqueryMockWebServerTestUtil {
   // Runs the plugin with one input row against a MockWebServer standing in for the real BigQuery
   // API, and returns the requests it recorded, in order. outConfig is expected to come from
   // loadTestHostConfig(); test_host is set here once the server is up.
-  public static List<RecordedRequest> runWithMockServer(
+  public static RequestCursor runWithMockServer(
       TestingEmbulk embulk,
       TemporaryFolder testFolder,
       ConfigSource outConfig,
@@ -121,7 +145,7 @@ public final class BigqueryMockWebServerTestUtil {
   // exception type the plugin run should throw (e.g. RuntimeException, since transaction() wraps
   // whatever it encounters, such as a job/API failure, in one), and `errorMessagePattern` is a
   // regex the thrown exception's message must match.
-  public static List<RecordedRequest> runWithMockServerExpectingFailure(
+  public static RequestCursor runWithMockServerExpectingFailure(
       TestingEmbulk embulk,
       TemporaryFolder testFolder,
       ConfigSource outConfig,
@@ -143,7 +167,7 @@ public final class BigqueryMockWebServerTestUtil {
       ConfigSource outConfig,
       List<String> inputLines) {
     return server -> {
-      outConfig.set("test_host", server.url("/").toString());
+      outConfig.set("test_host", testHostOf(server));
       File in = testFolder.newFile(E2E_INPUT_FILE_NAME);
       Files.write(in.toPath(), inputLines);
       embulk.runOutput(outConfig, in.toPath());
@@ -159,11 +183,17 @@ public final class BigqueryMockWebServerTestUtil {
 
   // The BigQuery client library gzip-compresses request bodies by default.
   private static String readRequestBodyAsString(RecordedRequest request) throws IOException {
-    byte[] rawBytes = request.getBody().readByteArray();
+    byte[] rawBytes = requestBodyBytes(request);
     if (!"gzip".equals(request.getHeader("Content-Encoding"))) {
       return new String(rawBytes, StandardCharsets.UTF_8);
     }
     return gunzip(rawBytes);
+  }
+
+  // Reading a RecordedRequest's Buffer directly drains it, so a second read of the same request
+  // would see an empty body; read a clone so a request can be asserted more than once.
+  private static byte[] requestBodyBytes(RecordedRequest request) {
+    return request.getBody().clone().readByteArray();
   }
 
   private static String gunzip(byte[] rawBytes) throws IOException {
@@ -253,35 +283,56 @@ public final class BigqueryMockWebServerTestUtil {
   }
 
   // The PUT of the whole file as the single, final chunk of the resumable upload session opened
-  // by startResumableUploadResponse(). A file larger than the library's chunk size would be sent
-  // as several PUTs (the intermediate ones answered with 308), which these helpers don't model.
+  // by startResumableUploadResponse(), sized from the recorded body. A file over the library's
+  // chunk size is sent as several PUTs instead; assert those with assertUploadChunk().
   public static void assertUploadLoadFile(RecordedRequest request) {
-    assertRequest(request, "PUT", RESUMABLE_UPLOAD_PATH + "&upload_id=" + RESUMABLE_UPLOAD_ID);
     long size = request.getBodySize();
     assertTrue(
-        "uploaded " + size + " bytes, more than one chunk; see assertUploadLoadFile()",
+        "uploaded " + size + " bytes, more than one chunk; see assertUploadChunk()",
         size <= UPLOAD_CHUNK_SIZE);
-    assertEquals("bytes 0-" + (size - 1) + "/" + size, request.getHeader("Content-Range"));
+    assertUploadChunk(request, 0, size - 1, size);
   }
 
-  // The 3 requests matching loadAttemptResponses(), starting at requests.get(offset).
-  public static void assertLoadAttempt(List<RecordedRequest> requests, int offset, String jobId) {
-    assertStartResumableUpload(requests.get(offset));
-    assertUploadLoadFile(requests.get(offset + 1));
-    assertGetJobStatus(requests.get(offset + 2), jobId);
+  // One chunk PUT of a multi-chunk upload (a file over UPLOAD_CHUNK_SIZE): Content-Range is
+  // "bytes from-to/*" for an intermediate chunk (total < 0) and "bytes from-to/total" for the last.
+  public static void assertUploadChunk(RecordedRequest request, long from, long to, long total) {
+    assertRequest(request, "PUT", RESUMABLE_UPLOAD_PATH + "&upload_id=" + RESUMABLE_UPLOAD_ID);
+    String totalPart = total < 0 ? "*" : String.valueOf(total);
+    assertEquals("bytes " + from + "-" + to + "/" + totalPart, request.getHeader("Content-Range"));
   }
 
-  // The 3 requests matching loadAttemptResponses(), consumed from the cursor.
-  public static void assertLoadAttempt(RequestCursor requests, String jobId) {
-    assertStartResumableUpload(requests.next());
-    assertUploadLoadFile(requests.next());
+  // The 3 requests matching loadAttemptResponses(), consumed from the cursor. Returns the two a
+  // test may want to look into; a change to what one attempt consists of lands here only.
+  public static LoadAttempt assertLoadAttempt(RequestCursor requests, String jobId) {
+    RecordedRequest openUpload = requests.next();
+    assertStartResumableUpload(openUpload);
+    RecordedRequest uploadFile = requests.next();
+    assertUploadLoadFile(uploadFile);
     assertGetJobStatus(requests.next(), jobId);
+    return new LoadAttempt(openUpload, uploadFile);
+  }
+
+  // The requests of one load attempt as checked by assertLoadAttempt(): the POST that opened the
+  // session, whose body is the load job (see jobConfig() and jobIdOf()), and the PUT of the file,
+  // whose body is the file itself (see uploadedLines()).
+  public static final class LoadAttempt {
+    public final RecordedRequest openUpload;
+    public final RecordedRequest uploadFile;
+
+    private LoadAttempt(RecordedRequest openUpload, RecordedRequest uploadFile) {
+      this.openUpload = openUpload;
+      this.uploadFile = uploadFile;
+    }
   }
 
   // Walks the recorded requests in order, so that a test asserts them as a sequence
   // (assertGetDataset(requests.next()), ...) instead of by position: when a step gains or loses a
   // request, only the assertions for that step change, not every index after it.
-  public static final class RequestCursor {
+  //
+  // AutoCloseable so that a test holds it in a try-with-resources and close() checks that every
+  // request was walked: completeness then doesn't depend on remembering a final call, which is
+  // how the strftime test came to silently skip requests (#112 / #119).
+  public static final class RequestCursor implements AutoCloseable {
     private final List<RecordedRequest> requests;
     private int position = 0;
 
@@ -289,16 +340,28 @@ public final class BigqueryMockWebServerTestUtil {
       this.requests = requests;
     }
 
+    // Fails when the run made fewer requests than the test asserts; the message counts from 1,
+    // so "#10" is the 10th response in the test's list.
     public RecordedRequest next() {
       assertTrue(
-          "expected another request after " + position + " but the run made only " + position,
+          "the test asserts request #"
+              + (position + 1)
+              + " but the run recorded only "
+              + requests.size(),
           position < requests.size());
       return requests.get(position++);
     }
 
-    // Every recorded request has been asserted on.
-    public void assertNoMore() {
-      assertEquals("unasserted requests remain", requests.size(), position);
+    // Every recorded request has been asserted on. The failure message lists the requests that
+    // were not, so an unexpected extra call can be read off it directly. When the try body has
+    // already failed, this failure is attached to that one as suppressed, not reported instead.
+    @Override
+    public void close() {
+      List<String> remaining = new ArrayList<>();
+      for (RecordedRequest request : requests.subList(position, requests.size())) {
+        remaining.add(request.getMethod() + " " + request.getPath());
+      }
+      assertTrue("unasserted requests remain: " + remaining, remaining.isEmpty());
     }
   }
 
@@ -307,7 +370,7 @@ public final class BigqueryMockWebServerTestUtil {
   // (true for compression: GZIP, test_host.yml's default), so a plain body fails to gunzip.
   public static List<String> uploadedLines(RecordedRequest request, boolean gzipped)
       throws IOException {
-    byte[] body = request.getBody().readByteArray();
+    byte[] body = requestBodyBytes(request);
     String content = gzipped ? gunzip(body) : new String(body, StandardCharsets.UTF_8);
     return Arrays.asList(content.split("\n"));
   }
@@ -329,6 +392,13 @@ public final class BigqueryMockWebServerTestUtil {
 
   public static String tableIdOf(JSONObject json, String key) {
     return json.getJSONObject(key).getString("tableId");
+  }
+
+  // The job id BigqueryClient#load() chose, as sent in the POST that opens the resumable upload
+  // session (assertStartResumableUpload()): compare it across attempts to tell a re-upload under
+  // the same job from a new job.
+  public static String jobIdOf(RecordedRequest openUpload) throws IOException {
+    return requestBodyJson(openUpload).getJSONObject("jobReference").getString("jobId");
   }
 
   // Returns the configuration.<configKey> object of a job request body (e.g. "load", "copy",
@@ -497,12 +567,48 @@ public final class BigqueryMockWebServerTestUtil {
 
   // The response that opens the resumable upload session (BigqueryClient#load's
   // bigquery.writer()): the Location is where the file's chunks get PUT.
-  private static MockResponse startResumableUploadResponse() {
+  public static MockResponse startResumableUploadResponse() {
     return new MockResponse()
         .setResponseCode(200)
         .setHeader(
             "Location",
             TEST_HOST_PLACEHOLDER + RESUMABLE_UPLOAD_PATH + "&upload_id=" + RESUMABLE_UPLOAD_ID);
+  }
+
+  // The response to an intermediate chunk PUT (a file over UPLOAD_CHUNK_SIZE): "resume
+  // incomplete", so the channel sends the next chunk.
+  public static MockResponse uploadChunkAcceptedResponse() {
+    return new MockResponse().setResponseCode(308);
+  }
+
+  // Simulates a connection reset while a chunk is being PUT. The client sees an IOException,
+  // which the library treats as retryable: it re-sends the same chunk on the same session up to
+  // `retries` more times (the next enqueued responses answer those PUTs). Other policies don't
+  // behave like a network failure: DISCONNECT_AT_START and DISCONNECT_DURING_RESPONSE_BODY
+  // surface as an unparseable (empty) response that is not retried, and NO_RESPONSE blocks until
+  // the read timeout (read_timeout_sec: 1 in test_host.yml).
+  public static MockResponse disconnectDuringUploadResponse() {
+    return new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY);
+  }
+
+  // Never answers the request: the client gives up after its read timeout (read_timeout_sec: 1
+  // in test_host.yml), which the library treats as retryable. Each use costs that second.
+  public static MockResponse unansweredResponse() {
+    return new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE);
+  }
+
+  // Writes JSONL rows to `file` until it holds at least `minBytes` (plain, not gzipped), e.g. to
+  // get an upload that spans more than one chunk; returns the file's size.
+  public static long writeLoadFile(Path file, long minBytes) throws IOException {
+    byte[] line =
+        "{\"c0\":\"0123456789abcdef0123456789abcdef0123456789abcdef\"}\n"
+            .getBytes(StandardCharsets.UTF_8);
+    try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(file))) {
+      for (long written = 0; written < minBytes; written += line.length) {
+        out.write(line);
+      }
+    }
+    return Files.size(file);
   }
 
   // One attempt of BigqueryClient#load() as the server sees it, 3 responses: the POST that opens
@@ -513,11 +619,22 @@ public final class BigqueryMockWebServerTestUtil {
   public static MockResponse[] loadAttemptResponses(String jobId, String errorReason) {
     return new MockResponse[] {
       startResumableUploadResponse(),
-      jobResponse(jobId, "load", LOAD_CONFIG_BODY, "RUNNING", null),
-      errorReason == null
-          ? loadJobDoneResponse(jobId)
-          : jobResponse(jobId, "load", LOAD_CONFIG_BODY, "DONE", errorReason)
+      uploadLoadFileResponse(jobId),
+      waitForLoadJobResponse(jobId, errorReason)
     };
+  }
+
+  // The response to the final chunk PUT: the load job it created, still running.
+  public static MockResponse uploadLoadFileResponse(String jobId) {
+    return jobResponse(jobId, "load", LOAD_CONFIG_BODY, "RUNNING", null);
+  }
+
+  // The response to the jobs.get poll (BigqueryJobWaiter): the load job DONE, succeeded with 1
+  // output row when errorReason is null, failed with that reason otherwise.
+  public static MockResponse waitForLoadJobResponse(String jobId, String errorReason) {
+    return errorReason == null
+        ? loadJobDoneResponse(jobId)
+        : jobResponse(jobId, "load", LOAD_CONFIG_BODY, "DONE", errorReason);
   }
 
   // Builds the response list for runWithMockServer() when it includes whole load attempts
