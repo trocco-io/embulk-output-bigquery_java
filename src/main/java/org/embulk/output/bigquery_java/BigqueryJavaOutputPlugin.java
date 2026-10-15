@@ -147,7 +147,11 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
             client.deleteTable(task.getTempTable().get());
           }
         } finally {
-          paths = BigqueryUtil.getIntermediateFiles(this.writers.values());
+          // Still null when control.run() threw before paths was set above: pick up the files
+          // the writers had opened by then, so they get the same delete-or-keep treatment.
+          if (paths == null) {
+            paths = BigqueryUtil.getIntermediateFiles(this.writers.values());
+          }
           if (paths != null) {
             if (task.getDeleteFromLocalWhenJobEnd()) {
               paths.forEach(p -> p.toFile().delete());
