@@ -36,6 +36,7 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -267,6 +268,57 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
       assertDeleteTable(requests.next(), tempTableId);
     }
     assertTrue("intermediate file not removed", !brokenFile.exists());
+  }
+
+  // One writer that throws on close() must not leave the writers after it unclosed during the
+  // cleanup, with their buffers unflushed and their files open. Both writers here throw, and
+  // both must have been closed: the data phase's own close() stops at the first (it is allowed
+  // to end the run), so only the cleanup's second pass can reach the other one.
+  @Test
+  public void testRunClosesEveryWriterWhenOneThrows() throws Exception {
+    AtomicInteger closed = new AtomicInteger();
+    BigqueryFileWriter first = countingBrokenWriter("boom: first", closed);
+    first.open(testFolder.newFile("broken-first.jsonl").getPath());
+    BigqueryFileWriter second = countingBrokenWriter("boom: second", closed);
+    second.open(testFolder.newFile("broken-second.jsonl").getPath());
+    BigqueryUtil.getFileWriters().put(-1L, first);
+    BigqueryUtil.getFileWriters().put(-2L, second);
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            c -> c.set("mode", "replace"),
+            RuntimeException.class,
+            "(?s).*boom: (first|second).*",
+            datasetResponse(),
+            tableResponse(),
+            deleteResponse())) {
+      assertGetDataset(requests.next());
+
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      assertDeleteTable(
+          requests.next(), tableIdOf(requestBodyJson(createTempTable), "tableReference"));
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+      BigqueryUtil.getFileWriters().remove(-2L);
+    }
+
+    // Three close() calls in all: the data phase reaches one of the two, the cleanup both.
+    assertEquals(3, closed.get());
+  }
+
+  private BigqueryFileWriter countingBrokenWriter(String closeFailure, AtomicInteger closed) {
+    BigqueryFileWriter writer =
+        new BigqueryFileWriter() {
+          @Override
+          public void close() {
+            super.close();
+            closed.incrementAndGet();
+            throw new RuntimeException(closeFailure);
+          }
+        };
+    writer.setCompression("NONE");
+    return writer;
   }
 
   // Runs the plugin with `brokenFile` held by a writer whose close() throws `closeFailure`,

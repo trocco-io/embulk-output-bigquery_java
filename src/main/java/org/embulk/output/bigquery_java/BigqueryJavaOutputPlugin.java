@@ -140,7 +140,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       // but it stays on disk until someone removes it. This goes one step further on purpose.
       // Nested so that each of the three steps runs even if the one before it throws.
       try {
-        this.writers.values().forEach(BigqueryFileWriter::close);
+        this.writers.values().forEach(this::closeQuietly);
       } finally {
         try {
           if (task.getTempTable().isPresent()) {
@@ -168,6 +168,18 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     }
 
     return CONFIG_MAPPER_FACTORY.newConfigDiff();
+  }
+
+  // Closes one writer during the cleanup, where one that throws must not leave the writers after
+  // it open, their buffers unflushed and their files undeleted, nor replace the failure that is
+  // bringing the run down. The data phase closes the writers first and does let a failure there
+  // end the run; this is the second, last-resort close.
+  private void closeQuietly(BigqueryFileWriter writer) {
+    try {
+      writer.close();
+    } catch (RuntimeException | Error e) {
+      logger.warn("embulk-output-bigquery: failed to close {}", writer.getPath(), e);
+    }
   }
 
   @Override
