@@ -243,26 +243,16 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
   // A writer whose close() throws must not stop the cleanup: the temp table is still deleted and
   // the intermediate files (its own included) still removed. The writer is registered under a
   // thread id no page output uses, so it is closed only by transaction() itself; the first
-  // close(), right after the data phase, fails the run, and the finally block's close() throws
-  // again before the nested cleanup steps.
+  // close(), right after the data phase, fails the run, and the cleanup's close() throws again
+  // before the remaining cleanup steps.
   @Test
   public void testRunStillCleansUpWhenClosingAWriterThrows() throws Exception {
     File brokenFile = testFolder.newFile("broken.jsonl");
-    BigqueryFileWriter brokenWriter =
-        new BigqueryFileWriter() {
-          @Override
-          public void close() {
-            super.close();
-            throw new RuntimeException("boom: close failed");
-          }
-        };
-    brokenWriter.setCompression("NONE");
-    brokenWriter.open(brokenFile.getPath());
-    BigqueryUtil.getFileWriters().put(-1L, brokenWriter);
 
     try (RequestCursor requests =
-        runWithMockServerExpectingFailure(
-            c -> c.set("mode", "replace"),
+        runWithBrokenWriter(
+            brokenFile,
+            "boom: close failed",
             RuntimeException.class,
             "(?s).*boom: close failed.*",
             datasetResponse(),
@@ -277,6 +267,40 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
       assertDeleteTable(requests.next(), tempTableId);
     }
     assertTrue("intermediate file not removed", !brokenFile.exists());
+  }
+
+  // Runs the plugin with `brokenFile` held by a writer whose close() throws `closeFailure`,
+  // expecting the run to fail. The writer is removed from the JVM-wide map afterwards, so it
+  // can't break a later test that calls transaction().
+  private RequestCursor runWithBrokenWriter(
+      File brokenFile,
+      String closeFailure,
+      Class<? extends Exception> expectedFailureType,
+      String errorMessagePattern,
+      MockResponse... responses)
+      throws Exception {
+    BigqueryFileWriter brokenWriter = brokenWriter(closeFailure);
+    brokenWriter.open(brokenFile.getPath());
+    BigqueryUtil.getFileWriters().put(-1L, brokenWriter);
+    try {
+      return runWithMockServerExpectingFailure(
+          c -> c.set("mode", "replace"), expectedFailureType, errorMessagePattern, responses);
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+    }
+  }
+
+  private BigqueryFileWriter brokenWriter(String closeFailure) {
+    BigqueryFileWriter writer =
+        new BigqueryFileWriter() {
+          @Override
+          public void close() {
+            super.close();
+            throw new RuntimeException(closeFailure);
+          }
+        };
+    writer.setCompression("NONE");
+    return writer;
   }
 
   @Test
