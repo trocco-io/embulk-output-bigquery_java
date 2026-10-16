@@ -60,7 +60,6 @@ import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
-import org.embulk.output.bigquery_java.exception.BigqueryUploadException;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockResponses;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockServerAction;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.RequestCursor;
@@ -494,35 +493,27 @@ public class TestBigqueryClientWithMockServer {
   }
 
   // A chunk PUT answered with a 5xx is re-sent by the library on the same session, `retries`
-  // more times (test_host.yml: 1). Once the library gives up, load() re-sends the whole file in a
-  // new session under the same job id (like ruby's with_network_retry), again `retries` more
-  // times; when they are all 5xx the upload fails.
+  // more times (test_host.yml: 1). Once the library gives up, the upload fails: load() does not
+  // re-send the file in a new session on top of the library's attempts, which would multiply
+  // both the attempts and the bytes by `retries` again. ruby doesn't retry a 5xx here at all.
   @Test
-  public void testLoadReopensUploadSessionAfterServerErrorsThenGivesUp() throws Exception {
+  public void testLoadDoesNotReopenUploadSessionAfterServerErrors() throws Exception {
     Path loadFile = newLoadFile("load-5xx-test.json");
 
     try (RequestCursor requests =
         runWithMockServerExpectingFailure(
-            BigqueryUploadException.class,
+            BigqueryException.class,
             "(?s).*failed to upload .*503.*",
             server ->
                 buildTestHostClient(server)
                     .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
             startResumableUploadResponse(),
             errorResponse(503, "boom", "backendError"),
-            errorResponse(503, "boom", "backendError"),
-            startResumableUploadResponse(),
-            errorResponse(503, "boom", "backendError"),
             errorResponse(503, "boom", "backendError"))) {
-      RecordedRequest firstOpen = requests.next();
-      assertStartResumableUpload(firstOpen);
+      assertStartResumableUpload(requests.next());
       assertUploadLoadFile(requests.next());
       assertUploadLoadFile(requests.next()); // the library's retry, same session
-      RecordedRequest secondOpen = requests.next(); // load()'s retry: a new session, same job
-      assertStartResumableUpload(secondOpen);
-      assertUploadLoadFile(requests.next());
-      assertUploadLoadFile(requests.next());
-      assertEquals(jobIdOf(firstOpen), jobIdOf(secondOpen));
+      // No second session: the cursor's close() would report one.
     }
   }
 
@@ -548,15 +539,16 @@ public class TestBigqueryClientWithMockServer {
 
   // The configured read timeout applies to the chunk PUT as well (#113): a server that never
   // answers makes the client give up after read_timeout_sec (1 s in test_host.yml), and load()
-  // reports it as a retryable upload failure. retries: 0 keeps this to a single 1 s wait; the
-  // retries themselves are covered by the 5xx and connection-reset tests.
+  // reports it as an upload failure. A read timeout is retryable to the library, so it is the
+  // library that re-sends it, `retries` times inside the session; retries: 0 keeps this to a
+  // single 1 s wait.
   @Test
   public void testLoadFailsOnReadTimeoutDuringUpload() throws Exception {
     Path loadFile = newLoadFile("load-timeout-test.json");
 
     try (RequestCursor requests =
         runWithMockServerExpectingFailure(
-            BigqueryUploadException.class,
+            BigqueryException.class,
             "(?s).*failed to upload .*Read timed out.*",
             server ->
                 buildTestHostClient(server, c -> c.set("retries", 0))
@@ -568,10 +560,10 @@ public class TestBigqueryClientWithMockServer {
     }
   }
 
-  // The counterpart of ...ThenGivesUp above: once the library has given up on the first session,
-  // load()'s own retry re-sends the file in a new session under the same job id and succeeds.
+  // The counterpart of the test above: a 5xx the library's own retry gets past costs one extra
+  // PUT on the same session, and the load succeeds.
   @Test
-  public void testLoadReopensUploadSessionAfterServerErrorsThenSucceeds() throws Exception {
+  public void testLoadSucceedsWhenTheLibraryRetryGetsPastAServerError() throws Exception {
     Path loadFile = newLoadFile("load-5xx-recovery-test.json");
 
     try (RequestCursor requests =
@@ -584,17 +576,12 @@ public class TestBigqueryClientWithMockServer {
             },
             startResumableUploadResponse(),
             errorResponse(503, "boom", "backendError"),
-            errorResponse(503, "boom", "backendError"),
-            startResumableUploadResponse(),
             uploadLoadFileResponse("testjob"),
             waitForLoadJobResponse("testjob", null))) {
-      RecordedRequest firstOpen = requests.next();
-      assertStartResumableUpload(firstOpen);
+      assertStartResumableUpload(requests.next());
       assertUploadLoadFile(requests.next());
       assertUploadLoadFile(requests.next()); // the library's retry, same session
-      RecordedRequest secondOpen =
-          assertLoadAttempt(requests, "testjob").openUpload; // load()'s retry
-      assertEquals(jobIdOf(firstOpen), jobIdOf(secondOpen));
+      assertGetJobStatus(requests.next(), "testjob");
     }
   }
 
@@ -618,39 +605,28 @@ public class TestBigqueryClientWithMockServer {
 
   // Once an upload has failed, its session must not be finalized: closing the channel would PUT
   // the bytes buffered so far as the last chunk, and BigQuery would start a load job for that
-  // partial file on top of the one issued by the retry. Visible only with more than one chunk:
-  // the first chunk fails for good, and the only PUTs on that session are the two attempts at
-  // it, with no "bytes 0-N/N+1" finalizing PUT before the new session opens.
+  // partial file. Visible only with more than one chunk: the first chunk fails for good, and the
+  // only PUTs on that session are the two attempts at it, each with an unknown total ("bytes
+  // 0-N/*"), with no "bytes 0-N/N+1" finalizing PUT after them.
   @Test
   public void testLoadDoesNotFinalizeFailedUploadSession() throws Exception {
     Path loadFile = testFolder.newFile("load-chunked-fail-test.json").toPath();
-    long size = writeLoadFile(loadFile, UPLOAD_CHUNK_SIZE + 1);
+    writeLoadFile(loadFile, UPLOAD_CHUNK_SIZE + 1);
 
     try (RequestCursor requests =
-        runWithMockServer(
-            server -> {
-              JobStatistics.LoadStatistics stats =
-                  buildTestHostClient(server)
-                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
-              assertNotNull(stats);
-            },
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to upload .*503.*",
+            server ->
+                buildTestHostClient(server)
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
             startResumableUploadResponse(),
             errorResponse(503, "boom", "backendError"),
-            errorResponse(503, "boom", "backendError"),
-            startResumableUploadResponse(),
-            uploadChunkAcceptedResponse(),
-            uploadLoadFileResponse("testjob"),
-            waitForLoadJobResponse("testjob", null))) {
-      RecordedRequest firstOpen = requests.next();
-      assertStartResumableUpload(firstOpen);
+            errorResponse(503, "boom", "backendError"))) {
+      assertStartResumableUpload(requests.next());
       assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1);
       assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1); // the library's retry
-      RecordedRequest secondOpen = requests.next(); // load()'s retry: the whole file again
-      assertStartResumableUpload(secondOpen);
-      assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1);
-      assertUploadChunk(requests.next(), UPLOAD_CHUNK_SIZE, size - 1, size);
-      assertGetJobStatus(requests.next(), "testjob");
-      assertEquals(jobIdOf(firstOpen), jobIdOf(secondOpen));
+      // No finalizing PUT: the cursor's close() would report one.
     }
   }
 
@@ -664,6 +640,7 @@ public class TestBigqueryClientWithMockServer {
   @Test
   public void testLoadWaitsForTheJobWhenTheRetryIsRefusedAsDuplicate() throws Exception {
     Path loadFile = newLoadFile("load-409-test.json");
+    long size = Files.size(loadFile);
 
     try (RequestCursor requests =
         runWithMockServer(
@@ -674,24 +651,19 @@ public class TestBigqueryClientWithMockServer {
               assertNotNull(stats);
             },
             startResumableUploadResponse(),
-            errorResponse(503, "boom", "backendError"),
-            errorResponse(503, "boom", "backendError"),
-            startResumableUploadResponse(),
+            disconnectDuringUploadResponse(), // the response that created the job is lost
             // Deliberately not BigQuery's "Already Exists: Job ..." wording: the status code and
             // the jobs.get below decide, not the error text.
             errorResponse(409, "boom", "duplicate"),
             datasetResponseWithLocation("asia-northeast1"), // where do the jobs run?
             uploadLoadFileResponse("testjob"), // jobs.get of the existing job
             waitForLoadJobResponse("testjob", null))) {
-      RecordedRequest firstOpen = requests.next();
-      assertStartResumableUpload(firstOpen);
-      assertUploadLoadFile(requests.next());
-      assertUploadLoadFile(requests.next());
-      RecordedRequest secondOpen = requests.next();
-      assertStartResumableUpload(secondOpen);
-      assertUploadLoadFile(requests.next()); // refused with 409
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadChunk(requests.next(), 0, size - 1, size); // disconnected while sending
+      assertUploadLoadFile(requests.next()); // the library's retry, refused with 409
       assertGetDataset(requests.next());
-      assertGetJob(requests.next(), jobIdOf(firstOpen), "asia-northeast1");
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
       assertGetJobStatus(requests.next(), "testjob");
     }
   }

@@ -204,11 +204,10 @@ public class BigqueryClient {
         .build();
   }
 
-  // For re-sending a whole upload (upload()). The library already retries each request of an
-  // upload with the backoff from buildRetrySettings(); this sits outside that and catches what
-  // the library won't retry (a socket error under TLS, see isRetryableUploadFailure()) or gave up
-  // on, by starting a new session. No wait between attempts: the library's backoff has already
-  // been spent by the time this runs, and ruby's with_network_retry retries at once as well.
+  // For re-sending a whole upload (upload()). The library retries each request of an upload with
+  // the backoff from buildRetrySettings(); this sits outside that and only catches what it won't
+  // retry at all (a socket error under TLS, see shouldResendUpload()), by starting a new session.
+  // No wait between attempts, as ruby's with_network_retry retries at once as well.
   private RetryExecutor buildUploadRetryExecutor() {
     return RetryExecutor.builder()
         .withRetryLimit(task.getRetries())
@@ -629,7 +628,7 @@ public class BigqueryClient {
                 @Override
                 public boolean isRetryableException(Exception exception) {
                   return exception instanceof BigQueryException
-                      && isRetryableUploadFailure((BigQueryException) exception);
+                      && shouldRetryJobLookup((BigQueryException) exception);
                 }
 
                 @Override
@@ -669,27 +668,43 @@ public class BigqueryClient {
     }
   }
 
-  // The exception for an upload attempt that failed with `e`. Retryable (BigqueryUploadException)
-  // only for what the library itself considers retryable (connection reset, 5xx, ...) plus the
-  // TLS-level network failures it misses; a 4xx such as an invalid schema fails right away.
+  // The exception for an upload attempt that failed with `e`: a BigqueryUploadException, which
+  // upload() re-sends the file for, only when shouldResendUpload() says so.
   private BigqueryException uploadFailure(Path loadFile, String table, BigQueryException e) {
     String msg = uploadFailureMessage(loadFile, table, e);
-    return isRetryableUploadFailure(e)
+    return shouldResendUpload(e)
         ? new BigqueryUploadException(msg, e)
         : new BigqueryException(msg, e);
+  }
+
+  // Whether upload() should re-send the whole file in a new session. Only for a failure the
+  // library won't retry itself; what it does consider retryable (a 5xx, a plain connection reset)
+  // it has already re-sent `retries` times inside the session, and re-sending the file on top of
+  // that would multiply both the attempts and the bytes by `retries` again. ruby retries less
+  // still: its client library is configured with no retries, with_network_retry re-sends only the
+  // socket errors below, and the Error that a 5xx becomes is not one of the three classes
+  // with_job_retry rescues.
+  // Package-private for the unit test: a TLS-level failure can't be staged on the plain-HTTP
+  // MockWebServer.
+  static boolean shouldResendUpload(BigQueryException e) {
+    return !e.isRetryable() && hasSocketErrorCause(e);
+  }
+
+  // Whether the jobs.get after a 409 (lookUpRefusedJob) is worth another attempt. Unlike the
+  // upload above, this does retry what the library retries too: the request is a few hundred
+  // bytes, and giving up fails a load whose job may have run, which the user's rerun would then
+  // load a second time.
+  private static boolean shouldRetryJobLookup(BigQueryException e) {
+    return e.isRetryable() || hasSocketErrorCause(e);
   }
 
   // google-cloud-core 2.8.0 considers a SocketException / SocketTimeoutException retryable, but
   // only when it is the exception itself: on a TLS connection the JDK reports a reset or a broken
   // pipe as javax.net.ssl.SSLException with the socket error attached as its cause, and that
-  // outer type is not retryable. Apply the same rule down the cause chain, so such a failure is
-  // retried the way ruby's with_network_retry (google_client.rb) retries the same socket errors
-  // (which reach it wrapped in SSLError by httpclient). Package-private for the unit test: a
-  // TLS-level failure can't be staged on the plain-HTTP MockWebServer.
-  static boolean isRetryableUploadFailure(BigQueryException e) {
-    if (e.isRetryable()) {
-      return true;
-    }
+  // outer type is not retryable. Looking down the cause chain finds those, which is what ruby's
+  // with_network_retry (google_client.rb) retries as well (they reach it wrapped in SSLError by
+  // httpclient).
+  private static boolean hasSocketErrorCause(BigQueryException e) {
     for (Throwable cause = e.getCause(); cause != null; cause = cause.getCause()) {
       if (cause instanceof SocketException || cause instanceof SocketTimeoutException) {
         return true;

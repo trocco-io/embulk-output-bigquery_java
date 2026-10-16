@@ -430,28 +430,41 @@ public class TestBigqueryClient {
   }
 
   // A socket error under the TLS layer reaches the client as an SSLException with the socket
-  // error as its cause; the library judges only the outer type and says not retryable, load()
-  // looks down the cause chain and retries it like ruby's with_network_retry. (MockWebServer
-  // speaks plain HTTP, so this can't be staged there.)
+  // error as its cause; the library judges only the outer type and says not retryable, so upload()
+  // re-sends the file like ruby's with_network_retry. (MockWebServer speaks plain HTTP, so this
+  // can't be staged there.)
   @Test
-  public void testUploadRetriesSocketErrorUnderTls() {
+  public void testUploadResendsOnSocketErrorUnderTls() {
     BigQueryException reset =
         new BigQueryException(
             new SSLException("Connection reset", new SocketException("Connection reset")));
     assertFalse(reset.isRetryable());
-    assertTrue(BigqueryClient.isRetryableUploadFailure(reset));
+    assertTrue(BigqueryClient.shouldResendUpload(reset));
 
     BigQueryException timeout =
         new BigQueryException(
             new SSLException("Read timed out", new SocketTimeoutException("Read timed out")));
-    assertTrue(BigqueryClient.isRetryableUploadFailure(timeout));
+    assertTrue(BigqueryClient.shouldResendUpload(timeout));
   }
 
-  // A TLS failure with no socket error behind it (a handshake problem, say) is still not retried.
+  // A TLS failure with no socket error behind it (a handshake problem, say) is not re-sent.
   @Test
-  public void testUploadDoesNotRetryOtherTlsFailures() {
+  public void testUploadDoesNotResendOnOtherTlsFailures() {
     BigQueryException handshake =
         new BigQueryException(new SSLException("Received fatal alert: handshake_failure"));
-    assertFalse(BigqueryClient.isRetryableUploadFailure(handshake));
+    assertFalse(BigqueryClient.shouldResendUpload(handshake));
+  }
+
+  // A failure the library retries itself is not re-sent on top of that: it already made
+  // `retries` attempts within the upload session, and a new session would multiply them.
+  @Test
+  public void testUploadDoesNotResendWhatTheLibraryAlreadyRetried() {
+    BigQueryException backendError = new BigQueryException(503, "boom");
+    assertTrue(backendError.isRetryable());
+    assertFalse(BigqueryClient.shouldResendUpload(backendError));
+
+    BigQueryException reset = new BigQueryException(new SocketException("Connection reset"));
+    assertTrue(reset.isRetryable());
+    assertFalse(BigqueryClient.shouldResendUpload(reset));
   }
 }
