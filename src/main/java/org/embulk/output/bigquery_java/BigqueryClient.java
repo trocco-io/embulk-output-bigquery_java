@@ -160,9 +160,7 @@ public class BigqueryClient {
         .setRetrySettings(buildRetrySettings(task))
         .setTransportOptions(buildTransportOptions(task))
         .setProjectId(project)
-        // Filled into the job id of a jobs.get / jobs.cancel / getQueryResults that has none of
-        // its own (null when `location` isn't configured, which leaves them as before). The
-        // library does not apply it when creating a job, see jobIdWithLocation().
+        // For jobs.get / jobs.cancel / getQueryResults only; see jobIdWithLocation().
         .setLocation(location)
         .build()
         .getService();
@@ -205,10 +203,8 @@ public class BigqueryClient {
         .build();
   }
 
-  // For re-sending a whole upload (upload()). The library retries each request of an upload with
-  // the backoff from buildRetrySettings(); this sits outside that and only catches what it won't
-  // retry at all (a socket error under TLS, see shouldResendUpload()), by starting a new session.
-  // No wait between attempts, as ruby's with_network_retry retries at once as well.
+  // For re-sending a whole upload (upload()) in a new session, see shouldResendUpload(). No wait
+  // between attempts, as ruby's with_network_retry retries at once as well.
   private RetryExecutor buildUploadRetryExecutor() {
     return RetryExecutor.builder()
         .withRetryLimit(task.getRetries())
@@ -262,11 +258,10 @@ public class BigqueryClient {
     return builder.build();
   }
 
-  // Where this client's jobs run: `location` if configured, else the destination dataset's (jobs
-  // run where their dataset is), asked for once. For jobs.get on a job id this plugin made up,
-  // which needs the location outside the US and EU multi-regions or answers 404 for a job that
-  // exists; ruby's wait_load likewise falls back to the job reference's location.
-  // Calls the API when `location` is not configured, so callers must be ready for it to throw.
+  // Where this client's jobs run: `location` if configured, else the destination dataset's,
+  // asked for once (so this can throw). jobs.get on a job id this plugin made up needs it outside
+  // the US and EU multi-regions, or answers 404 for a job that exists; ruby's wait_load likewise
+  // falls back to the job reference's location.
   private String jobLocation() {
     if (!jobLocationResolved) {
       if (location != null) {
@@ -548,9 +543,7 @@ public class BigqueryClient {
                 }
               });
     } catch (RetryGiveupException ex) {
-      // The library gave up on a failure it retries itself, so unlike the socket errors this
-      // method re-sends for, the file was never sent again and the 409 that would have told us
-      // the job exists was never seen. Ask instead.
+      // No resend, so no 409 to say the job exists (see shouldResendUpload()): ask instead.
       if (theLibraryGaveUp(ex.getCause())) {
         Job existing = jobLeftByAFailedUpload(jobId, loadFile, table);
         if (existing != null) {
@@ -566,8 +559,7 @@ public class BigqueryClient {
     }
   }
 
-  // Whether an upload failure is one the library retries itself, which means it used up its
-  // attempts inside the session before the failure got here.
+  // Whether the library retried this failure itself, and so used up its attempts on it.
   private static boolean theLibraryGaveUp(Throwable uploadFailure) {
     Throwable cause = uploadFailure == null ? null : uploadFailure.getCause();
     return cause instanceof BigQueryException && ((BigQueryException) cause).isRetryable();
@@ -612,15 +604,12 @@ public class BigqueryClient {
         if (existing != null) {
           return existing;
         }
-        // jobLocation() is resolved by the lookup above, so this costs no further request.
-        String searched = jobLocation() == null ? "the default location" : jobLocation();
+        // jobLocation() was resolved by the lookup above, so this costs no further request.
         logger.warn(
-            "embulk-output-bigquery: the upload of {} was refused as a duplicate of job_id:[{}], "
-                + "but that job was not found in {}; failing the upload. If the job exists, its rows "
-                + "may already be in {}:{}.{}",
+            "embulk-output-bigquery: the upload of {} was refused as a duplicate of job_id:[{}], but no such job was found in {}; its rows may already be in {}:{}.{}",
             loadFile,
             jobId,
-            searched,
+            jobLocation() == null ? "the default location" : jobLocation(),
             destinationProject,
             destinationDataset,
             table);
@@ -630,11 +619,9 @@ public class BigqueryClient {
     return writer.getJob();
   }
 
-  // Fetches the job a same-id upload retry was refused for (uploadOnce), or null if there is no
-  // such job. Only the lookup is retried here, with the job-retry waits and for the failures the
-  // upload would retry: re-sending the file instead would just reach the same 409 and the same
-  // lookup again. A lookup that still fails ends the load, as the job's state is unknown and a
-  // new job id could load the rows twice.
+  // The job a same-id upload retry was refused for (uploadOnce), or null if there is none. A
+  // lookup that fails ends the load: the job's state is unknown, and a new id could load the rows
+  // twice.
   private Job lookUpRefusedJob(
       String jobId, Path loadFile, String table, BigQueryException refusal) {
     try {
@@ -658,11 +645,10 @@ public class BigqueryClient {
     }
   }
 
-  // The job an upload left behind, or null if there is none or it can't be told. BigQuery makes
-  // the load job when the last chunk lands, so an attempt whose response was lost can have
-  // created it; failing the load then would have the user rerun one that is already running or
-  // done, loading the rows a second time. Checked once before giving up, which costs a request
-  // rather than the whole file again. ruby has no such safety net.
+  // The job a failed upload left behind, or null if there is none or it can't be told. The job
+  // is made when the last chunk lands, so an attempt whose response was lost can have created it,
+  // and failing the load would have the user rerun it. One request, checked once before giving
+  // up; ruby has no such safety net.
   private Job jobLeftByAFailedUpload(String jobId, Path loadFile, String table) {
     Job existing;
     try {
@@ -677,29 +663,22 @@ public class BigqueryClient {
     }
     if (existing != null) {
       logger.warn(
-          "embulk-output-bigquery: the upload of {} to {}:{}.{} failed, but it had created "
-              + "job_id:[{}]; waiting for that job instead of failing, which would load its rows "
-              + "again on a rerun",
+          "embulk-output-bigquery: the upload of {} failed but had created job_id:[{}]; waiting for it rather than failing, which would load its rows again on a rerun",
           loadFile,
-          destinationProject,
-          destinationDataset,
-          table,
           jobId);
     }
     return existing;
   }
 
-  // Fetches the job with this id, or null if BigQuery has no such job. Only the lookup is
-  // retried, with the job-retry waits and for the failures the upload would retry.
+  // The job with this id, or null if BigQuery has none. Retried with the job-retry waits.
   private Job lookUpJob(String jobId) throws RetryGiveupException, InterruptedException {
     return buildJobRetryExecutor()
         .runInterruptible(
             new Retryable<Job>() {
               @Override
               public Job call() {
-                // Inside call() so that a failure asking the dataset where its jobs run is
-                // retried and reported like the lookup itself, instead of escaping this method
-                // as a bare dataset error with no word of the refused upload.
+                // jobLocation() may call the API; inside call() its failure is retried and
+                // reported like the lookup's own.
                 return bigquery.getJob(
                     JobId.newBuilder().setJob(jobId).setLocation(jobLocation()).build());
               }
@@ -739,33 +718,28 @@ public class BigqueryClient {
         : new BigqueryException(msg, e);
   }
 
-  // Whether upload() should re-send the whole file in a new session. Only for a failure the
-  // library won't retry itself; what it does consider retryable (a 5xx, a plain connection reset)
-  // it has already re-sent `retries` times inside the session, and re-sending the file on top of
-  // that would multiply both the attempts and the bytes by `retries` again. ruby retries less
-  // still: its client library is configured with no retries, with_network_retry re-sends only the
-  // socket errors below, and the Error that a 5xx becomes is not one of the three classes
-  // with_job_retry rescues.
+  // Whether upload() should re-send the whole file in a new session. The library retries each
+  // request of an upload `retries` times inside the session, with the backoff from
+  // buildRetrySettings(), but judges only the outer exception: on a TLS connection the JDK
+  // reports a reset or a broken pipe as an SSLException with the socket error as its cause, and
+  // that it won't retry. Those are re-sent here, as ruby's with_network_retry re-sends the same
+  // socket errors (wrapped in SSLError by httpclient); what the library did retry is not, as that
+  // would multiply both the attempts and the bytes by `retries` again. ruby retries less still:
+  // its client library is set to no retries, and the Error a 5xx becomes is not one of the three
+  // classes with_job_retry rescues.
   // Package-private for the unit test: a TLS-level failure can't be staged on the plain-HTTP
   // MockWebServer.
   static boolean shouldResendUpload(BigQueryException e) {
     return !e.isRetryable() && hasSocketErrorCause(e);
   }
 
-  // Whether the jobs.get after a 409 (lookUpRefusedJob) is worth another attempt. Unlike the
-  // upload above, this does retry what the library retries too: the request is a few hundred
-  // bytes, and giving up fails a load whose job may have run, which the user's rerun would then
-  // load a second time.
+  // For the jobs.get after a 409 (lookUpRefusedJob): a few hundred bytes, and giving up fails a
+  // load whose job may have run, so this one retries what the library retried as well.
   private static boolean shouldRetryJobLookup(BigQueryException e) {
     return e.isRetryable() || hasSocketErrorCause(e);
   }
 
-  // google-cloud-core 2.8.0 considers a SocketException / SocketTimeoutException retryable, but
-  // only when it is the exception itself: on a TLS connection the JDK reports a reset or a broken
-  // pipe as javax.net.ssl.SSLException with the socket error attached as its cause, and that
-  // outer type is not retryable. Looking down the cause chain finds those, which is what ruby's
-  // with_network_retry (google_client.rb) retries as well (they reach it wrapped in SSLError by
-  // httpclient).
+  // A socket error anywhere down the cause chain; see shouldResendUpload().
   private static boolean hasSocketErrorCause(BigQueryException e) {
     for (Throwable cause = e.getCause(); cause != null; cause = cause.getCause()) {
       if (cause instanceof SocketException || cause instanceof SocketTimeoutException) {
