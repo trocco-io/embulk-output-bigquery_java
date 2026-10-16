@@ -270,6 +270,31 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     assertTrue("intermediate file not removed", !brokenFile.exists());
   }
 
+  // What the run reports is why it failed, not what went wrong cleaning up after it: the data
+  // phase fails on a writer that can't be closed, and the temp table delete fails on top of
+  // that. Without this the user would be told only about the delete.
+  @Test
+  public void testRunReportsTheDataFailureNotTheCleanupFailure() throws Exception {
+    File brokenFile = testFolder.newFile("broken-with-failing-delete.jsonl");
+
+    try (RequestCursor requests =
+        runWithBrokenWriter(
+            brokenFile,
+            "boom: close failed",
+            RuntimeException.class,
+            "(?s).*boom: close failed.*",
+            datasetResponse(),
+            tableResponse(),
+            errorResponse(400, "boom-delete", "invalid"))) {
+      assertGetDataset(requests.next());
+
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      assertDeleteTable(
+          requests.next(), tableIdOf(requestBodyJson(createTempTable), "tableReference"));
+    }
+  }
+
   // One writer that throws on close() must not leave the writers after it unclosed during the
   // cleanup, with their buffers unflushed and their files open. Both writers here throw, and
   // both must have been closed: the data phase's own close() stops at the first (it is allowed
