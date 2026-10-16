@@ -143,9 +143,9 @@ public class TestBigqueryTaskBuilder {
     assertEquals(".jsonl.gz", task.getFileExt().get());
   }
 
-  // The task for base.yml in `mode`, with temp_table configured to `tempTable` unless null, after
-  // BigqueryTaskBuilder.setTempTable().
-  private PluginTask setTempTable(String mode, String tempTable) {
+  // Builds the task for base.yml with `mode` (and temp_table set to `tempTable` unless null), runs
+  // it through BigqueryTaskBuilder.setTempTable() and returns it.
+  private PluginTask taskAfterSetTempTable(String mode, String tempTable) {
     config = loadYamlResource(embulk, "base.yml").set("mode", mode);
     if (tempTable != null) {
       config = config.set("temp_table", tempTable);
@@ -157,28 +157,30 @@ public class TestBigqueryTaskBuilder {
 
   @Test
   public void setTempTable_assignsDefaultForReplace() {
-    assertMatches(setTempTable("replace", null).getTempTable().get(), "LOAD_TEMP_.*_table");
+    assertMatches(
+        taskAfterSetTempTable("replace", null).getTempTable().get(), "LOAD_TEMP_.*_table");
   }
 
   @Test
   public void setTempTable_assignsDefaultForReplaceBackup() {
-    assertMatches(setTempTable("replace_backup", null).getTempTable().get(), "LOAD_TEMP_.*_table");
+    assertMatches(
+        taskAfterSetTempTable("replace_backup", null).getTempTable().get(), "LOAD_TEMP_.*_table");
   }
 
   @Test
   public void setTempTable_keepsConfiguredValueForReplace() {
-    assertEquals("foo", setTempTable("replace", "foo").getTempTable().get());
+    assertEquals("foo", taskAfterSetTempTable("replace", "foo").getTempTable().get());
   }
 
   @Test
   public void setTempTable_clearsConfiguredValueForDeleteInAdvance() {
     // Ruby sets temp_table to nil for every mode other than replace/append/merge/replace_backup.
-    assertFalse(setTempTable("delete_in_advance", "foo").getTempTable().isPresent());
+    assertFalse(taskAfterSetTempTable("delete_in_advance", "foo").getTempTable().isPresent());
   }
 
   @Test
   public void setTempTable_clearsConfiguredValueForAppendDirect() {
-    assertFalse(setTempTable("append_direct", "foo").getTempTable().isPresent());
+    assertFalse(taskAfterSetTempTable("append_direct", "foo").getTempTable().isPresent());
   }
 
   @Test
