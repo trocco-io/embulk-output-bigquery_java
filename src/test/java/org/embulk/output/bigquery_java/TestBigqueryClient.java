@@ -30,6 +30,8 @@ import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
+import org.embulk.output.bigquery_java.exception.BigqueryUploadException;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.FileInputPlugin;
 import org.embulk.spi.OutputPlugin;
@@ -471,5 +473,28 @@ public class TestBigqueryClient {
     BigQueryException timeout = new BigQueryException(new SocketTimeoutException("Read timed out"));
     assertTrue(timeout.isRetryable());
     assertFalse(BigqueryClient.shouldResendUpload(timeout));
+  }
+
+  // Which upload failures are worth asking BigQuery whether the job is there after all. The
+  // upload itself can't be staged on the plain-HTTP MockWebServer for the socket-error cases.
+  @Test
+  public void testJobLookupAfterAnUploadThatMayHaveCreatedIt() {
+    // A 4xx: BigQuery answered and refused, so there is nothing to look for.
+    assertFalse(
+        BigqueryClient.mayHaveLeftAJob(
+            new BigqueryException("failed", new BigQueryException(400, "Invalid")), false));
+    // A 5xx the library ran out of attempts on: the job may be there.
+    assertTrue(
+        BigqueryClient.mayHaveLeftAJob(
+            new BigqueryException("failed", new BigQueryException(503, "boom")), false));
+    // A socket error under TLS, which upload() re-sends for rather than the library.
+    BigQueryException reset =
+        new BigQueryException(
+            new SSLException("Connection reset", new SocketException("Connection reset")));
+    assertTrue(BigqueryClient.mayHaveLeftAJob(new BigqueryUploadException("failed", reset), false));
+    // The last attempt failed for good, but an earlier one had already lost its answer.
+    assertTrue(
+        BigqueryClient.mayHaveLeftAJob(
+            new BigqueryException("failed", new BigQueryException(403, "accessDenied")), true));
   }
 }

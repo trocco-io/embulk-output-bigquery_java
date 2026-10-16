@@ -504,6 +504,10 @@ public class BigqueryClient {
       String table,
       String jobId,
       WriteChannelConfiguration writeChannelConfiguration) {
+    // Set when an attempt ends in a way that could have lost the answer that creates the job, so
+    // that the last attempt failing some other way doesn't hide what an earlier one may have
+    // left behind. Only ever written from this thread, inside runInterruptible().
+    boolean[] anAttemptMayHaveLeftAJob = {false};
     try {
       return buildUploadRetryExecutor()
           .runInterruptible(
@@ -521,6 +525,9 @@ public class BigqueryClient {
                 @Override
                 public void onRetry(
                     Exception exception, int retryCount, int retryLimit, int retryWait) {
+                  // Reached only for a BigqueryUploadException, which is a lost answer by
+                  // definition (shouldResendUpload()).
+                  anAttemptMayHaveLeftAJob[0] = true;
                   logger.warn(
                       "embulk-output-bigquery: retry #{}, {}", retryCount, exception.getMessage());
                 }
@@ -544,7 +551,7 @@ public class BigqueryClient {
     } catch (RetryGiveupException ex) {
       // Whatever re-sending there was to do is done and no 409 came of it (uploadOnce() returns
       // the job when one does): ask whether the job is there rather than fail on a guess.
-      if (mayHaveLeftAJob(ex.getCause())) {
+      if (mayHaveLeftAJob(ex.getCause(), anAttemptMayHaveLeftAJob[0])) {
         Job existing = jobLeftByAFailedUpload(jobId, loadFile, table);
         if (existing != null) {
           return existing;
@@ -564,9 +571,12 @@ public class BigqueryClient {
   // that request counts, whether it was the library that ran out of attempts on it or upload()
   // (shouldResendUpload()). A 4xx does not: BigQuery answered, and refused. Neither does a
   // lookup that failed, which asked this very question already.
-  private static boolean mayHaveLeftAJob(Throwable uploadFailure) {
+  static boolean mayHaveLeftAJob(Throwable uploadFailure, boolean anEarlierAttemptMayHave) {
     if (uploadFailure instanceof JobLookupException) {
       return false;
+    }
+    if (anEarlierAttemptMayHave) {
+      return true;
     }
     Throwable cause = uploadFailure == null ? null : uploadFailure.getCause();
     return cause instanceof BigQueryException && isTransientFailure((BigQueryException) cause);
