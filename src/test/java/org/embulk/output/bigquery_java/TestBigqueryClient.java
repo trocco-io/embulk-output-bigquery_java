@@ -466,5 +466,10 @@ public class TestBigqueryClient {
     BigQueryException reset = new BigQueryException(new SocketException("Connection reset"));
     assertTrue(reset.isRetryable());
     assertFalse(BigqueryClient.shouldResendUpload(reset));
+
+    // A read timeout on a chunk PUT arrives as this, not wrapped in an SSLException.
+    BigQueryException timeout = new BigQueryException(new SocketTimeoutException("Read timed out"));
+    assertTrue(timeout.isRetryable());
+    assertFalse(BigqueryClient.shouldResendUpload(timeout));
   }
 }
