@@ -147,29 +147,17 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       // but it stays on disk until someone removes it. This goes one step further on purpose.
       // Nested so that each of the three steps runs even if the one before it throws.
       try {
-        closeWriters();
+        Throwable closeFailure = closeWriters();
+        if (closeFailure != null) {
+          report(closeFailure, failure);
+        }
       } finally {
         try {
           if (task.getTempTable().isPresent()) {
             client.deleteTable(task.getTempTable().get());
           }
         } catch (RuntimeException | Error e) {
-          // The one cleanup step that can fail for real (a BigQuery call); see `failure` above.
-          if (failure == null) {
-            throw e;
-          }
-          // Logged as well: whether a suppressed exception is ever shown is up to the runner,
-          // and a temp table left behind is billed until someone drops it.
-          logger.warn(
-              "embulk-output-bigquery: failed to delete the temp table {} while cleaning up after"
-                  + " a failed run",
-              task.getTempTable().orElse(null),
-              e);
-          // addSuppressed refuses an exception as its own suppressor, and the JVM hands out
-          // shared instances for some implicitly thrown ones.
-          if (e != failure) {
-            failure.addSuppressed(e);
-          }
+          report(e, failure);
         } finally {
           // Still null when control.run() threw before paths was set above: pick up the files
           // the writers had opened by then, so they get the same delete-or-keep treatment.
@@ -194,28 +182,42 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     return CONFIG_MAPPER_FACTORY.newConfigDiff();
   }
 
+  // What a cleanup step ran into. Never in place of the failure that is already ending the run:
+  // that one is why the run failed, and for a row count that doesn't match it is also the only
+  // place it is ever said. Logged either way, since whether a suppressed exception is shown at
+  // all is up to the runner, and a temp table left behind is billed until someone drops it.
+  private void report(Throwable cleanupFailure, Throwable failure) {
+    if (failure == null) {
+      if (cleanupFailure instanceof Error) {
+        throw (Error) cleanupFailure;
+      }
+      throw (RuntimeException) cleanupFailure;
+    }
+    logger.warn(
+        "embulk-output-bigquery: cleaning up after a failed run ran into this", cleanupFailure);
+    // addSuppressed refuses an exception as its own suppressor, and the JVM hands out shared
+    // instances for some implicitly thrown ones.
+    if (cleanupFailure != failure) {
+      failure.addSuppressed(cleanupFailure);
+    }
+  }
+
   // The cleanup's close of the writers: one that throws must not leave the writers after it
-  // open, since their files are deleted right after. The data phase's own close, before this
-  // one, does let a failure end the run, so a failure here is logged rather than raised. An
-  // Error is not something to carry on through, but it waits until every writer has been
-  // closed.
-  private void closeWriters() {
-    Error firstError = null;
+  // open, since their files are deleted right after. Returns the first failure, for report() to
+  // place, or null. The data phase's own close, before this one, does let a failure end the run.
+  private Throwable closeWriters() {
+    Throwable first = null;
     for (BigqueryFileWriter writer : this.writers.values()) {
       try {
         writer.close();
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
         logger.warn("embulk-output-bigquery: failed to close {}", writer.getPath(), e);
-      } catch (Error e) {
-        logger.warn("embulk-output-bigquery: failed to close {}", writer.getPath(), e);
-        if (firstError == null) {
-          firstError = e;
+        if (first == null) {
+          first = e;
         }
       }
     }
-    if (firstError != null) {
-      throw firstError;
-    }
+    return first;
   }
 
   @Override

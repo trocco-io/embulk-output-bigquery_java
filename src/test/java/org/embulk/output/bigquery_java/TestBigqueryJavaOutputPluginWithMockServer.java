@@ -214,6 +214,23 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     assertMatches(intermediateDir.list()[0], "bq_\\.\\d+\\.\\d+\\.jsonl\\.gz");
   }
 
+  // An Error while closing a writer during the cleanup must not become what the run reports
+  // either: the record that could not be converted is why the run failed, and the only place it
+  // is ever said. The temp table delete right after is already careful about this.
+  @Test
+  public void testRunReportsTheDataFailureWhenAWriterCloseThrowsAnError() throws Exception {
+    BigqueryFileWriter broken =
+        brokenWriter(() -> new StackOverflowError("boom: an error"), new AtomicInteger());
+    broken.open(testFolder.newFile("broken-error-cleanup.jsonl").getPath());
+    BigqueryUtil.getFileWriters().put(-1L, broken);
+
+    try {
+      runFailingOnRecordConversion(true);
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+    }
+  }
+
   // Runs append_direct over two rows with c0 typed INTEGER: the first row ("1") is written to the
   // intermediate file, the second ("hello") can't be converted and fails the run with that file
   // still open. path_prefix points into a fresh directory, which is returned.
