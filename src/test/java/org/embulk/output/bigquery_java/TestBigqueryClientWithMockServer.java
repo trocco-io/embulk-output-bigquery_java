@@ -15,6 +15,8 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertStartResumableUpload;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadChunk;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadLoadFile;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.createCopyJobResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.createQueryJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.datasetResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.datasetResponseWithLocation;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.disconnectDuringUploadResponse;
@@ -37,7 +39,9 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.unansweredResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.uploadChunkAcceptedResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.uploadLoadFileResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForCopyJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForLoadJobResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForQueryJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.writeLoadFile;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
@@ -756,6 +760,29 @@ public class TestBigqueryClientWithMockServer {
     }
   }
 
+  // Asking the dataset where its jobs run is part of the lookup, so a failure there is reported
+  // the same way, with the refused upload named, rather than escaping as a bare dataset error.
+  @Test
+  public void testLoadFailsWithTheDuplicateContextWhenTheDatasetLookupIsRefused() throws Exception {
+    Path loadFile = newLoadFile("load-409-dataset-refused-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to look up job_id:\\[embulk_load_job_.*\\].*was refused as a duplicate"
+                + ".*boom-dataset.*",
+            server ->
+                buildTestHostClient(server)
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            errorResponse(400, "boom-dataset", "invalid"))) { // GET dataset, for the location
+      assertStartResumableUpload(requests.next());
+      assertUploadLoadFile(requests.next());
+      assertGetDataset(requests.next());
+    }
+  }
+
   // A lookup failure that isn't retryable ends the load right away (the job's state is unknown,
   // and a new job id could load the rows twice), with a message that says what happened rather
   // than the raw library error.
@@ -779,6 +806,42 @@ public class TestBigqueryClientWithMockServer {
       assertUploadLoadFile(requests.next());
       assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
       // No retry of the lookup, and no second upload: the cursor's close() would report either.
+    }
+  }
+
+  // Every job this plugin creates carries the configured `location` in its job reference, as
+  // ruby puts it into every job_reference it inserts. BigQueryOptions.setLocation() does not do
+  // it: google-cloud-bigquery 2.14.0 applies that one to jobs.get, jobs.cancel and
+  // getQueryResults only, never to the jobs.insert underneath create() and query().
+  @Test
+  public void testCreatedJobsCarryTheConfiguredLocation() throws Exception {
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              BigqueryClient client =
+                  buildTestHostClient(server, c -> c.set("location", "asia-northeast1"));
+              assertNotNull(client.copy("temp", "table", JobInfo.WriteDisposition.WRITE_TRUNCATE));
+              assertNotNull(client.executeQuery("SELECT 1"));
+            },
+            createCopyJobResponse("copy-job"),
+            waitForCopyJobResponse("copy-job"),
+            createQueryJobResponse("query-job"),
+            waitForQueryJobResponse("query-job"))) {
+      RecordedRequest copyJob = requests.next();
+      assertPostJobs(copyJob);
+      assertEquals(
+          "asia-northeast1",
+          requestBodyJson(copyJob).getJSONObject("jobReference").getString("location"));
+      // The poll that follows goes where the job response said the job is (US in the canned
+      // response), not where the request asked for it.
+      assertGetJobStatus(requests.next(), "copy-job");
+
+      RecordedRequest queryJob = requests.next();
+      assertPostJobs(queryJob);
+      assertEquals(
+          "asia-northeast1",
+          requestBodyJson(queryJob).getJSONObject("jobReference").getString("location"));
+      assertGetJobStatus(requests.next(), "query-job");
     }
   }
 

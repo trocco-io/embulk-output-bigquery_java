@@ -89,7 +89,8 @@ public class BigqueryClient {
   public final String destinationDataset; // FIXME: should be private
   private final String location;
   private final String locationForLog;
-  private String jobLocation; // resolved by jobLocation()
+  private String jobLocation; // resolved by jobLocation(), null being an answer of its own
+  private boolean jobLocationResolved;
   private final PluginTask task;
   private final Schema schema;
   private final List<BigqueryColumnOption> columnOptions;
@@ -159,9 +160,9 @@ public class BigqueryClient {
         .setRetrySettings(buildRetrySettings(task))
         .setTransportOptions(buildTransportOptions(task))
         .setProjectId(project)
-        // Filled into every job id the library builds for jobs.get / jobs.insert / query that has
-        // no location of its own (null when `location` isn't configured, which leaves them as
-        // before). The resumable upload does not get it from here, see jobIdWithLocation().
+        // Filled into the job id of a jobs.get / jobs.cancel / getQueryResults that has none of
+        // its own (null when `location` isn't configured, which leaves them as before). The
+        // library does not apply it when creating a job, see jobIdWithLocation().
         .setLocation(location)
         .build()
         .getService();
@@ -248,10 +249,11 @@ public class BigqueryClient {
     return bigquery.getJob(jobId);
   }
 
-  // The id of the load job behind a resumable upload, with the configured location, as ruby puts
-  // `location` into the job_reference of every job it inserts. The library fills the options-level
-  // location into jobs.get / jobs.insert / query itself (getBigQueryService()), but not into the
-  // upload's job reference, so this is the one place that still needs it.
+  // The id of a job this client creates, carrying the configured location as ruby puts
+  // `location` into the job_reference of every job it inserts. BigQueryOptions.setLocation()
+  // does not cover this: google-cloud-bigquery 2.14.0 applies the options-level location in
+  // jobs.get, jobs.cancel and getQueryResults only, never in create(JobInfo) (which is also what
+  // query() and the resumable upload insert through).
   private JobId jobIdWithLocation(String jobId) {
     JobId.Builder builder = JobId.newBuilder().setJob(jobId);
     if (location != null) {
@@ -261,17 +263,19 @@ public class BigqueryClient {
   }
 
   // Where this client's jobs run: `location` if configured, else the destination dataset's (jobs
-  // run where their dataset is), fetched once on first use. For jobs.get on a job id this plugin
-  // made up, which needs the location outside the US and EU multi-regions or answers 404 for a
-  // job that exists; ruby's wait_load likewise falls back to the job reference's location.
+  // run where their dataset is), asked for once. For jobs.get on a job id this plugin made up,
+  // which needs the location outside the US and EU multi-regions or answers 404 for a job that
+  // exists; ruby's wait_load likewise falls back to the job reference's location.
+  // Calls the API when `location` is not configured, so callers must be ready for it to throw.
   private String jobLocation() {
-    if (jobLocation == null) {
+    if (!jobLocationResolved) {
       if (location != null) {
         jobLocation = location;
       } else {
         Dataset dataset = getDataset();
         jobLocation = dataset == null ? null : dataset.getLocation();
       }
+      jobLocationResolved = true;
     }
     return jobLocation;
   }
@@ -592,13 +596,15 @@ public class BigqueryClient {
         if (existing != null) {
           return existing;
         }
+        // jobLocation() is resolved by the lookup above, so this costs no further request.
+        String searched = jobLocation() == null ? "the default location" : jobLocation();
         logger.warn(
             "embulk-output-bigquery: the upload of {} was refused as a duplicate of job_id:[{}], "
                 + "but that job was not found in {}; failing the upload. If the job exists, its rows "
                 + "may already be in {}:{}.{}",
             loadFile,
             jobId,
-            jobLocation() == null ? "the default location" : jobLocation(),
+            searched,
             destinationProject,
             destinationDataset,
             table);
@@ -615,14 +621,17 @@ public class BigqueryClient {
   // new job id could load the rows twice.
   private Job lookUpRefusedJob(
       String jobId, Path loadFile, String table, BigQueryException refusal) {
-    JobId lookupId = JobId.newBuilder().setJob(jobId).setLocation(jobLocation()).build();
     try {
       return buildJobRetryExecutor()
           .runInterruptible(
               new Retryable<Job>() {
                 @Override
                 public Job call() {
-                  return bigquery.getJob(lookupId);
+                  // Inside call() so that a failure asking the dataset where its jobs run is
+                  // retried and reported like the lookup itself, instead of escaping this method
+                  // as a bare dataset error with no word of the refused upload.
+                  return bigquery.getJob(
+                      JobId.newBuilder().setJob(jobId).setLocation(jobLocation()).build());
                 }
 
                 @Override
@@ -757,7 +766,7 @@ public class BigqueryClient {
                   Job job =
                       bigquery.create(
                           JobInfo.newBuilder(copyJobConfiguration)
-                              .setJobId(JobId.of(jobId))
+                              .setJobId(jobIdWithLocation(jobId))
                               .build());
                   return (JobStatistics.CopyStatistics) waitForCopy(job);
                 }
@@ -879,7 +888,7 @@ public class BigqueryClient {
                   QueryJobConfiguration configuration =
                       QueryJobConfiguration.newBuilder(query).setUseLegacySql(false).build();
                   String job = String.format("embulk_query_job_%s", UUID.randomUUID());
-                  return bigquery.query(configuration, JobId.of(job));
+                  return bigquery.query(configuration, jobIdWithLocation(job));
                 }
 
                 @Override
@@ -997,7 +1006,9 @@ public class BigqueryClient {
                       QueryJobConfiguration.newBuilder(query).setUseLegacySql(false).build();
                   Job job =
                       bigquery.create(
-                          JobInfo.newBuilder(queryConfig).setJobId(JobId.of(jobId)).build());
+                          JobInfo.newBuilder(queryConfig)
+                              .setJobId(jobIdWithLocation(jobId))
+                              .build());
                   return (JobStatistics.QueryStatistics) waitForQuery(job);
                 }
 
