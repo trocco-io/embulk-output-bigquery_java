@@ -26,6 +26,27 @@ public class TestBigqueryConfigValidator extends BigqueryConfigTestBase {
     BigqueryConfigValidator.validateMode(task);
   }
 
+  @Test(expected = ConfigException.class)
+  public void validateMode_replaceBackup_configException() {
+    // Known to Mode (so setTempTable and the auto_create_table check already follow ruby), but
+    // not implemented yet.
+    BigqueryConfigValidator.validateMode(taskWith(c -> c.set("mode", "replace_backup")));
+  }
+
+  @Test
+  public void validate_lowerCasesMode() {
+    // Ruby does task['mode'].downcase in configure, so `mode: Replace` is accepted.
+    PluginTask task = taskWith(c -> c.set("mode", "Replace"));
+    BigqueryConfigValidator.validate(task);
+    assertEquals("replace", task.getMode());
+  }
+
+  @Test(expected = ConfigException.class)
+  public void validateMode_isCaseSensitiveWithoutValidate() {
+    // The lower-casing happens once in validate(); the individual checks expect canonical input.
+    BigqueryConfigValidator.validateMode(taskWith(c -> c.set("mode", "Replace")));
+  }
+
   @Test
   public void validateModeAndAutoCreteTable() {
     ConfigSource config = loadYamlResource("base.yml");
@@ -36,12 +57,29 @@ public class TestBigqueryConfigValidator extends BigqueryConfigTestBase {
     assertTrue(task.getAutoCreateTable());
   }
 
-  @Test(expected = ConfigException.class)
+  @Test
   public void validateModeAndAutoCreteTable_autoCreateTable_False_configException() {
     ConfigSource config = loadYamlResource("base.yml");
     PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
     task.setAutoCreateTable(false);
-    BigqueryConfigValidator.validateModeAndAutoCreteTable(task);
+    ConfigException e =
+        assertThrows(
+            ConfigException.class,
+            () -> BigqueryConfigValidator.validateModeAndAutoCreteTable(task));
+    assertEquals("`mode: replace` requires `auto_create_table: true`", e.getMessage());
+  }
+
+  @Test
+  public void validateModeAndAutoCreteTable_replaceBackup_autoCreateTable_False_configException() {
+    ConfigSource config = loadYamlResource("base.yml");
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+    task.setMode("replace_backup");
+    task.setAutoCreateTable(false);
+    ConfigException e =
+        assertThrows(
+            ConfigException.class,
+            () -> BigqueryConfigValidator.validateModeAndAutoCreteTable(task));
+    assertEquals("`mode: replace_backup` requires `auto_create_table: true`", e.getMessage());
   }
 
   @Test

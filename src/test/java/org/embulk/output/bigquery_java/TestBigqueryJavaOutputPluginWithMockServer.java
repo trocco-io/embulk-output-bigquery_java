@@ -112,11 +112,23 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
 
   @Test
   public void testRunAppendDirectMode() throws Exception {
-    // append_direct has no temp table: autoCreate() creates the destination table directly, load
-    // uploads straight into it, and there is no copy/merge step or temp table to delete afterward.
+    assertAppendDirectRun(c -> c);
+  }
+
+  @Test
+  public void testRunAppendDirectModeIgnoresConfiguredTempTable() throws Exception {
+    // A configured temp_table must not reroute append_direct through a temp table and a
+    // WRITE_TRUNCATE copy; ruby sets temp_table to nil for this mode.
+    assertAppendDirectRun(c -> c.set("temp_table", "configured_temp"));
+  }
+
+  // append_direct has no temp table: autoCreate() creates the destination table directly, load
+  // uploads straight into it, and there is no copy/merge step or temp table to delete afterward.
+  private void assertAppendDirectRun(Function<ConfigSource, ConfigSource> customizeConfig)
+      throws Exception {
     try (RequestCursor requests =
         runWithMockServer(
-            c -> c.set("mode", "append_direct"),
+            c -> customizeConfig.apply(c.set("mode", "append_direct")),
             MockResponses.of(datasetResponse(), tableResponse())
                 .add(loadAttemptResponses("testjob", null))
                 .add(tableResponse())
@@ -487,47 +499,43 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
 
   @Test
   public void testRunDeleteInAdvanceMode() throws Exception {
-    // autoCreate() deletes the destination table (or partition) before creating the temp table;
-    // load into the temp table, copy (WRITE_TRUNCATE) to the destination, delete the temp table.
-    // TODO: avoid going through a temp table.
+    assertDeleteInAdvanceRun(c -> c);
+  }
+
+  @Test
+  public void testRunDeleteInAdvanceModeIgnoresConfiguredTempTable() throws Exception {
+    // A configured temp_table must not reroute delete_in_advance through a temp table and a
+    // WRITE_TRUNCATE copy; ruby sets temp_table to nil for this mode.
+    assertDeleteInAdvanceRun(c -> c.set("temp_table", "configured_temp"));
+  }
+
+  // autoCreate() deletes the destination table (or partition), then immediately recreates the
+  // same (now empty) destination table, and load uploads straight into it: no temp table, no
+  // copy/merge step, matching ruby (and avoiding the destination table being left deleted if a
+  // later step fails).
+  private void assertDeleteInAdvanceRun(Function<ConfigSource, ConfigSource> customizeConfig)
+      throws Exception {
     try (RequestCursor requests =
         runWithMockServer(
-            c -> c.set("mode", "delete_in_advance"),
+            c -> customizeConfig.apply(c.set("mode", "delete_in_advance")),
             MockResponses.of(datasetResponse(), deleteResponse(), tableResponse())
                 .add(loadAttemptResponses("testjob", null))
-                .add(
-                    tableResponseWithNumRows(1),
-                    createCopyJobResponse("testjob"),
-                    waitForCopyJobResponse("testjob"),
-                    tableResponse(),
-                    deleteResponse())
+                .add(tableResponse())
                 .toArray())) {
       assertGetDataset(requests.next());
 
       assertDeleteTable(requests.next(), "table");
 
-      RecordedRequest createTempTable = requests.next();
-      assertPostTables(createTempTable);
-      String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
-      assertMatches(tempTableId, "LOAD_TEMP_.*_table");
+      RecordedRequest createTable = requests.next();
+      assertPostTables(createTable);
+      assertEquals("table", tableIdOf(requestBodyJson(createTable), "tableReference"));
 
       RecordedRequest openUpload = assertLoadAttempt(requests, "testjob").openUpload;
-      assertEquals(tempTableId, tableIdOf(jobConfig(openUpload, "load"), "destinationTable"));
-
-      assertGetTable(requests.next(), tempTableId); // getTransactionReport()
-
-      RecordedRequest createJob = requests.next();
-      assertPostJobs(createJob);
-      JSONObject copyConfig = jobConfig(createJob, "copy");
-      assertEquals(tempTableId, firstSourceTableId(copyConfig));
-      assertEquals("table", tableIdOf(copyConfig, "destinationTable"));
-      assertEquals("WRITE_TRUNCATE", copyConfig.getString("writeDisposition"));
-
-      assertGetJobStatus(requests.next(), "testjob");
+      JSONObject loadConfig = jobConfig(openUpload, "load");
+      assertEquals("table", tableIdOf(loadConfig, "destinationTable"));
+      assertEquals("WRITE_APPEND", loadConfig.getString("writeDisposition"));
 
       assertGetTable(requests.next(), "table"); // updateTableIfNeed()
-
-      assertDeleteTable(requests.next(), tempTableId);
     }
   }
 
@@ -536,7 +544,8 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // First run against a fresh dataset: the destination table doesn't exist yet, so the
     // tables.delete in autoCreate() gets a 404. The BigQuery client library maps that to
     // BigQuery#delete() returning false rather than throwing, and the plugin ignores the return
-    // value, so the run proceeds exactly as when the delete succeeds.
+    // value, so the run proceeds exactly as when the delete succeeds: straight into the
+    // destination table, matching testRunDeleteInAdvanceMode.
     try (RequestCursor requests =
         runWithMockServer(
             c -> c.set("mode", "delete_in_advance"),
@@ -545,39 +554,22 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                     errorResponse(404, "Not found: Table project:dataset.table", "notFound"),
                     tableResponse())
                 .add(loadAttemptResponses("testjob", null))
-                .add(
-                    tableResponseWithNumRows(1),
-                    createCopyJobResponse("testjob"),
-                    waitForCopyJobResponse("testjob"),
-                    tableResponse(),
-                    deleteResponse())
+                .add(tableResponse())
                 .toArray())) {
       assertGetDataset(requests.next());
 
       assertDeleteTable(requests.next(), "table");
 
-      RecordedRequest createTempTable = requests.next();
-      assertPostTables(createTempTable);
-      String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
-      assertMatches(tempTableId, "LOAD_TEMP_.*_table");
+      RecordedRequest createTable = requests.next();
+      assertPostTables(createTable);
+      assertEquals("table", tableIdOf(requestBodyJson(createTable), "tableReference"));
 
       RecordedRequest openUpload = assertLoadAttempt(requests, "testjob").openUpload;
-      assertEquals(tempTableId, tableIdOf(jobConfig(openUpload, "load"), "destinationTable"));
-
-      assertGetTable(requests.next(), tempTableId); // getTransactionReport()
-
-      RecordedRequest createJob = requests.next();
-      assertPostJobs(createJob);
-      JSONObject copyConfig = jobConfig(createJob, "copy");
-      assertEquals(tempTableId, firstSourceTableId(copyConfig));
-      assertEquals("table", tableIdOf(copyConfig, "destinationTable"));
-      assertEquals("WRITE_TRUNCATE", copyConfig.getString("writeDisposition"));
-
-      assertGetJobStatus(requests.next(), "testjob");
+      JSONObject loadConfig = jobConfig(openUpload, "load");
+      assertEquals("table", tableIdOf(loadConfig, "destinationTable"));
+      assertEquals("WRITE_APPEND", loadConfig.getString("writeDisposition"));
 
       assertGetTable(requests.next(), "table"); // updateTableIfNeed()
-
-      assertDeleteTable(requests.next(), tempTableId);
     }
   }
 

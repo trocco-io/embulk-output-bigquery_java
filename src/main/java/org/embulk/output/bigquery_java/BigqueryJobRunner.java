@@ -22,13 +22,9 @@ public class BigqueryJobRunner implements Callable<JobStatistics> {
   @Override
   public JobStatistics call() throws Exception {
     client = new BigqueryClient(this.task, this.schema);
-    String tableName;
-    // append_direct use table name
-    if (task.getMode().equals("append_direct")) {
-      tableName = task.getTable();
-    } else {
-      tableName = task.getTempTable().get();
-    }
+    // Load straight into the destination table when there's no temp table (append_direct,
+    // delete_in_advance); otherwise stage into the temp table.
+    String tableName = task.getTempTable().orElseGet(task::getTable);
 
     return client.load(this.path, tableName, JobInfo.WriteDisposition.WRITE_APPEND);
   }

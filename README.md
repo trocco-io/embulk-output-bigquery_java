@@ -35,7 +35,7 @@ Under construction
 
 | name     (x) is unsupported                            | type        | required?  | default                  | description            |
 |:-------------------------------------|:------------|:-----------|:-------------------------|:-----------------------|
-|  mode (replace, append is supported)                                | string      | optional   | "append"                 | See [Mode](#mode)      |
+|  mode (replace, append, merge, delete_in_advance, append_direct are supported) | string      | optional   | "append"                 | See [Mode](#mode)      |
 |  auth_method (service_account, workload_identity_federation are supported)| string      | optional   | "application\_default"   | See [Authentication](#authentication) |
 |  json_keyfile                        | string      | optional   |                          | keyfile path or `content` |
 |  workload_identity_federation        | hash        | optional   |                          | Workload Identity Federation config. See below |
@@ -120,6 +120,40 @@ Following options are same as [bq command-line tools](https://cloud.google.com/b
 |  clustering.fields  (x)               | array    | required  | nil     | One or more fields on which data should be clustered. The order of the specified columns determines the sort order of the data. |
 |  schema_update_options  (x)           | array    | optional  | nil     | (Experimental) List of `ALLOW_FIELD_ADDITION` or `ALLOW_FIELD_RELAXATION` or both. See [jobs#configuration.load.schemaUpdateOptions](https://cloud.google.com/bigquery/docs/reference/v2/jobs#configuration.load.schemaUpdateOptions). NOTE for the current status: `schema_update_options` does not work for `copy` job, that is, is not effective for most of modes such as `append`, `replace` and `replace_backup`. `delete_in_advance` deletes origin table so does not need to update schema. Only `append_direct` can utilize schema update. |
 
+
+### Mode
+
+5 modes are provided. `replace_backup` is not supported yet.
+
+##### append
+
+1. Load to temporary table (Create and WRITE_APPEND in parallel)
+2. Copy temporary table to destination table (or partition). (WRITE_APPEND)
+
+##### append_direct
+
+1. Insert data into existing table (or partition) directly. (WRITE_APPEND in parallel)
+
+This is not transactional, i.e., if fails, the target table could have some rows inserted.
+
+##### replace
+
+1. Load to temporary table (Create and WRITE_APPEND in parallel)
+2. Copy temporary table to destination table (or partition). (WRITE_TRUNCATE)
+
+NOTE: BigQuery does not support replacing (actually, copying into) a non-partitioned table with a paritioned table atomically. You must once delete the non-partitioned table, otherwise, you get `Incompatible table partitioning specification when copying to the column partitioned table` error.
+
+##### delete_in_advance
+
+1. Delete destination table (or partition), if it exists.
+2. Load to destination table (or partition).
+
+NOTE: A `table` with a partition decorator (such as `table_name$20160929`) is not supported in this mode yet. The destination table is recreated with the decorator still in its id after the partition is deleted, which BigQuery rejects, so the run fails with the partition already deleted. Partition decorator support is tracked separately.
+
+##### merge
+
+1. Load to temporary table (Create and WRITE_APPEND in parallel)
+2. Merge temporary table to destination table (or partition). (Use query job instead of copy job)
 
 ### Table id formatting
 
