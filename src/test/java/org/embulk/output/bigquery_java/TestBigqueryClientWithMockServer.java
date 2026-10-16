@@ -4,6 +4,8 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.QUERY_CONFIG_BODY;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.UPLOAD_CHUNK_SIZE;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertFieldDescriptionAndPolicyTag;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetDataset;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetJob;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetJobStatus;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetTable;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertLoadAttempt;
@@ -13,6 +15,8 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertStartResumableUpload;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadChunk;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadLoadFile;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.datasetResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.datasetResponseWithLocation;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.disconnectDuringUploadResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.errorResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.firstSchemaField;
@@ -38,7 +42,6 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
@@ -655,6 +658,9 @@ public class TestBigqueryClientWithMockServer {
   // refused with 409 "Already Exists: Job" although the job is running. load() then fetches
   // that job and waits for it instead of failing (or starting a second one). ruby would fail
   // here, so this is one step beyond ruby on purpose.
+  // jobs.get needs the job's location outside the US and EU multi-regions (or it answers 404 for
+  // a job that exists, and the rescue would silently turn into the plain failure); with no
+  // `location` configured, the lookup asks the dataset where its jobs run.
   @Test
   public void testLoadWaitsForTheJobWhenTheRetryIsRefusedAsDuplicate() throws Exception {
     Path loadFile = newLoadFile("load-409-test.json");
@@ -674,6 +680,7 @@ public class TestBigqueryClientWithMockServer {
             // Deliberately not BigQuery's "Already Exists: Job ..." wording: the status code and
             // the jobs.get below decide, not the error text.
             errorResponse(409, "boom", "duplicate"),
+            datasetResponseWithLocation("asia-northeast1"), // where do the jobs run?
             uploadLoadFileResponse("testjob"), // jobs.get of the existing job
             waitForLoadJobResponse("testjob", null))) {
       RecordedRequest firstOpen = requests.next();
@@ -683,14 +690,123 @@ public class TestBigqueryClientWithMockServer {
       RecordedRequest secondOpen = requests.next();
       assertStartResumableUpload(secondOpen);
       assertUploadLoadFile(requests.next()); // refused with 409
-      RecordedRequest getExistingJob = requests.next();
-      assertEquals("GET", getExistingJob.getMethod());
-      assertTrue(
-          getExistingJob.getPath(),
-          getExistingJob
-              .getPath()
-              .startsWith("/bigquery/v2/projects/project/jobs/" + jobIdOf(firstOpen)));
+      assertGetDataset(requests.next());
+      assertGetJob(requests.next(), jobIdOf(firstOpen), "asia-northeast1");
       assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // With `location` configured there is nothing to ask the dataset: it goes into the job
+  // reference of the upload (as ruby does) and into the lookup.
+  @Test
+  public void testLoadLooksUpTheDuplicateJobInTheConfiguredLocation() throws Exception {
+    Path loadFile = newLoadFile("load-409-location-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server, c -> c.set("location", "asia-northeast1"))
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            uploadLoadFileResponse("testjob"), // jobs.get of the existing job
+            waitForLoadJobResponse("testjob", null))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertEquals(
+          "asia-northeast1",
+          requestBodyJson(open).getJSONObject("jobReference").getString("location"));
+      assertUploadLoadFile(requests.next()); // refused with 409
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // A dataset in the US or EU multi-region reports no location that jobs.get would need; the
+  // lookup then goes without one, as every jobs.get did before.
+  @Test
+  public void testLoadLooksUpTheDuplicateJobWithoutLocationWhenNeitherIsKnown() throws Exception {
+    Path loadFile = newLoadFile("load-409-no-location-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            datasetResponse(), // no location
+            uploadLoadFileResponse("testjob"),
+            waitForLoadJobResponse("testjob", null))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadLoadFile(requests.next());
+      assertGetDataset(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), null);
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // The lookup after a 409 can fail on its own. A retryable failure (here 503, twice: the library
+  // retries jobs.get once itself) retries only the lookup, not the whole upload, which would just
+  // be refused with 409 again.
+  @Test
+  public void testLoadRetriesOnlyTheLookupWhenTheDuplicateJobLookupFails() throws Exception {
+    Path loadFile = newLoadFile("load-409-lookup-retry-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server, c -> c.set("location", "asia-northeast1"))
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            errorResponse(503, "boom", "backendError"), // jobs.get
+            errorResponse(503, "boom", "backendError"), // jobs.get, the library's retry
+            uploadLoadFileResponse("testjob"), // jobs.get, load()'s own retry of the lookup
+            waitForLoadJobResponse("testjob", null))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadLoadFile(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // A lookup failure that isn't retryable ends the load right away (the job's state is unknown,
+  // and a new job id could load the rows twice), with a message that says what happened rather
+  // than the raw library error.
+  @Test
+  public void testLoadFailsAtOnceWhenTheDuplicateJobLookupIsRefused() throws Exception {
+    Path loadFile = newLoadFile("load-409-lookup-refused-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to look up job_id:\\[embulk_load_job_.*\\] after the upload of "
+                + ".*load-409-lookup-refused-test\\.json .* was refused as a duplicate.*boom-lookup.*",
+            server ->
+                buildTestHostClient(server, c -> c.set("location", "asia-northeast1"))
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            errorResponse(400, "boom-lookup", "invalid"))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadLoadFile(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      // No retry of the lookup, and no second upload: the cursor's close() would report either.
     }
   }
 

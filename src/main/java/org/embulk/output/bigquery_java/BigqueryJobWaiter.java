@@ -41,6 +41,18 @@ public class BigqueryJobWaiter {
 
     while (true) {
       completedJob = this.client.getJob(job.getJobId());
+      if (completedJob == null) {
+        // The library maps a 404 from jobs.get to null: the job has gone, or is being looked up
+        // in the wrong location.
+        throw new BigqueryException(
+            String.format(
+                "embulk-output-bigquery: %s job job_id:[%s] not found in %s",
+                kind,
+                job.getJobId().getJob(),
+                job.getJobId().getLocation() == null
+                    ? "the default location"
+                    : job.getJobId().getLocation()));
+      }
       jobState = completedJob.getStatus().getState();
       now = new Date();
       elapsed = (now.getTime() - started.getTime()) / 1000;

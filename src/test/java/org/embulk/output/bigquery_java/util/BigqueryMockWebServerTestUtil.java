@@ -271,9 +271,22 @@ public final class BigqueryMockWebServerTestUtil {
     assertRequest(request, "POST", PROJECT_PATH_PREFIX + "/jobs?prettyPrint=false");
   }
 
+  // The jobs.get poll of BigqueryJobWaiter: the job ids in the job responses here carry location
+  // US, and the waiter asks for the job where the response said it is.
   public static void assertGetJobStatus(RecordedRequest request, String jobId) {
+    assertGetJob(request, jobId, "US");
+  }
+
+  // A jobs.get for `jobId` in `location` (null: no location parameter).
+  public static void assertGetJob(RecordedRequest request, String jobId, String location) {
     assertRequest(
-        request, "GET", PROJECT_PATH_PREFIX + "/jobs/" + jobId + "?location=US&prettyPrint=false");
+        request,
+        "GET",
+        PROJECT_PATH_PREFIX
+            + "/jobs/"
+            + jobId
+            + (location == null ? "?" : "?location=" + location + "&")
+            + "prettyPrint=false");
   }
 
   // The POST that opens the resumable upload session. Its body is the load job (jobReference +
@@ -421,6 +434,18 @@ public final class BigqueryMockWebServerTestUtil {
         .setBody(
             "{\"kind\":\"bigquery#dataset\",\"datasetReference\":"
                 + "{\"projectId\":\"project\",\"datasetId\":\"dataset\"}}");
+  }
+
+  // datasetResponse() for a dataset in `location`, which is where its jobs run.
+  public static MockResponse datasetResponseWithLocation(String location) {
+    return new MockResponse()
+        .setResponseCode(200)
+        .setBody(
+            "{\"kind\":\"bigquery#dataset\",\"datasetReference\":"
+                + "{\"projectId\":\"project\",\"datasetId\":\"dataset\"},"
+                + "\"location\":\""
+                + location
+                + "\"}");
   }
 
   public static MockResponse tableResponse() {
