@@ -548,6 +548,15 @@ public class BigqueryClient {
                 }
               });
     } catch (RetryGiveupException ex) {
+      // The library gave up on a failure it retries itself, so unlike the socket errors this
+      // method re-sends for, the file was never sent again and the 409 that would have told us
+      // the job exists was never seen. Ask instead.
+      if (theLibraryGaveUp(ex.getCause())) {
+        Job existing = jobLeftByAFailedUpload(jobId, loadFile, table);
+        if (existing != null) {
+          return existing;
+        }
+      }
       if (ex.getCause() instanceof BigqueryException) {
         throw (BigqueryException) ex.getCause();
       }
@@ -555,6 +564,13 @@ public class BigqueryClient {
     } catch (InterruptedException ex) {
       throw new BigqueryException("interrupted");
     }
+  }
+
+  // Whether an upload failure is one the library retries itself, which means it used up its
+  // attempts inside the session before the failure got here.
+  private static boolean theLibraryGaveUp(Throwable uploadFailure) {
+    Throwable cause = uploadFailure == null ? null : uploadFailure.getCause();
+    return cause instanceof BigQueryException && ((BigQueryException) cause).isRetryable();
   }
 
   private Job uploadOnce(
@@ -622,42 +638,7 @@ public class BigqueryClient {
   private Job lookUpRefusedJob(
       String jobId, Path loadFile, String table, BigQueryException refusal) {
     try {
-      return buildJobRetryExecutor()
-          .runInterruptible(
-              new Retryable<Job>() {
-                @Override
-                public Job call() {
-                  // Inside call() so that a failure asking the dataset where its jobs run is
-                  // retried and reported like the lookup itself, instead of escaping this method
-                  // as a bare dataset error with no word of the refused upload.
-                  return bigquery.getJob(
-                      JobId.newBuilder().setJob(jobId).setLocation(jobLocation()).build());
-                }
-
-                @Override
-                public boolean isRetryableException(Exception exception) {
-                  return exception instanceof BigQueryException
-                      && shouldRetryJobLookup((BigQueryException) exception);
-                }
-
-                @Override
-                public void onRetry(
-                    Exception exception, int retryCount, int retryLimit, int retryWait) {
-                  logger.warn(
-                      "embulk-output-bigquery: looking up job_id:[{}] failed. Retrying {}/{} after {} seconds. Message: {}",
-                      jobId,
-                      retryCount,
-                      retryLimit,
-                      retryWait / 1000,
-                      exception.getMessage());
-                }
-
-                @Override
-                public void onGiveup(Exception firstException, Exception lastException)
-                    throws RetryGiveupException {
-                  throw new RetryGiveupException(lastException);
-                }
-              });
+      return lookUpJob(jobId);
     } catch (RetryGiveupException ex) {
       BigqueryException failure =
           new BigqueryException(
@@ -675,6 +656,78 @@ public class BigqueryClient {
     } catch (InterruptedException ex) {
       throw new BigqueryException("interrupted");
     }
+  }
+
+  // The job an upload left behind, or null if there is none or it can't be told. BigQuery makes
+  // the load job when the last chunk lands, so an attempt whose response was lost can have
+  // created it; failing the load then would have the user rerun one that is already running or
+  // done, loading the rows a second time. Checked once before giving up, which costs a request
+  // rather than the whole file again. ruby has no such safety net.
+  private Job jobLeftByAFailedUpload(String jobId, Path loadFile, String table) {
+    Job existing;
+    try {
+      existing = lookUpJob(jobId);
+    } catch (Exception ex) {
+      logger.warn(
+          "embulk-output-bigquery: could not tell whether the failed upload of {} left job_id:[{}] behind: {}",
+          loadFile,
+          jobId,
+          ex.getMessage());
+      return null;
+    }
+    if (existing != null) {
+      logger.warn(
+          "embulk-output-bigquery: the upload of {} to {}:{}.{} failed, but it had created "
+              + "job_id:[{}]; waiting for that job instead of failing, which would load its rows "
+              + "again on a rerun",
+          loadFile,
+          destinationProject,
+          destinationDataset,
+          table,
+          jobId);
+    }
+    return existing;
+  }
+
+  // Fetches the job with this id, or null if BigQuery has no such job. Only the lookup is
+  // retried, with the job-retry waits and for the failures the upload would retry.
+  private Job lookUpJob(String jobId) throws RetryGiveupException, InterruptedException {
+    return buildJobRetryExecutor()
+        .runInterruptible(
+            new Retryable<Job>() {
+              @Override
+              public Job call() {
+                // Inside call() so that a failure asking the dataset where its jobs run is
+                // retried and reported like the lookup itself, instead of escaping this method
+                // as a bare dataset error with no word of the refused upload.
+                return bigquery.getJob(
+                    JobId.newBuilder().setJob(jobId).setLocation(jobLocation()).build());
+              }
+
+              @Override
+              public boolean isRetryableException(Exception exception) {
+                return exception instanceof BigQueryException
+                    && shouldRetryJobLookup((BigQueryException) exception);
+              }
+
+              @Override
+              public void onRetry(
+                  Exception exception, int retryCount, int retryLimit, int retryWait) {
+                logger.warn(
+                    "embulk-output-bigquery: looking up job_id:[{}] failed. Retrying {}/{} after {} seconds. Message: {}",
+                    jobId,
+                    retryCount,
+                    retryLimit,
+                    retryWait / 1000,
+                    exception.getMessage());
+              }
+
+              @Override
+              public void onGiveup(Exception firstException, Exception lastException)
+                  throws RetryGiveupException {
+                throw new RetryGiveupException(lastException);
+              }
+            });
   }
 
   // The exception for an upload attempt that failed with `e`: a BigqueryUploadException, which

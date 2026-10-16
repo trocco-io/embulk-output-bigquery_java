@@ -436,6 +436,11 @@ public final class BigqueryMockWebServerTestUtil {
                 + "{\"projectId\":\"project\",\"datasetId\":\"dataset\"}}");
   }
 
+  // The answer to a jobs.get for a job BigQuery doesn't have; the library maps it to null.
+  public static MockResponse jobNotFoundResponse() {
+    return errorResponse(404, "Not found: Job project:embulk_load_job", "notFound");
+  }
+
   // datasetResponse() for a dataset in `location`, which is where its jobs run.
   public static MockResponse datasetResponseWithLocation(String location) {
     return new MockResponse()
