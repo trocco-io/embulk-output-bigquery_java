@@ -43,11 +43,18 @@ public class BigqueryFileWriter {
 
     this.path = path;
     this.file = new FileOutputStream(path);
-    OutputStream stream = this.file;
-    if (this.compression.equals("GZIP")) {
-      stream = new GZIPOutputStream(stream);
+    try {
+      OutputStream stream = this.file;
+      if (this.compression.equals("GZIP")) {
+        stream = new GZIPOutputStream(stream); // writes the gzip header
+      }
+      this.os = new BufferedOutputStream(stream, BUFFER_SIZE);
+    } catch (IOException e) {
+      // Nothing is left for close() to release: os is unset, so it would return at once.
+      this.file.close();
+      this.file = null;
+      throw e;
     }
-    this.os = new BufferedOutputStream(stream, BUFFER_SIZE);
 
     return this.os;
   }
@@ -90,10 +97,8 @@ public class BigqueryFileWriter {
 
   public void close() {
     // A writer that never wrote a record never opened its file; don't create an empty one now
-    // (it would be picked up as a load file). The file is still closed below when open() got as
-    // far as creating it and then failed (the GZIP header write, say), leaving os unset.
+    // (it would be picked up as a load file).
     if (this.os == null) {
-      closeFile();
       return;
     }
     // close() flushes, so no separate flush().
@@ -105,23 +110,16 @@ public class BigqueryFileWriter {
       // abort_on_error is false (max_bad_records > 0) or is_skip_job_result_check is true.
       logger.warn("embulk-output-bigquery: failed to close {}", this.path, e);
     } finally {
-      closeFile();
-    }
-  }
-
-  // Releases the file itself. FilterOutputStream#close() closes what it wraps even when the
-  // flush before it fails, but DeflaterOutputStream#close() (compression: GZIP) runs finish(),
-  // end() and out.close() in a row with no finally, so a failure writing the gzip trailer would
-  // leave the file open. A no-op in every other case. The Deflater's native memory is not
-  // reachable from here and is left to its finalizer.
-  private void closeFile() {
-    if (this.file == null) {
-      return;
-    }
-    try {
-      this.file.close();
-    } catch (IOException e) {
-      logger.warn("embulk-output-bigquery: failed to close the file under {}", this.path, e);
+      // DeflaterOutputStream#close() (compression: GZIP) runs finish() and out.close() in a row
+      // with no finally, so a failure writing the gzip trailer would leave the file open; a
+      // no-op otherwise. (The Deflater's native memory is out of reach and left to its finalizer.)
+      if (this.file != null) {
+        try {
+          this.file.close();
+        } catch (IOException e) {
+          logger.warn("embulk-output-bigquery: failed to close the file under {}", this.path, e);
+        }
+      }
     }
   }
 }
