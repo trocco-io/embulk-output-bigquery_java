@@ -152,18 +152,16 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
           if (paths == null) {
             paths = BigqueryUtil.getIntermediateFiles(this.writers.values());
           }
-          if (paths != null) {
-            if (task.getDeleteFromLocalWhenJobEnd()) {
-              paths.forEach(p -> p.toFile().delete());
-            } else {
-              paths.forEach(
-                  p -> {
-                    File intermediateFile = new File(p.toString());
-                    if (intermediateFile.exists()) {
-                      logger.info("embulk-output-bigquery: keep {}", p.toString());
-                    }
-                  });
-            }
+          if (task.getDeleteFromLocalWhenJobEnd()) {
+            paths.forEach(p -> p.toFile().delete());
+          } else {
+            paths.forEach(
+                p -> {
+                  File intermediateFile = new File(p.toString());
+                  if (intermediateFile.exists()) {
+                    logger.info("embulk-output-bigquery: keep {}", p.toString());
+                  }
+                });
           }
         }
       }
