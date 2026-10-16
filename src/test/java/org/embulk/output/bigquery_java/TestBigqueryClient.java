@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.cloud.TransportOptions;
+import com.google.cloud.bigquery.BigQueryException;
 import com.google.cloud.bigquery.Field;
 import com.google.cloud.bigquery.FieldList;
 import com.google.cloud.bigquery.PolicyTags;
@@ -16,16 +17,21 @@ import com.google.cloud.bigquery.StandardSQLTypeName;
 import com.google.cloud.bigquery.Table;
 import com.google.cloud.bigquery.TableDefinition;
 import com.google.cloud.http.HttpTransportOptions;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLException;
 import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
+import org.embulk.output.bigquery_java.exception.BigqueryUploadException;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.FileInputPlugin;
 import org.embulk.spi.OutputPlugin;
@@ -423,5 +429,72 @@ public class TestBigqueryClient {
         (HttpTransportOptions) BigqueryClient.buildTransportOptions(task);
     assertEquals(2147483000, options.getConnectTimeout());
     assertEquals(2147483000, options.getReadTimeout());
+  }
+
+  // A socket error under the TLS layer reaches the client as an SSLException with the socket
+  // error as its cause; the library judges only the outer type and says not retryable, so upload()
+  // re-sends the file like ruby's with_network_retry. (MockWebServer speaks plain HTTP, so this
+  // can't be staged there.)
+  @Test
+  public void testUploadResendsOnSocketErrorUnderTls() {
+    BigQueryException reset =
+        new BigQueryException(
+            new SSLException("Connection reset", new SocketException("Connection reset")));
+    assertFalse(reset.isRetryable());
+    assertTrue(BigqueryClient.shouldResendUpload(reset));
+
+    BigQueryException timeout =
+        new BigQueryException(
+            new SSLException("Read timed out", new SocketTimeoutException("Read timed out")));
+    assertTrue(BigqueryClient.shouldResendUpload(timeout));
+  }
+
+  // A TLS failure with no socket error behind it (a handshake problem, say) is not re-sent.
+  @Test
+  public void testUploadDoesNotResendOnOtherTlsFailures() {
+    BigQueryException handshake =
+        new BigQueryException(new SSLException("Received fatal alert: handshake_failure"));
+    assertFalse(BigqueryClient.shouldResendUpload(handshake));
+  }
+
+  // A failure the library retries itself is not re-sent on top of that: it already made
+  // `retries` attempts within the upload session, and a new session would multiply them.
+  @Test
+  public void testUploadDoesNotResendWhatTheLibraryAlreadyRetried() {
+    BigQueryException backendError = new BigQueryException(503, "boom");
+    assertTrue(backendError.isRetryable());
+    assertFalse(BigqueryClient.shouldResendUpload(backendError));
+
+    BigQueryException reset = new BigQueryException(new SocketException("Connection reset"));
+    assertTrue(reset.isRetryable());
+    assertFalse(BigqueryClient.shouldResendUpload(reset));
+
+    // A read timeout on a chunk PUT arrives as this, not wrapped in an SSLException.
+    BigQueryException timeout = new BigQueryException(new SocketTimeoutException("Read timed out"));
+    assertTrue(timeout.isRetryable());
+    assertFalse(BigqueryClient.shouldResendUpload(timeout));
+  }
+
+  // Which upload failures are worth asking BigQuery whether the job is there after all. The
+  // upload itself can't be staged on the plain-HTTP MockWebServer for the socket-error cases.
+  @Test
+  public void testJobLookupAfterAnUploadThatMayHaveCreatedIt() {
+    // A 4xx: BigQuery answered and refused, so there is nothing to look for.
+    assertFalse(
+        BigqueryClient.mayHaveLeftAJob(
+            new BigqueryException("failed", new BigQueryException(400, "Invalid")), false));
+    // A 5xx the library ran out of attempts on: the job may be there.
+    assertTrue(
+        BigqueryClient.mayHaveLeftAJob(
+            new BigqueryException("failed", new BigQueryException(503, "boom")), false));
+    // A socket error under TLS, which upload() re-sends for rather than the library.
+    BigQueryException reset =
+        new BigQueryException(
+            new SSLException("Connection reset", new SocketException("Connection reset")));
+    assertTrue(BigqueryClient.mayHaveLeftAJob(new BigqueryUploadException("failed", reset), false));
+    // The last attempt failed for good, but an earlier one had already lost its answer.
+    assertTrue(
+        BigqueryClient.mayHaveLeftAJob(
+            new BigqueryException("failed", new BigQueryException(403, "accessDenied")), true));
   }
 }

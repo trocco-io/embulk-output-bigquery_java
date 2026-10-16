@@ -1,44 +1,28 @@
 package org.embulk.output.bigquery_java;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.File;
 import java.nio.file.*;
-import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
-import org.embulk.output.bigquery_java.config.PluginTask;
 
 public class BigqueryUtil {
   private static final String PARTITION_DECORATOR_REGEXP = "\\$.+\\z";
 
-  public static List<Path> getIntermediateFiles(PluginTask task) {
-    Path startDir;
-    String pathPrefix = task.getPathPrefix().get();
-    String fileExt = task.getFileExt().get();
-    File pathPrefixFile = new File(pathPrefix);
-    String glob = String.format("glob:%s*%s", pathPrefix, fileExt);
-    List<Path> r = new ArrayList<Path>() {};
-
-    if (pathPrefixFile.isDirectory()) {
-      startDir = pathPrefixFile.toPath();
-    } else {
-      startDir = pathPrefixFile.toPath().getParent();
-    }
-
-    File[] files = startDir.toFile().listFiles();
-    if (files == null) {
-      return r;
-    }
-    PathMatcher m = FileSystems.getDefault().getPathMatcher(glob);
-    for (File file : files) {
-      Path path = file.toPath();
-      if (m.matches(path)) {
-        r.add(path);
-      }
-    }
-    return r;
+  // The intermediate files the given writers opened (a writer that never wrote has none), as in
+  // ruby (`file_writers.map(&:io).map(&:path)`). Globbing path_prefix*file_ext instead, as before,
+  // also picked up files left behind by an earlier run with the same path_prefix and loaded their
+  // rows again; ruby only globs under skip_file_generation, which this plugin doesn't support.
+  public static List<Path> getIntermediateFiles(Collection<BigqueryFileWriter> writers) {
+    return writers.stream()
+        .map(BigqueryFileWriter::getPath)
+        .filter(Objects::nonNull)
+        .map(Paths::get)
+        .collect(Collectors.toList());
   }
 
   public static long getPID() {

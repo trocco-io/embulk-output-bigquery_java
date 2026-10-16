@@ -4,6 +4,8 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.QUERY_CONFIG_BODY;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.UPLOAD_CHUNK_SIZE;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertFieldDescriptionAndPolicyTag;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetDataset;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetJob;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetJobStatus;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertGetTable;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertLoadAttempt;
@@ -13,10 +15,15 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertStartResumableUpload;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadChunk;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadLoadFile;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.createCopyJobResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.createQueryJobResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.datasetResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.datasetResponseWithLocation;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.disconnectDuringUploadResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.errorResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.firstSchemaField;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.jobIdOf;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.jobNotFoundResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.jobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.loadAttemptResponses;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.loadTestHostConfig;
@@ -33,7 +40,9 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.unansweredResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.uploadChunkAcceptedResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.uploadLoadFileResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForCopyJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForLoadJobResponse;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForQueryJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.writeLoadFile;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
@@ -489,36 +498,100 @@ public class TestBigqueryClientWithMockServer {
   }
 
   // A chunk PUT answered with a 5xx is re-sent by the library on the same session, `retries`
-  // more times (test_host.yml: 1); when they are all 5xx the upload fails.
+  // more times (test_host.yml: 1). Once the library gives up, the upload fails: load() does not
+  // re-send the file in a new session on top of the library's attempts, which would multiply
+  // both the attempts and the bytes by `retries` again. ruby doesn't retry a 5xx here at all.
+  // It does ask whether the job exists before failing, see the test after the next one.
   @Test
-  public void testLoadResendsChunkOnServerErrorThenGivesUp() throws Exception {
+  public void testLoadDoesNotReopenUploadSessionAfterServerErrors() throws Exception {
     Path loadFile = newLoadFile("load-5xx-test.json");
 
     try (RequestCursor requests =
         runWithMockServerExpectingFailure(
-            RuntimeException.class,
-            "(?s).*BigQueryException: 503 .*",
+            BigqueryException.class,
+            "(?s).*failed to upload .*503.*",
             server ->
                 buildTestHostClient(server)
                     .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
             startResumableUploadResponse(),
             errorResponse(503, "boom", "backendError"),
-            errorResponse(503, "boom", "backendError"))) {
-      assertStartResumableUpload(requests.next());
+            errorResponse(503, "boom", "backendError"),
+            datasetResponse(), // where would the job be?
+            jobNotFoundResponse())) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
       assertUploadLoadFile(requests.next());
       assertUploadLoadFile(requests.next()); // the library's retry, same session
+      assertGetDataset(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), null);
+      // No second session: the cursor's close() would report one.
     }
   }
 
-  // A chunk PUT answered with a 4xx is not re-sent.
+  // The library's last attempt can be the one that created the job, with only its response lost
+  // (or the retries can run out while BigQuery is making it). Nothing re-sends the file then, so
+  // the 409 that says "this job exists" never comes; the upload asks for the job by its id
+  // before failing, and waits for it. Failing instead would have the user rerun a load that is
+  // already running, and its rows would go in twice.
+  @Test
+  public void testLoadWaitsForTheJobAFailedUploadLeftBehind() throws Exception {
+    Path loadFile = newLoadFile("load-5xx-left-job-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(503, "boom", "backendError"),
+            errorResponse(503, "boom", "backendError"),
+            datasetResponseWithLocation("asia-northeast1"),
+            uploadLoadFileResponse("testjob"), // jobs.get: the job the upload did create
+            waitForLoadJobResponse("testjob", null))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadLoadFile(requests.next());
+      assertUploadLoadFile(requests.next()); // the library's retry, same session
+      assertGetDataset(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // A failure the library never retries is not worth asking about: it got no answer that could
+  // have created a job. Here a 4xx fails the upload with no jobs.get after it.
+  @Test
+  public void testLoadDoesNotLookForAJobAfterAFailureTheLibraryNeverRetried() throws Exception {
+    Path loadFile = newLoadFile("load-4xx-no-lookup-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to upload .*400.*",
+            server ->
+                buildTestHostClient(server)
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            errorResponse(400, "Invalid", "invalid"))) {
+      assertStartResumableUpload(requests.next());
+      assertUploadLoadFile(requests.next());
+      // No jobs.get: the cursor's close() would report one.
+    }
+  }
+
+  // A chunk PUT answered with a 4xx is not re-sent, neither by the library nor by load(), and
+  // the failure is not a BigqueryUploadException (which would be retried).
   @Test
   public void testLoadDoesNotResendChunkOnClientError() throws Exception {
     Path loadFile = newLoadFile("load-4xx-test.json");
 
     try (RequestCursor requests =
         runWithMockServerExpectingFailure(
-            RuntimeException.class,
-            "(?s).*BigQueryException: 400 .*",
+            BigqueryException.class,
+            "(?s).*failed to upload .*400.*",
             server ->
                 buildTestHostClient(server)
                     .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
@@ -530,26 +603,347 @@ public class TestBigqueryClientWithMockServer {
   }
 
   // The configured read timeout applies to the chunk PUT as well (#113): a server that never
-  // answers makes the client give up after read_timeout_sec (1 s in test_host.yml), the library
-  // retries that like any network failure, and the upload fails once retries run out. Costs
-  // about 2 s of real waiting.
+  // answers makes the client give up after read_timeout_sec (1 s in test_host.yml), and load()
+  // reports it as an upload failure. A read timeout is retryable to the library, so it is the
+  // library that re-sends it, `retries` times inside the session; retries: 0 keeps this to a
+  // single 1 s wait.
   @Test
   public void testLoadFailsOnReadTimeoutDuringUpload() throws Exception {
     Path loadFile = newLoadFile("load-timeout-test.json");
 
     try (RequestCursor requests =
         runWithMockServerExpectingFailure(
-            RuntimeException.class,
-            "(?s).*Read timed out.*",
+            BigqueryException.class,
+            "(?s).*failed to upload .*Read timed out.*",
+            server ->
+                buildTestHostClient(server, c -> c.set("retries", 0))
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            unansweredResponse(),
+            datasetResponse(), // where would the job be?
+            jobNotFoundResponse())) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadLoadFile(requests.next());
+      assertGetDataset(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), null);
+    }
+  }
+
+  // The counterpart of the test above: a 5xx the library's own retry gets past costs one extra
+  // PUT on the same session, and the load succeeds.
+  @Test
+  public void testLoadSucceedsWhenTheLibraryRetryGetsPastAServerError() throws Exception {
+    Path loadFile = newLoadFile("load-5xx-recovery-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(503, "boom", "backendError"),
+            uploadLoadFileResponse("testjob"),
+            waitForLoadJobResponse("testjob", null))) {
+      assertStartResumableUpload(requests.next());
+      assertUploadLoadFile(requests.next());
+      assertUploadLoadFile(requests.next()); // the library's retry, same session
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // A file that can't be read fails the load right away, like ruby, whose with_network_retry
+  // only retries socket errors: the session is opened, nothing is PUT, no second session.
+  @Test
+  public void testLoadFailsAtOnceWhenLoadFileCannotBeRead() throws Exception {
+    Path notAFile = testFolder.newFolder().toPath();
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to upload .*",
+            server ->
+                buildTestHostClient(server)
+                    .load(notAFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse())) {
+      assertStartResumableUpload(requests.next());
+    }
+  }
+
+  // Once an upload has failed, its session must not be finalized: closing the channel would PUT
+  // the bytes buffered so far as the last chunk, and BigQuery would start a load job for that
+  // partial file. Visible only with more than one chunk: the first chunk fails for good, and the
+  // only PUTs on that session are the two attempts at it, each with an unknown total ("bytes
+  // 0-N/*"), with no "bytes 0-N/N+1" finalizing PUT after them.
+  @Test
+  public void testLoadDoesNotFinalizeFailedUploadSession() throws Exception {
+    Path loadFile = testFolder.newFile("load-chunked-fail-test.json").toPath();
+    writeLoadFile(loadFile, UPLOAD_CHUNK_SIZE + 1);
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to upload .*503.*",
             server ->
                 buildTestHostClient(server)
                     .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
             startResumableUploadResponse(),
-            unansweredResponse(),
-            unansweredResponse())) {
+            errorResponse(503, "boom", "backendError"),
+            errorResponse(503, "boom", "backendError"),
+            datasetResponse(), // where would the job be?
+            jobNotFoundResponse())) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1);
+      assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1); // the library's retry
+      assertGetDataset(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), null);
+      // No finalizing PUT: the cursor's close() would report one.
+    }
+  }
+
+  // The final chunk creates the job; if its response is lost, the retry under the same job id is
+  // refused with 409 "Already Exists: Job" although the job is running. load() then fetches
+  // that job and waits for it instead of failing (or starting a second one). ruby would fail
+  // here, so this is one step beyond ruby on purpose.
+  // jobs.get needs the job's location outside the US and EU multi-regions (or it answers 404 for
+  // a job that exists, and the rescue would silently turn into the plain failure); with no
+  // `location` configured, the lookup asks the dataset where its jobs run.
+  @Test
+  public void testLoadWaitsForTheJobWhenTheRetryIsRefusedAsDuplicate() throws Exception {
+    Path loadFile = newLoadFile("load-409-test.json");
+    long size = Files.size(loadFile);
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            disconnectDuringUploadResponse(), // the response that created the job is lost
+            // Deliberately not BigQuery's "Already Exists: Job ..." wording: the status code and
+            // the jobs.get below decide, not the error text.
+            errorResponse(409, "boom", "duplicate"),
+            datasetResponseWithLocation("asia-northeast1"), // where do the jobs run?
+            uploadLoadFileResponse("testjob"), // jobs.get of the existing job
+            waitForLoadJobResponse("testjob", null))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadChunk(requests.next(), 0, size - 1, size); // disconnected while sending
+      assertUploadLoadFile(requests.next()); // the library's retry, refused with 409
+      assertGetDataset(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // With `location` configured there is nothing to ask the dataset: it goes into the job
+  // reference of the upload (as ruby does) and into the lookup.
+  @Test
+  public void testLoadLooksUpTheDuplicateJobInTheConfiguredLocation() throws Exception {
+    Path loadFile = newLoadFile("load-409-location-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server, c -> c.set("location", "asia-northeast1"))
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            uploadLoadFileResponse("testjob"), // jobs.get of the existing job
+            waitForLoadJobResponse("testjob", null))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertEquals(
+          "asia-northeast1",
+          requestBodyJson(open).getJSONObject("jobReference").getString("location"));
+      assertUploadLoadFile(requests.next()); // refused with 409
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // A dataset in the US or EU multi-region reports no location that jobs.get would need; the
+  // lookup then goes without one, as every jobs.get did before.
+  @Test
+  public void testLoadLooksUpTheDuplicateJobWithoutLocationWhenNeitherIsKnown() throws Exception {
+    Path loadFile = newLoadFile("load-409-no-location-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            datasetResponse(), // no location
+            uploadLoadFileResponse("testjob"),
+            waitForLoadJobResponse("testjob", null))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadLoadFile(requests.next());
+      assertGetDataset(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), null);
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // The lookup after a 409 can fail on its own. A retryable failure (here 503, twice: the library
+  // retries jobs.get once itself) retries only the lookup, not the whole upload, which would just
+  // be refused with 409 again.
+  @Test
+  public void testLoadRetriesOnlyTheLookupWhenTheDuplicateJobLookupFails() throws Exception {
+    Path loadFile = newLoadFile("load-409-lookup-retry-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server, c -> c.set("location", "asia-northeast1"))
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            errorResponse(503, "boom", "backendError"), // jobs.get
+            errorResponse(503, "boom", "backendError"), // jobs.get, the library's retry
+            uploadLoadFileResponse("testjob"), // jobs.get, load()'s own retry of the lookup
+            waitForLoadJobResponse("testjob", null))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadLoadFile(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // Asking the dataset where its jobs run is part of the lookup, so a failure there is reported
+  // the same way, with the refused upload named, rather than escaping as a bare dataset error.
+  @Test
+  public void testLoadFailsWithTheDuplicateContextWhenTheDatasetLookupIsRefused() throws Exception {
+    Path loadFile = newLoadFile("load-409-dataset-refused-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to look up job_id:\\[embulk_load_job_.*\\].*was refused as a duplicate"
+                + ".*boom-dataset.*",
+            server ->
+                buildTestHostClient(server)
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            errorResponse(400, "boom-dataset", "invalid"))) { // GET dataset, for the location
       assertStartResumableUpload(requests.next());
       assertUploadLoadFile(requests.next());
-      assertUploadLoadFile(requests.next()); // the library's retry, same session
+      assertGetDataset(requests.next());
+    }
+  }
+
+  // A lookup that gave up has asked whether the job is there already, so the upload must not ask
+  // again on its way out: that would spend the whole lookup budget a second time and end in a
+  // warning that contradicts the duplicate-refusal error it is about to report.
+  @Test
+  public void testLoadAsksOnceWhenTheDuplicateJobLookupKeepsFailing() throws Exception {
+    Path loadFile = newLoadFile("load-409-lookup-retry-giveup-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to look up job_id:\\[embulk_load_job_.*\\].*was refused as a duplicate.*",
+            server ->
+                buildTestHostClient(server, c -> c.set("location", "asia-northeast1"))
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            // The lookup: two attempts (retries: 1), each of which the library tries twice.
+            errorResponse(503, "boom-lookup", "backendError"),
+            errorResponse(503, "boom-lookup", "backendError"),
+            errorResponse(503, "boom-lookup", "backendError"),
+            errorResponse(503, "boom-lookup", "backendError"))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadLoadFile(requests.next());
+      for (int i = 0; i < 4; i++) {
+        assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      }
+      // No second round of lookups: the cursor's close() would report it.
+    }
+  }
+
+  // A lookup failure that isn't retryable ends the load right away (the job's state is unknown,
+  // and a new job id could load the rows twice), with a message that says what happened rather
+  // than the raw library error.
+  @Test
+  public void testLoadFailsAtOnceWhenTheDuplicateJobLookupIsRefused() throws Exception {
+    Path loadFile = newLoadFile("load-409-lookup-refused-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to look up job_id:\\[embulk_load_job_.*\\] after the upload of "
+                + ".*load-409-lookup-refused-test\\.json .* was refused as a duplicate.*boom-lookup.*",
+            server ->
+                buildTestHostClient(server, c -> c.set("location", "asia-northeast1"))
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            errorResponse(400, "boom-lookup", "invalid"))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadLoadFile(requests.next());
+      assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      // No retry of the lookup, and no second upload: the cursor's close() would report either.
+    }
+  }
+
+  // Every job this plugin creates carries the configured `location` in its job reference, as
+  // ruby puts it into every job_reference it inserts. BigQueryOptions.setLocation() does not do
+  // it: google-cloud-bigquery 2.14.0 applies that one to jobs.get, jobs.cancel and
+  // getQueryResults only, never to the jobs.insert underneath create() and query().
+  @Test
+  public void testCreatedJobsCarryTheConfiguredLocation() throws Exception {
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              BigqueryClient client =
+                  buildTestHostClient(server, c -> c.set("location", "asia-northeast1"));
+              assertNotNull(client.copy("temp", "table", JobInfo.WriteDisposition.WRITE_TRUNCATE));
+              assertNotNull(client.executeQuery("SELECT 1"));
+            },
+            createCopyJobResponse("copy-job"),
+            waitForCopyJobResponse("copy-job"),
+            createQueryJobResponse("query-job"),
+            waitForQueryJobResponse("query-job"))) {
+      RecordedRequest copyJob = requests.next();
+      assertPostJobs(copyJob);
+      assertEquals(
+          "asia-northeast1",
+          requestBodyJson(copyJob).getJSONObject("jobReference").getString("location"));
+      // The poll that follows goes where the job response said the job is (US in the canned
+      // response), not where the request asked for it.
+      assertGetJobStatus(requests.next(), "copy-job");
+
+      RecordedRequest queryJob = requests.next();
+      assertPostJobs(queryJob);
+      assertEquals(
+          "asia-northeast1",
+          requestBodyJson(queryJob).getJSONObject("jobReference").getString("location"));
+      assertGetJobStatus(requests.next(), "query-job");
     }
   }
 

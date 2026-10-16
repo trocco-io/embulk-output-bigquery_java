@@ -36,6 +36,8 @@ import com.google.cloud.http.HttpTransportOptions;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,6 +61,7 @@ import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
 import org.embulk.output.bigquery_java.exception.BigqueryRateLimitExceededException;
+import org.embulk.output.bigquery_java.exception.BigqueryUploadException;
 import org.embulk.output.bigquery_java.testhost.TestHostBigQueryOptions;
 import org.embulk.spi.Column;
 import org.embulk.spi.Schema;
@@ -86,6 +89,8 @@ public class BigqueryClient {
   public final String destinationDataset; // FIXME: should be private
   private final String location;
   private final String locationForLog;
+  private String jobLocation; // resolved by jobLocation(), null being an answer of its own
+  private boolean jobLocationResolved;
   private final PluginTask task;
   private final Schema schema;
   private final List<BigqueryColumnOption> columnOptions;
@@ -155,6 +160,8 @@ public class BigqueryClient {
         .setRetrySettings(buildRetrySettings(task))
         .setTransportOptions(buildTransportOptions(task))
         .setProjectId(project)
+        // For jobs.get / jobs.cancel / getQueryResults only; see jobIdWithLocation().
+        .setLocation(location)
         .build()
         .getService();
   }
@@ -196,6 +203,15 @@ public class BigqueryClient {
         .build();
   }
 
+  // For upload(), whose retries are immediate like ruby's; see there and shouldResendUpload().
+  private RetryExecutor buildUploadRetryExecutor() {
+    return RetryExecutor.builder()
+        .withRetryLimit(task.getRetries())
+        .withInitialRetryWaitMillis(0)
+        .withMaxRetryWaitMillis(0)
+        .build();
+  }
+
   public Dataset createDataset() {
     return createDataset(destinationDataset);
   }
@@ -226,6 +242,36 @@ public class BigqueryClient {
 
   public Job getJob(JobId jobId) {
     return bigquery.getJob(jobId);
+  }
+
+  // The id of a job this client creates, carrying the configured location as ruby puts
+  // `location` into the job_reference of every job it inserts. BigQueryOptions.setLocation()
+  // does not cover this: google-cloud-bigquery 2.14.0 applies the options-level location in
+  // jobs.get, jobs.cancel and getQueryResults only, never in create(JobInfo) (which is also what
+  // query() and the resumable upload insert through).
+  private JobId jobIdWithLocation(String jobId) {
+    JobId.Builder builder = JobId.newBuilder().setJob(jobId);
+    if (location != null) {
+      builder.setLocation(location);
+    }
+    return builder.build();
+  }
+
+  // Where this client's jobs run: `location` if configured, else the destination dataset's,
+  // asked for once (so this can throw). jobs.get on a job id this plugin made up needs it outside
+  // the US and EU multi-regions, or answers 404 for a job that exists; ruby's wait_load likewise
+  // falls back to the job reference's location.
+  private String jobLocation() {
+    if (!jobLocationResolved) {
+      if (location != null) {
+        jobLocation = location;
+      } else {
+        Dataset dataset = getDataset();
+        jobLocation = dataset == null ? null : dataset.getLocation();
+      }
+      jobLocationResolved = true;
+    }
+    return jobLocation;
   }
 
   public Table getTable(String table) {
@@ -405,16 +451,7 @@ public class BigqueryClient {
                           .setIgnoreUnknownValues(task.getIgnoreUnknownValues())
                           .setSchema(buildSchema(schema, columnOptions))
                           .build();
-                  TableDataWriteChannel writer =
-                      bigquery.writer(JobId.of(jobId), writeChannelConfiguration);
-
-                  try (OutputStream stream = Channels.newOutputStream(writer)) {
-                    Files.copy(loadFile, stream);
-                  } catch (IOException e) {
-                    logger.info(e.getMessage());
-                  }
-
-                  Job job = writer.getJob();
+                  Job job = upload(loadFile, table, jobId, writeChannelConfiguration);
                   return (JobStatistics.LoadStatistics) waitForLoad(job);
                 }
 
@@ -458,6 +495,295 @@ public class BigqueryClient {
     }
   }
 
+  // Mirrors ruby's with_network_retry, which sits inside with_job_retry: the job id is fixed for
+  // the whole upload, so a retry re-sends the file under the same id (as a new resumable session)
+  // instead of creating a second job, and retries are immediate. A job that ran and failed is
+  // retried by the caller with a new job id, like ruby's with_job_retry.
+  private Job upload(
+      Path loadFile,
+      String table,
+      String jobId,
+      WriteChannelConfiguration writeChannelConfiguration) {
+    // Set when an attempt ends in a way that could have lost the answer that creates the job, so
+    // that the last attempt failing some other way doesn't hide what an earlier one may have
+    // left behind. Only ever written from this thread, inside runInterruptible().
+    boolean[] anAttemptMayHaveLeftAJob = {false};
+    try {
+      return buildUploadRetryExecutor()
+          .runInterruptible(
+              new Retryable<Job>() {
+                @Override
+                public Job call() {
+                  return uploadOnce(loadFile, table, jobId, writeChannelConfiguration);
+                }
+
+                @Override
+                public boolean isRetryableException(Exception exception) {
+                  return exception instanceof BigqueryUploadException;
+                }
+
+                @Override
+                public void onRetry(
+                    Exception exception, int retryCount, int retryLimit, int retryWait) {
+                  // Reached only for a BigqueryUploadException, which is a lost answer by
+                  // definition (shouldResendUpload()).
+                  anAttemptMayHaveLeftAJob[0] = true;
+                  logger.warn(
+                      "embulk-output-bigquery: retry #{}, {}", retryCount, exception.getMessage());
+                }
+
+                // Reached both when the retries are used up and for a failure that is not
+                // retryable at all; only the former gets the "exhausted" line.
+                @Override
+                public void onGiveup(Exception firstException, Exception lastException)
+                    throws RetryGiveupException {
+                  if (lastException instanceof BigqueryUploadException) {
+                    logger.error(
+                        "embulk-output-bigquery: retry exhausted #{}, {}",
+                        task.getRetries(),
+                        lastException.getMessage());
+                  }
+                  // RetryExecutor would wrap the first failure; the last one is the one to report
+                  // (e.g. a 4xx after a 5xx).
+                  throw new RetryGiveupException(lastException);
+                }
+              });
+    } catch (RetryGiveupException ex) {
+      // Whatever re-sending there was to do is done and no 409 came of it (uploadOnce() returns
+      // the job when one does): ask whether the job is there rather than fail on a guess.
+      if (mayHaveLeftAJob(ex.getCause(), anAttemptMayHaveLeftAJob[0])) {
+        Job existing = jobLeftByAFailedUpload(jobId, loadFile, table);
+        if (existing != null) {
+          return existing;
+        }
+      }
+      if (ex.getCause() instanceof BigqueryException) {
+        throw (BigqueryException) ex.getCause();
+      }
+      throw new RuntimeException(ex);
+    } catch (InterruptedException ex) {
+      throw new BigqueryException("interrupted");
+    }
+  }
+
+  // Whether an upload that failed this way may have left a load job behind. BigQuery makes the
+  // job when the last chunk lands, so any failure that could have lost or missed the answer to
+  // that request counts, whether it was the library that ran out of attempts on it or upload()
+  // (shouldResendUpload()). A 4xx does not: BigQuery answered, and refused. Neither does a
+  // lookup that failed, which asked this very question already.
+  static boolean mayHaveLeftAJob(Throwable uploadFailure, boolean anEarlierAttemptMayHave) {
+    if (uploadFailure instanceof JobLookupException) {
+      return false;
+    }
+    if (anEarlierAttemptMayHave) {
+      return true;
+    }
+    Throwable cause = uploadFailure == null ? null : uploadFailure.getCause();
+    return cause instanceof BigQueryException && isTransientFailure((BigQueryException) cause);
+  }
+
+  // An upload refused as a duplicate whose job could not be looked up.
+  private static class JobLookupException extends BigqueryException {
+    JobLookupException(String message, Throwable cause) {
+      super(message, cause);
+    }
+  }
+
+  private Job uploadOnce(
+      Path loadFile,
+      String table,
+      String jobId,
+      WriteChannelConfiguration writeChannelConfiguration) {
+    TableDataWriteChannel writer;
+    // The channel reports network failures as BigQueryException (a RuntimeException), not
+    // IOException: BigQueryRpc#write translates the IOException and flushBuffer() rethrows it.
+    // IOException here only comes from reading the local file.
+    try {
+      writer = bigquery.writer(jobIdWithLocation(jobId), writeChannelConfiguration);
+      // Deliberately not try-with-resources: closing the channel after a failed upload finalizes
+      // the resumable session with the bytes sent so far, and BigQuery then starts a load job for
+      // that partial file. The session is only closed (and the load job started) when the whole
+      // file has been written.
+      OutputStream stream = Channels.newOutputStream(writer);
+      Files.copy(loadFile, stream);
+      stream.close();
+    } catch (IOException e) {
+      // A file that can't be read won't become readable by retrying; ruby's with_network_retry
+      // only retries socket errors too.
+      throw new BigqueryException(uploadFailureMessage(loadFile, table, e), e);
+    } catch (BigQueryException e) {
+      // A 409 on the request that creates the job means a previous attempt did create it (it is
+      // the final chunk that creates the job) but its response was lost, so the retry under the
+      // same job id is refused. The job id is a fresh UUID per load(), so nothing else can
+      // conflict; and rather than trusting the error text (the library doesn't parse the error
+      // body on this path, so there is no structured reason either), the job is looked up: if
+      // it exists, wait for it instead of failing, or of starting a second one. If it ran and
+      // failed, the caller's job-level retry resubmits under a new id as usual.
+      // ruby (verified): with_network_retry re-sends insert_job under the same job_id, the retry
+      // gets 409 "duplicate: Already Exists: Job", load raises Error, and since the first job did
+      // run its rows are in the table, so the user's rerun appends them a second time. This goes
+      // one step further on purpose.
+      if (e.getCode() == 409) {
+        Job existing = lookUpRefusedJob(jobId, loadFile, table, e);
+        if (existing != null) {
+          return existing;
+        }
+        // jobLocation() was resolved by the lookup above, so this costs no further request.
+        logger.warn(
+            "embulk-output-bigquery: the upload of {} was refused as a duplicate of job_id:[{}], but no such job was found in {}; its rows may already be in {}:{}.{}",
+            loadFile,
+            jobId,
+            jobLocation() == null ? "the default location" : jobLocation(),
+            destinationProject,
+            destinationDataset,
+            table);
+      }
+      throw uploadFailure(loadFile, table, e);
+    }
+    return writer.getJob();
+  }
+
+  // The job a same-id upload retry was refused for (uploadOnce), or null if there is none. A
+  // lookup that fails ends the load: the job's state is unknown, and a new id could load the rows
+  // twice.
+  private Job lookUpRefusedJob(
+      String jobId, Path loadFile, String table, BigQueryException refusal) {
+    try {
+      return lookUpJob(jobId);
+    } catch (RetryGiveupException ex) {
+      BigqueryException failure =
+          new JobLookupException(
+              String.format(
+                  "embulk-output-bigquery: failed to look up job_id:[%s] after the upload of %s to %s:%s.%s was refused as a duplicate of it, message: %s",
+                  jobId,
+                  loadFile,
+                  destinationProject,
+                  destinationDataset,
+                  table,
+                  ex.getCause().getMessage()),
+              ex.getCause());
+      failure.addSuppressed(refusal);
+      throw failure;
+    } catch (InterruptedException ex) {
+      throw new BigqueryException("interrupted");
+    }
+  }
+
+  // The job a failed upload left behind, or null if there is none or it can't be told: the 409
+  // case of uploadOnce() (see the comment there) reached without a 409, since nothing re-sent
+  // the file. One request, checked once before giving up.
+  private Job jobLeftByAFailedUpload(String jobId, Path loadFile, String table) {
+    Job existing;
+    try {
+      existing = lookUpJob(jobId);
+    } catch (InterruptedException ex) {
+      // The run is being cancelled. Say so to whatever blocks next, since the upload failure
+      // this was checking on is about to propagate in its place.
+      Thread.currentThread().interrupt();
+      return null;
+    } catch (RuntimeException | RetryGiveupException ex) {
+      logger.warn(
+          "embulk-output-bigquery: could not tell whether the failed upload of {} left job_id:[{}] behind",
+          loadFile,
+          jobId,
+          ex);
+      return null;
+    }
+    if (existing != null) {
+      logger.warn(
+          "embulk-output-bigquery: the upload of {} failed but had created job_id:[{}]; waiting for it rather than failing, which would load its rows again on a rerun",
+          loadFile,
+          jobId);
+    }
+    return existing;
+  }
+
+  // The job with this id, or null if BigQuery has none. Retried with the job-retry waits.
+  private Job lookUpJob(String jobId) throws RetryGiveupException, InterruptedException {
+    return buildJobRetryExecutor()
+        .runInterruptible(
+            new Retryable<Job>() {
+              @Override
+              public Job call() {
+                // Inside call() so that jobLocation() failing counts as the lookup failing.
+                return bigquery.getJob(
+                    JobId.newBuilder().setJob(jobId).setLocation(jobLocation()).build());
+              }
+
+              @Override
+              public boolean isRetryableException(Exception exception) {
+                return exception instanceof BigQueryException
+                    && isTransientFailure((BigQueryException) exception);
+              }
+
+              @Override
+              public void onRetry(
+                  Exception exception, int retryCount, int retryLimit, int retryWait) {
+                logger.warn(
+                    "embulk-output-bigquery: looking up job_id:[{}] failed. Retrying {}/{} after {} seconds. Message: {}",
+                    jobId,
+                    retryCount,
+                    retryLimit,
+                    retryWait / 1000,
+                    exception.getMessage());
+              }
+
+              @Override
+              public void onGiveup(Exception firstException, Exception lastException)
+                  throws RetryGiveupException {
+                throw new RetryGiveupException(lastException);
+              }
+            });
+  }
+
+  // The exception for an upload attempt that failed with `e`: a BigqueryUploadException, which
+  // upload() re-sends the file for, only when shouldResendUpload() says so.
+  private BigqueryException uploadFailure(Path loadFile, String table, BigQueryException e) {
+    String msg = uploadFailureMessage(loadFile, table, e);
+    return shouldResendUpload(e)
+        ? new BigqueryUploadException(msg, e)
+        : new BigqueryException(msg, e);
+  }
+
+  // Whether upload() should re-send the whole file in a new session. The library retries each
+  // request of an upload `retries` times inside the session, with the backoff from
+  // buildRetrySettings(), but judges only the outer exception: on a TLS connection the JDK
+  // reports a reset or a broken pipe as an SSLException with the socket error as its cause, and
+  // that it won't retry. Those are re-sent here, as ruby's with_network_retry re-sends the same
+  // socket errors (wrapped in SSLError by httpclient); what the library did retry is not, as that
+  // would multiply both the attempts and the bytes by `retries` again. ruby retries less still:
+  // its client library is set to no retries, and the Error a 5xx becomes is not one of the three
+  // classes with_job_retry rescues.
+  // Package-private for the unit test: a TLS-level failure can't be staged on the plain-HTTP
+  // MockWebServer.
+  static boolean shouldResendUpload(BigQueryException e) {
+    return !e.isRetryable() && hasSocketErrorCause(e);
+  }
+
+  // A failure about the network or the service rather than the request, so it may have lost an
+  // answer: used to tell whether a job may be out there (mayHaveLeftAJob) and whether to retry
+  // the jobs.get that would find it. That one retries what the library retried as well: it is a
+  // few hundred bytes, and giving up fails a load whose job may have run.
+  private static boolean isTransientFailure(BigQueryException e) {
+    return e.isRetryable() || hasSocketErrorCause(e);
+  }
+
+  // A socket error anywhere down the cause chain; see shouldResendUpload().
+  private static boolean hasSocketErrorCause(BigQueryException e) {
+    for (Throwable cause = e.getCause(); cause != null; cause = cause.getCause()) {
+      if (cause instanceof SocketException || cause instanceof SocketTimeoutException) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private String uploadFailureMessage(Path loadFile, String table, Exception cause) {
+    return String.format(
+        "embulk-output-bigquery: failed to upload %s to %s:%s.%s, message: %s",
+        loadFile, destinationProject, destinationDataset, table, cause.getMessage());
+  }
+
   public JobStatistics.CopyStatistics copy(
       String sourceTable, String destinationTable, JobInfo.WriteDisposition writeDisposition)
       throws BigqueryException {
@@ -496,7 +822,7 @@ public class BigqueryClient {
                   Job job =
                       bigquery.create(
                           JobInfo.newBuilder(copyJobConfiguration)
-                              .setJobId(JobId.of(jobId))
+                              .setJobId(jobIdWithLocation(jobId))
                               .build());
                   return (JobStatistics.CopyStatistics) waitForCopy(job);
                 }
@@ -618,11 +944,7 @@ public class BigqueryClient {
                   QueryJobConfiguration configuration =
                       QueryJobConfiguration.newBuilder(query).setUseLegacySql(false).build();
                   String job = String.format("embulk_query_job_%s", UUID.randomUUID());
-                  JobId.Builder builder = JobId.newBuilder().setJob(job);
-                  if (location != null) {
-                    builder.setLocation(location);
-                  }
-                  return bigquery.query(configuration, builder.build());
+                  return bigquery.query(configuration, jobIdWithLocation(job));
                 }
 
                 @Override
@@ -738,14 +1060,11 @@ public class BigqueryClient {
 
                   QueryJobConfiguration queryConfig =
                       QueryJobConfiguration.newBuilder(query).setUseLegacySql(false).build();
-                  JobId.Builder jobIdBuilder = JobId.newBuilder().setJob(jobId);
-                  if (location != null) {
-                    jobIdBuilder.setLocation(location);
-                  }
-
                   Job job =
                       bigquery.create(
-                          JobInfo.newBuilder(queryConfig).setJobId(jobIdBuilder.build()).build());
+                          JobInfo.newBuilder(queryConfig)
+                              .setJobId(jobIdWithLocation(jobId))
+                              .build());
                   return (JobStatistics.QueryStatistics) waitForQuery(job);
                 }
 
