@@ -26,6 +26,27 @@ public class TestBigqueryConfigValidator extends BigqueryConfigTestBase {
     BigqueryConfigValidator.validateMode(task);
   }
 
+  @Test(expected = ConfigException.class)
+  public void validateMode_replaceBackup_configException() {
+    // Known to Mode (so setTempTable and the auto_create_table check already follow ruby), but
+    // not implemented yet.
+    BigqueryConfigValidator.validateMode(taskWith(c -> c.set("mode", "replace_backup")));
+  }
+
+  @Test
+  public void validate_lowerCasesMode() {
+    // Ruby does task['mode'].downcase in configure, so `mode: Replace` is accepted.
+    PluginTask task = taskWith(c -> c.set("mode", "Replace"));
+    BigqueryConfigValidator.validate(task);
+    assertEquals("replace", task.getMode());
+  }
+
+  @Test(expected = ConfigException.class)
+  public void validateMode_isCaseSensitiveWithoutValidate() {
+    // The lower-casing happens once in validate(); the individual checks expect canonical input.
+    BigqueryConfigValidator.validateMode(taskWith(c -> c.set("mode", "Replace")));
+  }
+
   @Test
   public void validateModeAndAutoCreteTable() {
     ConfigSource config = loadYamlResource("base.yml");

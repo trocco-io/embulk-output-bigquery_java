@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.util.Arrays;
 import java.util.Optional;
 import java.util.UUID;
 import org.embulk.util.timestamp.TimestampFormatter;
@@ -63,10 +62,7 @@ public class BigqueryTaskBuilder {
   }
 
   protected static void setTempTable(PluginTask task) {
-    // Same list as ruby. replace_backup is not supported yet (validateMode rejects it), but it is
-    // kept here so the temp-table routing stays correct once it is enabled.
-    String[] modeForTempTable = {"replace", "replace_backup", "append", "merge"};
-    if (Arrays.asList(modeForTempTable).contains(task.getMode())) {
+    if (Mode.usesTempTable(task.getMode())) {
       String tempTable =
           task.getTempTable().orElse(String.format("LOAD_TEMP_%s_%s", uniqueName, task.getTable()));
       task.setTempTable(Optional.of(tempTable));

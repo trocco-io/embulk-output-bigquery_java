@@ -222,6 +222,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
         client.createTableIfNotExist(task.getTable());
         break;
       case "replace_backup":
+        // Unreachable until Mode marks replace_backup supported: validateMode() rejects it.
         client.createTableIfNotExist(task.getTemplateTable().get());
         client.createTableIfNotExist(task.getTable());
         // needs for when a partition

@@ -1,6 +1,7 @@
 package org.embulk.output.bigquery_java.config;
 
 import java.util.Arrays;
+import java.util.Locale;
 import org.embulk.config.ConfigException;
 
 public class BigqueryConfigValidator {
@@ -8,6 +9,10 @@ public class BigqueryConfigValidator {
   public static final long MAX_TIMEOUT_SEC = Integer.MAX_VALUE / 1000;
 
   public static void validate(PluginTask task) {
+    // Ruby lower-cases `mode` in configure, so `mode: Replace` is accepted there. Normalize it once
+    // here so every later comparison (the validators, setTempTable, autoCreate) sees the canonical
+    // spelling instead of each lower-casing on its own.
+    task.setMode(task.getMode().toLowerCase(Locale.ROOT));
     validateMode(task);
     validateModeAndAutoCreteTable(task);
     validateClustering(task);
@@ -64,18 +69,15 @@ public class BigqueryConfigValidator {
   }
 
   public static void validateMode(PluginTask task) throws ConfigException {
-    // TODO: replace_backup
-    String[] modes = {"replace", "append", "merge", "delete_in_advance", "append_direct"};
-    if (!Arrays.asList(modes).contains(task.getMode().toLowerCase())) {
+    // An unknown mode and a known-but-unimplemented one (replace_backup) are rejected alike.
+    if (!Mode.isSupported(task.getMode())) {
       throw new ConfigException(
-          "replace, append, merge, delete_in_advance and append_direct are supported. Stay tuned!");
+          String.join(", ", Mode.supportedConfigNames()) + " are supported. Stay tuned!");
     }
   }
 
   public static void validateModeAndAutoCreteTable(PluginTask task) throws ConfigException {
-    // Same list as ruby; replace_backup is kept although validateMode still rejects it.
-    String[] modes = {"replace", "append", "merge", "delete_in_advance", "replace_backup"};
-    if (Arrays.asList(modes).contains(task.getMode().toLowerCase()) && !task.getAutoCreateTable()) {
+    if (Mode.requiresAutoCreateTable(task.getMode()) && !task.getAutoCreateTable()) {
       throw new ConfigException(
           String.format("`mode: %s` requires `auto_create_table: true`", task.getMode()));
     }
