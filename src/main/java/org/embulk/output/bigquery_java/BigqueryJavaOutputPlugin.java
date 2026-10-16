@@ -147,7 +147,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       // but it stays on disk until someone removes it. This goes one step further on purpose.
       // Nested so that each of the three steps runs even if the one before it throws.
       try {
-        this.writers.values().forEach(this::closeQuietly);
+        closeWriters();
       } finally {
         try {
           if (task.getTempTable().isPresent()) {
@@ -158,7 +158,18 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
           if (failure == null) {
             throw e;
           }
-          failure.addSuppressed(e);
+          // Logged as well: whether a suppressed exception is ever shown is up to the runner,
+          // and a temp table left behind is billed until someone drops it.
+          logger.warn(
+              "embulk-output-bigquery: failed to delete the temp table {} while cleaning up after"
+                  + " a failed run",
+              task.getTempTable().orElse(null),
+              e);
+          // addSuppressed refuses an exception as its own suppressor, and the JVM hands out
+          // shared instances for some implicitly thrown ones.
+          if (e != failure) {
+            failure.addSuppressed(e);
+          }
         } finally {
           // Still null when control.run() threw before paths was set above: pick up the files
           // the writers had opened by then, so they get the same delete-or-keep treatment.
@@ -183,13 +194,27 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     return CONFIG_MAPPER_FACTORY.newConfigDiff();
   }
 
-  // The cleanup's close of one writer: one that throws must not leave the writers after it open.
-  // The data phase's own close, before this one, does let a failure end the run.
-  private void closeQuietly(BigqueryFileWriter writer) {
-    try {
-      writer.close();
-    } catch (RuntimeException e) {
-      logger.warn("embulk-output-bigquery: failed to close {}", writer.getPath(), e);
+  // The cleanup's close of the writers: one that throws must not leave the writers after it
+  // open, since their files are deleted right after. The data phase's own close, before this
+  // one, does let a failure end the run, so a failure here is logged rather than raised. An
+  // Error is not something to carry on through, but it waits until every writer has been
+  // closed.
+  private void closeWriters() {
+    Error firstError = null;
+    for (BigqueryFileWriter writer : this.writers.values()) {
+      try {
+        writer.close();
+      } catch (RuntimeException e) {
+        logger.warn("embulk-output-bigquery: failed to close {}", writer.getPath(), e);
+      } catch (Error e) {
+        logger.warn("embulk-output-bigquery: failed to close {}", writer.getPath(), e);
+        if (firstError == null) {
+          firstError = e;
+        }
+      }
+    }
+    if (firstError != null) {
+      throw firstError;
     }
   }
 

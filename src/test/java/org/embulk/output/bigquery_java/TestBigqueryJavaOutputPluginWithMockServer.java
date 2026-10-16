@@ -30,14 +30,17 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForCopyJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForQueryJobResponse;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.embulk.config.ConfigSource;
@@ -332,14 +335,66 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     assertEquals(3, closed.get());
   }
 
+  // An Error from one writer must not stop the cleanup from closing the others either: their
+  // files are deleted right after, so leaving them open loses whatever is still buffered. The
+  // Error is not swallowed, though; it ends the run once every writer has been closed.
+  @Test
+  public void testRunClosesEveryWriterWhenOneThrowsAnError() throws Exception {
+    AtomicInteger closed = new AtomicInteger();
+    BigqueryFileWriter first = brokenWriter(() -> new StackOverflowError("boom: an error"), closed);
+    first.open(testFolder.newFile("broken-error-first.jsonl").getPath());
+    BigqueryFileWriter second = brokenWriter(() -> new RuntimeException("boom: second"), closed);
+    second.open(testFolder.newFile("broken-error-second.jsonl").getPath());
+    BigqueryUtil.getFileWriters().put(-1L, first);
+    BigqueryUtil.getFileWriters().put(-2L, second);
+
+    // An Error is not an Exception, so this one can't go through
+    // runWithMockServerExpectingFailure().
+    try (RequestCursor requests =
+        BigqueryMockWebServerTestUtil.runWithMockServer(
+            server -> {
+              ConfigSource outConfig = loadTestHostConfig(embulk, c -> c.set("mode", "replace"));
+              outConfig.set("test_host", BigqueryMockWebServerTestUtil.testHostOf(server));
+              File in = new File(testFolder.newFolder(), "in.csv");
+              Files.write(in.toPath(), SINGLE_INPUT_LINES);
+              Throwable thrown =
+                  assertThrows(Throwable.class, () -> embulk.runOutput(outConfig, in.toPath()));
+              assertMatches(thrown.getMessage(), "(?s).*boom: (an error|second).*");
+            },
+            datasetResponse(),
+            tableResponse(),
+            deleteResponse())) {
+      assertGetDataset(requests.next());
+
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      assertDeleteTable(
+          requests.next(), tableIdOf(requestBodyJson(createTempTable), "tableReference"));
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+      BigqueryUtil.getFileWriters().remove(-2L);
+    }
+
+    assertEquals(3, closed.get());
+  }
+
   private BigqueryFileWriter countingBrokenWriter(String closeFailure, AtomicInteger closed) {
+    return brokenWriter(() -> new RuntimeException(closeFailure), closed);
+  }
+
+  // A writer that counts its close() calls and then throws what `closeFailure` supplies.
+  private BigqueryFileWriter brokenWriter(Supplier<Throwable> closeFailure, AtomicInteger closed) {
     BigqueryFileWriter writer =
         new BigqueryFileWriter() {
           @Override
           public void close() {
             super.close();
             closed.incrementAndGet();
-            throw new RuntimeException(closeFailure);
+            Throwable failure = closeFailure.get();
+            if (failure instanceof Error) {
+              throw (Error) failure;
+            }
+            throw (RuntimeException) failure;
           }
         };
     writer.setCompression("NONE");
