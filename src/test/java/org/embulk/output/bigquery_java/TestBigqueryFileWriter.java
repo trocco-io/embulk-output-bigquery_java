@@ -119,6 +119,24 @@ public class TestBigqueryFileWriter {
     assertFalse("the file was left open", file.getFD().valid());
   }
 
+  // open() creates the file before the wrappers over it, and with compression: GZIP the
+  // GZIPOutputStream constructor writes the gzip header and can fail, leaving the file open with
+  // no stream over it. close() releases it even then.
+  @Test
+  public void testCloseReleasesTheFileWhenOpenFailedAfterCreatingIt()
+      throws IOException, ReflectiveOperationException {
+    BigqueryFileWriter writer = new BigqueryFileWriter();
+    writer.setCompression("GZIP");
+    writer.open(testFolder.newFile().getPath());
+    FileOutputStream file = (FileOutputStream) getField(writer, "file");
+    // open() as it is left when the header write throws: the file is there, os is not.
+    setField(writer, "os", null);
+
+    writer.close();
+
+    assertFalse("the file was left open", file.getFD().valid());
+  }
+
   // A failed flush() must not leak the file: close() has to be called on the stream regardless.
   @Test
   public void testCloseClosesStreamEvenIfFlushFails()
