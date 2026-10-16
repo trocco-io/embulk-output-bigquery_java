@@ -145,79 +145,52 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       // ruby (verified): its ensure only sees the paths of a run that got past the data phase,
       // so such a half-written file is left behind, open. It is never loaded again (see above),
       // but it stays on disk until someone removes it. This goes one step further on purpose.
-      List<Throwable> cleanupFailures = new ArrayList<>();
-      // Every step runs even if the one before it threw.
-      cleanUpStep(cleanupFailures, () -> this.writers.values().forEach(this::closeQuietly));
-      cleanUpStep(
-          cleanupFailures,
-          () -> {
-            if (task.getTempTable().isPresent()) {
-              client.deleteTable(task.getTempTable().get());
-            }
-          });
-      cleanUpStep(
-          cleanupFailures,
-          () -> {
-            // Still null when control.run() threw before paths was set above: pick up the files
-            // the writers had opened by then, so they get the same delete-or-keep treatment.
-            if (paths == null) {
-              paths = BigqueryUtil.getIntermediateFiles(this.writers.values());
-            }
-            if (task.getDeleteFromLocalWhenJobEnd()) {
-              paths.forEach(p -> p.toFile().delete());
-            } else {
-              paths.forEach(
-                  p -> {
-                    File intermediateFile = new File(p.toString());
-                    if (intermediateFile.exists()) {
-                      logger.info("embulk-output-bigquery: keep {}", p.toString());
-                    }
-                  });
-            }
-          });
-      reportCleanupFailures(cleanupFailures, failure);
+      // Nested so that each of the three steps runs even if the one before it throws.
+      try {
+        this.writers.values().forEach(this::closeQuietly);
+      } finally {
+        try {
+          if (task.getTempTable().isPresent()) {
+            client.deleteTable(task.getTempTable().get());
+          }
+        } catch (RuntimeException | Error e) {
+          // The one cleanup step that can fail for real (a BigQuery call). With the run already
+          // failing, keep that failure as the one that propagates.
+          if (failure == null) {
+            throw e;
+          }
+          failure.addSuppressed(e);
+        } finally {
+          // Still null when control.run() threw before paths was set above: pick up the files
+          // the writers had opened by then, so they get the same delete-or-keep treatment.
+          if (paths == null) {
+            paths = BigqueryUtil.getIntermediateFiles(this.writers.values());
+          }
+          if (task.getDeleteFromLocalWhenJobEnd()) {
+            paths.forEach(p -> p.toFile().delete());
+          } else {
+            paths.forEach(
+                p -> {
+                  File intermediateFile = new File(p.toString());
+                  if (intermediateFile.exists()) {
+                    logger.info("embulk-output-bigquery: keep {}", p.toString());
+                  }
+                });
+          }
+        }
+      }
     }
 
     return CONFIG_MAPPER_FACTORY.newConfigDiff();
   }
 
-  private void cleanUpStep(List<Throwable> cleanupFailures, Runnable step) {
-    try {
-      step.run();
-    } catch (RuntimeException | Error e) {
-      cleanupFailures.add(e);
-    }
-  }
-
-  // What the cleanup ran into: attached to `failure` when the run is already failing for another
-  // reason, so that reason is still what propagates; otherwise the first of them fails the run,
-  // as a cleanup that doesn't finish used to.
-  private void reportCleanupFailures(List<Throwable> cleanupFailures, Throwable failure) {
-    if (cleanupFailures.isEmpty()) {
-      return;
-    }
-    if (failure != null) {
-      cleanupFailures.forEach(failure::addSuppressed);
-      return;
-    }
-    Throwable first = cleanupFailures.get(0);
-    cleanupFailures.stream().skip(1).forEach(first::addSuppressed);
-    // cleanUpStep() collects nothing else.
-    if (first instanceof Error) {
-      throw (Error) first;
-    }
-    throw (RuntimeException) first;
-  }
-
-  // Closes one writer during the cleanup, where one that throws must not leave the writers after
-  // it open, their buffers unflushed and their files undeleted, nor replace the failure that is
-  // bringing the run down. The data phase closes the writers first and does let a failure there
-  // end the run; this is the second, last-resort close.
+  // The cleanup's close of one writer: one that throws must not leave the writers after it open,
+  // nor replace the failure that is bringing the run down. The data phase's own close, before
+  // this one, does let a failure end the run.
   private void closeQuietly(BigqueryFileWriter writer) {
     try {
       writer.close();
     } catch (RuntimeException e) {
-      // An Error is left to cleanUpStep(), which reports it like any other cleanup failure.
       logger.warn("embulk-output-bigquery: failed to close {}", writer.getPath(), e);
     }
   }
