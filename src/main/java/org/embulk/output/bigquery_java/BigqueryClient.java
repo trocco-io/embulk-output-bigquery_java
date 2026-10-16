@@ -542,8 +542,9 @@ public class BigqueryClient {
                 }
               });
     } catch (RetryGiveupException ex) {
-      // No resend, so no 409 to say the job exists (see shouldResendUpload()): ask instead.
-      if (theLibraryGaveUp(ex.getCause())) {
+      // Whatever re-sending there was to do is done and no 409 came of it (uploadOnce() returns
+      // the job when one does): ask whether the job is there rather than fail on a guess.
+      if (mayHaveLeftAJob(ex.getCause())) {
         Job existing = jobLeftByAFailedUpload(jobId, loadFile, table);
         if (existing != null) {
           return existing;
@@ -558,10 +559,24 @@ public class BigqueryClient {
     }
   }
 
-  // Whether the library retried this failure itself, and so used up its attempts on it.
-  private static boolean theLibraryGaveUp(Throwable uploadFailure) {
+  // Whether an upload that failed this way may have left a load job behind. BigQuery makes the
+  // job when the last chunk lands, so any failure that could have lost or missed the answer to
+  // that request counts, whether it was the library that ran out of attempts on it or upload()
+  // (shouldResendUpload()). A 4xx does not: BigQuery answered, and refused. Neither does a
+  // lookup that failed, which asked this very question already.
+  private static boolean mayHaveLeftAJob(Throwable uploadFailure) {
+    if (uploadFailure instanceof JobLookupException) {
+      return false;
+    }
     Throwable cause = uploadFailure == null ? null : uploadFailure.getCause();
-    return cause instanceof BigQueryException && ((BigQueryException) cause).isRetryable();
+    return cause instanceof BigQueryException && isTransientFailure((BigQueryException) cause);
+  }
+
+  // An upload refused as a duplicate whose job could not be looked up.
+  private static class JobLookupException extends BigqueryException {
+    JobLookupException(String message, Throwable cause) {
+      super(message, cause);
+    }
   }
 
   private Job uploadOnce(
@@ -627,7 +642,7 @@ public class BigqueryClient {
       return lookUpJob(jobId);
     } catch (RetryGiveupException ex) {
       BigqueryException failure =
-          new BigqueryException(
+          new JobLookupException(
               String.format(
                   "embulk-output-bigquery: failed to look up job_id:[%s] after the upload of %s to %s:%s.%s was refused as a duplicate of it, message: %s",
                   jobId,
@@ -651,12 +666,17 @@ public class BigqueryClient {
     Job existing;
     try {
       existing = lookUpJob(jobId);
-    } catch (Exception ex) {
+    } catch (InterruptedException ex) {
+      // The run is being cancelled. Say so to whatever blocks next, since the upload failure
+      // this was checking on is about to propagate in its place.
+      Thread.currentThread().interrupt();
+      return null;
+    } catch (RuntimeException | RetryGiveupException ex) {
       logger.warn(
-          "embulk-output-bigquery: could not tell whether the failed upload of {} left job_id:[{}] behind: {}",
+          "embulk-output-bigquery: could not tell whether the failed upload of {} left job_id:[{}] behind",
           loadFile,
           jobId,
-          ex.getMessage());
+          ex);
       return null;
     }
     if (existing != null) {
@@ -683,7 +703,7 @@ public class BigqueryClient {
               @Override
               public boolean isRetryableException(Exception exception) {
                 return exception instanceof BigQueryException
-                    && shouldRetryJobLookup((BigQueryException) exception);
+                    && isTransientFailure((BigQueryException) exception);
               }
 
               @Override
@@ -730,9 +750,11 @@ public class BigqueryClient {
     return !e.isRetryable() && hasSocketErrorCause(e);
   }
 
-  // For the jobs.get after a 409 (lookUpRefusedJob): a few hundred bytes, and giving up fails a
-  // load whose job may have run, so this one retries what the library retried as well.
-  private static boolean shouldRetryJobLookup(BigQueryException e) {
+  // A failure about the network or the service rather than the request, so it may have lost an
+  // answer: used to tell whether a job may be out there (mayHaveLeftAJob) and whether to retry
+  // the jobs.get that would find it. That one retries what the library retried as well: it is a
+  // few hundred bytes, and giving up fails a load whose job may have run.
+  private static boolean isTransientFailure(BigQueryException e) {
     return e.isRetryable() || hasSocketErrorCause(e);
   }
 

@@ -854,6 +854,37 @@ public class TestBigqueryClientWithMockServer {
     }
   }
 
+  // A lookup that gave up has asked whether the job is there already, so the upload must not ask
+  // again on its way out: that would spend the whole lookup budget a second time and end in a
+  // warning that contradicts the duplicate-refusal error it is about to report.
+  @Test
+  public void testLoadAsksOnceWhenTheDuplicateJobLookupKeepsFailing() throws Exception {
+    Path loadFile = newLoadFile("load-409-lookup-retry-giveup-test.json");
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to look up job_id:\\[embulk_load_job_.*\\].*was refused as a duplicate.*",
+            server ->
+                buildTestHostClient(server, c -> c.set("location", "asia-northeast1"))
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            errorResponse(409, "boom", "duplicate"),
+            // The lookup: two attempts (retries: 1), each of which the library tries twice.
+            errorResponse(503, "boom-lookup", "backendError"),
+            errorResponse(503, "boom-lookup", "backendError"),
+            errorResponse(503, "boom-lookup", "backendError"),
+            errorResponse(503, "boom-lookup", "backendError"))) {
+      RecordedRequest open = requests.next();
+      assertStartResumableUpload(open);
+      assertUploadLoadFile(requests.next());
+      for (int i = 0; i < 4; i++) {
+        assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
+      }
+      // No second round of lookups: the cursor's close() would report it.
+    }
+  }
+
   // A lookup failure that isn't retryable ends the load right away (the job's state is unknown,
   // and a new job id could load the rows twice), with a message that says what happened rather
   // than the raw library error.
