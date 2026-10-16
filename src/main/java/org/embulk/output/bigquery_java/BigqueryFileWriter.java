@@ -18,6 +18,8 @@ public class BigqueryFileWriter {
   private PluginTask task;
   private String compression;
   private OutputStream os;
+  // The file under os, kept so close() can release it even when closing os fails; see close().
+  private FileOutputStream file;
   private String path;
   private long count = 0;
 
@@ -40,11 +42,12 @@ public class BigqueryFileWriter {
     logger.info("embulk-output-bigquery: create {}", path);
 
     this.path = path;
-    this.os = new FileOutputStream(path);
+    this.file = new FileOutputStream(path);
+    OutputStream stream = this.file;
     if (this.compression.equals("GZIP")) {
-      this.os = new GZIPOutputStream(this.os);
+      stream = new GZIPOutputStream(stream);
     }
-    this.os = new BufferedOutputStream(this.os, BUFFER_SIZE);
+    this.os = new BufferedOutputStream(stream, BUFFER_SIZE);
 
     return this.os;
   }
@@ -91,8 +94,7 @@ public class BigqueryFileWriter {
     if (this.os == null) {
       return;
     }
-    // close() flushes, and (FilterOutputStream / DeflaterOutputStream) still closes the
-    // underlying file when that flush fails, so no separate flush() and no finally needed.
+    // close() flushes, so no separate flush().
     try {
       this.os.close();
     } catch (IOException e) {
@@ -100,6 +102,19 @@ public class BigqueryFileWriter {
       // a file truncated here is not always caught later: the row-count check is skipped when
       // abort_on_error is false (max_bad_records > 0) or is_skip_job_result_check is true.
       logger.warn("embulk-output-bigquery: failed to close {}", this.path, e);
+    } finally {
+      // FilterOutputStream#close() closes what it wraps even when the flush before it fails, but
+      // DeflaterOutputStream#close() (compression: GZIP) runs finish(), end() and out.close() in
+      // a row with no finally, so a failure writing the gzip trailer would leave the file open.
+      // Closing it here is a no-op in every other case. The Deflater's native memory is not
+      // reachable from here and is left to its finalizer.
+      if (this.file != null) {
+        try {
+          this.file.close();
+        } catch (IOException e) {
+          logger.warn("embulk-output-bigquery: failed to close the file under {}", this.path, e);
+        }
+      }
     }
   }
 }
