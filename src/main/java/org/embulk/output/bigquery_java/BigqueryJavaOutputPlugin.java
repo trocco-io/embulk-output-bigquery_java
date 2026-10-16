@@ -154,8 +154,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
             client.deleteTable(task.getTempTable().get());
           }
         } catch (RuntimeException | Error e) {
-          // The one cleanup step that can fail for real (a BigQuery call). With the run already
-          // failing, keep that failure as the one that propagates.
+          // The one cleanup step that can fail for real (a BigQuery call); see `failure` above.
           if (failure == null) {
             throw e;
           }
@@ -184,9 +183,8 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     return CONFIG_MAPPER_FACTORY.newConfigDiff();
   }
 
-  // The cleanup's close of one writer: one that throws must not leave the writers after it open,
-  // nor replace the failure that is bringing the run down. The data phase's own close, before
-  // this one, does let a failure end the run.
+  // The cleanup's close of one writer: one that throws must not leave the writers after it open.
+  // The data phase's own close, before this one, does let a failure end the run.
   private void closeQuietly(BigqueryFileWriter writer) {
     try {
       writer.close();

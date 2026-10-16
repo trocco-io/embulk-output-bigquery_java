@@ -203,8 +203,7 @@ public class BigqueryClient {
         .build();
   }
 
-  // For re-sending a whole upload (upload()) in a new session, see shouldResendUpload(). No wait
-  // between attempts, as ruby's with_network_retry retries at once as well.
+  // For upload(), whose retries are immediate like ruby's; see there and shouldResendUpload().
   private RetryExecutor buildUploadRetryExecutor() {
     return RetryExecutor.builder()
         .withRetryLimit(task.getRetries())
@@ -645,10 +644,9 @@ public class BigqueryClient {
     }
   }
 
-  // The job a failed upload left behind, or null if there is none or it can't be told. The job
-  // is made when the last chunk lands, so an attempt whose response was lost can have created it,
-  // and failing the load would have the user rerun it. One request, checked once before giving
-  // up; ruby has no such safety net.
+  // The job a failed upload left behind, or null if there is none or it can't be told: the 409
+  // case of uploadOnce() (see the comment there) reached without a 409, since nothing re-sent
+  // the file. One request, checked once before giving up.
   private Job jobLeftByAFailedUpload(String jobId, Path loadFile, String table) {
     Job existing;
     try {
@@ -677,8 +675,7 @@ public class BigqueryClient {
             new Retryable<Job>() {
               @Override
               public Job call() {
-                // jobLocation() may call the API; inside call() its failure is retried and
-                // reported like the lookup's own.
+                // Inside call() so that jobLocation() failing counts as the lookup failing.
                 return bigquery.getJob(
                     JobId.newBuilder().setJob(jobId).setLocation(jobLocation()).build());
               }
