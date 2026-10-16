@@ -368,16 +368,7 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
   }
 
   private BigqueryFileWriter brokenWriter(String closeFailure) {
-    BigqueryFileWriter writer =
-        new BigqueryFileWriter() {
-          @Override
-          public void close() {
-            super.close();
-            throw new RuntimeException(closeFailure);
-          }
-        };
-    writer.setCompression("NONE");
-    return writer;
+    return countingBrokenWriter(closeFailure, new AtomicInteger());
   }
 
   @Test

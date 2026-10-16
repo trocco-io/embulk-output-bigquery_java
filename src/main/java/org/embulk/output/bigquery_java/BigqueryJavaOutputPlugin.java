@@ -216,7 +216,8 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
   private void closeQuietly(BigqueryFileWriter writer) {
     try {
       writer.close();
-    } catch (RuntimeException | Error e) {
+    } catch (RuntimeException e) {
+      // An Error is left to cleanUpStep(), which reports it like any other cleanup failure.
       logger.warn("embulk-output-bigquery: failed to close {}", writer.getPath(), e);
     }
   }
