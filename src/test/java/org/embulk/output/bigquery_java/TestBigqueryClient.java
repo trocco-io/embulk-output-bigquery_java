@@ -6,6 +6,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.google.api.gax.retrying.RetrySettings;
+import com.google.cloud.TransportOptions;
+import com.google.cloud.bigquery.BigQueryException;
 import com.google.cloud.bigquery.Field;
 import com.google.cloud.bigquery.FieldList;
 import com.google.cloud.bigquery.PolicyTags;
@@ -13,16 +16,22 @@ import com.google.cloud.bigquery.Schema;
 import com.google.cloud.bigquery.StandardSQLTypeName;
 import com.google.cloud.bigquery.Table;
 import com.google.cloud.bigquery.TableDefinition;
+import com.google.cloud.http.HttpTransportOptions;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLException;
 import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
+import org.embulk.output.bigquery_java.exception.BigqueryUploadException;
 import org.embulk.parser.csv.CsvParserPlugin;
 import org.embulk.spi.FileInputPlugin;
 import org.embulk.spi.OutputPlugin;
@@ -34,6 +43,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.mockito.Mockito;
+import org.threeten.bp.Duration;
 
 public class TestBigqueryClient {
   protected static final ConfigMapperFactory CONFIG_MAPPER_FACTORY =
@@ -172,6 +182,11 @@ public class TestBigqueryClient {
 
   @Test
   public void testRetainDescriptionTrueButNotModeReplace() {
+    // Ruby applies `column_options[].description` (here, c0's "d0" from takeover.yml) on every
+    // run regardless of mode. Java only reflects it when isNeedUpdateTable() is true (mode:
+    // replace with a retain flag on), so for any other mode buildPatchSchema() returns null and
+    // the configured description is never applied, even though it's set here.
+    // TODO: apply `column_options[].description` regardless of mode, like ruby does.
     Schema schema = invokeRetainDescriptionBuildSchema("insert", true, "prev_c0", "prev_c1");
     assertNull(schema);
   }
@@ -294,5 +309,192 @@ public class TestBigqueryClient {
     taskField.set(client, replaceTask);
 
     assertNull(client.storeCachedSrcFieldsIfNeed());
+  }
+
+  @Test
+  public void testBuildRetrySettingsReflectsConfiguredRetries() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task = CONFIG_MAPPER.map(config.set("retries", 1), PluginTask.class);
+
+    RetrySettings retrySettings = BigqueryClient.buildRetrySettings(task);
+
+    // +1: task.getRetries() means "number of retries", so 1 retry means 2 total attempts.
+    assertEquals(2, retrySettings.getMaxAttempts());
+  }
+
+  @Test
+  public void testBuildRetrySettingsDefaultsLiftTotalTimeoutSoMaxAttemptsIsTheLimit() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task = CONFIG_MAPPER.map(config.set("retries", 10), PluginTask.class);
+
+    RetrySettings retrySettings = BigqueryClient.buildRetrySettings(task);
+
+    assertEquals(11, retrySettings.getMaxAttempts());
+    assertEquals(Duration.ofMillis(1000), retrySettings.getInitialRetryDelay());
+    assertEquals(Duration.ofMillis(32000), retrySettings.getMaxRetryDelay());
+    assertEquals(2.0, retrySettings.getRetryDelayMultiplier(), 0.0);
+    assertFalse(retrySettings.isJittered());
+    // gax's default would be 50s, under which 11 attempts with the default backoff can't fit.
+    assertEquals(Duration.ofDays(1), retrySettings.getTotalTimeout());
+  }
+
+  @Test
+  public void testBuildRetrySettingsReflectsConfiguredBackoff() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config
+                .set("retry_initial_delay_sec", 5)
+                .set("retry_max_delay_sec", 50)
+                .set("retry_delay_multiplier", 1.5)
+                .set("retry_total_timeout_sec", 500),
+            PluginTask.class);
+
+    RetrySettings retrySettings = BigqueryClient.buildRetrySettings(task);
+
+    assertEquals(Duration.ofSeconds(5), retrySettings.getInitialRetryDelay());
+    assertEquals(Duration.ofSeconds(50), retrySettings.getMaxRetryDelay());
+    assertEquals(1.5, retrySettings.getRetryDelayMultiplier(), 0.0);
+    assertEquals(Duration.ofSeconds(500), retrySettings.getTotalTimeout());
+  }
+
+  @Test
+  public void testBuildTransportOptionsReflectsConfiguredTimeouts() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config
+                .set("open_timeout_sec", 12)
+                .set("read_timeout_sec", 34)
+                .set("send_timeout_sec", 56),
+            PluginTask.class);
+
+    TransportOptions transportOptions = BigqueryClient.buildTransportOptions(task);
+
+    assertTrue(transportOptions instanceof HttpTransportOptions);
+    HttpTransportOptions httpTransportOptions = (HttpTransportOptions) transportOptions;
+    assertEquals(12 * 1000, httpTransportOptions.getConnectTimeout());
+    // See README.md for why send_timeout_sec folds into read_timeout_sec here.
+    assertEquals((34 + 56) * 1000, httpTransportOptions.getReadTimeout());
+  }
+
+  private static int readTimeoutMillis(PluginTask task) {
+    return ((HttpTransportOptions) BigqueryClient.buildTransportOptions(task)).getReadTimeout();
+  }
+
+  @Test
+  public void testBuildTransportOptionsFallsBackToDeprecatedTimeoutSec() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config.set("timeout_sec", 34).set("send_timeout_sec", 56), PluginTask.class);
+
+    assertEquals((34 + 56) * 1000, readTimeoutMillis(task));
+  }
+
+  @Test
+  public void testBuildTransportOptionsPrefersReadTimeoutSecOverTimeoutSec() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config.set("read_timeout_sec", 34).set("timeout_sec", 99).set("send_timeout_sec", 56),
+            PluginTask.class);
+
+    assertEquals((34 + 56) * 1000, readTimeoutMillis(task));
+  }
+
+  @Test
+  public void testBuildTransportOptionsDefaultsReadTimeoutWhenNeitherIsSet() {
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task = CONFIG_MAPPER.map(config.set("send_timeout_sec", 56), PluginTask.class);
+
+    // 300 = BigqueryConfigResolver.DEFAULT_READ_TIMEOUT_SEC
+    assertEquals((300 + 56) * 1000, readTimeoutMillis(task));
+  }
+
+  @Test
+  public void testBuildTransportOptionsAcceptsMaxTimeout() {
+    // 2147483 = BigqueryConfigValidator.MAX_TIMEOUT_SEC (Integer.MAX_VALUE / 1000), so
+    // 2147483000 ms is the largest int timeout HttpTransportOptions accepts.
+    ConfigSource config = loadYamlResource(embulk, "takeover.yml");
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            config
+                .set("open_timeout_sec", 2147483)
+                .set("read_timeout_sec", 2147483)
+                .set("send_timeout_sec", 0),
+            PluginTask.class);
+
+    HttpTransportOptions options =
+        (HttpTransportOptions) BigqueryClient.buildTransportOptions(task);
+    assertEquals(2147483000, options.getConnectTimeout());
+    assertEquals(2147483000, options.getReadTimeout());
+  }
+
+  // A socket error under the TLS layer reaches the client as an SSLException with the socket
+  // error as its cause; the library judges only the outer type and says not retryable, so upload()
+  // re-sends the file like ruby's with_network_retry. (MockWebServer speaks plain HTTP, so this
+  // can't be staged there.)
+  @Test
+  public void testUploadResendsOnSocketErrorUnderTls() {
+    BigQueryException reset =
+        new BigQueryException(
+            new SSLException("Connection reset", new SocketException("Connection reset")));
+    assertFalse(reset.isRetryable());
+    assertTrue(BigqueryClient.shouldResendUpload(reset));
+
+    BigQueryException timeout =
+        new BigQueryException(
+            new SSLException("Read timed out", new SocketTimeoutException("Read timed out")));
+    assertTrue(BigqueryClient.shouldResendUpload(timeout));
+  }
+
+  // A TLS failure with no socket error behind it (a handshake problem, say) is not re-sent.
+  @Test
+  public void testUploadDoesNotResendOnOtherTlsFailures() {
+    BigQueryException handshake =
+        new BigQueryException(new SSLException("Received fatal alert: handshake_failure"));
+    assertFalse(BigqueryClient.shouldResendUpload(handshake));
+  }
+
+  // A failure the library retries itself is not re-sent on top of that: it already made
+  // `retries` attempts within the upload session, and a new session would multiply them.
+  @Test
+  public void testUploadDoesNotResendWhatTheLibraryAlreadyRetried() {
+    BigQueryException backendError = new BigQueryException(503, "boom");
+    assertTrue(backendError.isRetryable());
+    assertFalse(BigqueryClient.shouldResendUpload(backendError));
+
+    BigQueryException reset = new BigQueryException(new SocketException("Connection reset"));
+    assertTrue(reset.isRetryable());
+    assertFalse(BigqueryClient.shouldResendUpload(reset));
+
+    // A read timeout on a chunk PUT arrives as this, not wrapped in an SSLException.
+    BigQueryException timeout = new BigQueryException(new SocketTimeoutException("Read timed out"));
+    assertTrue(timeout.isRetryable());
+    assertFalse(BigqueryClient.shouldResendUpload(timeout));
+  }
+
+  // Which upload failures are worth asking BigQuery whether the job is there after all. The
+  // upload itself can't be staged on the plain-HTTP MockWebServer for the socket-error cases.
+  @Test
+  public void testJobLookupAfterAnUploadThatMayHaveCreatedIt() {
+    // A 4xx: BigQuery answered and refused, so there is nothing to look for.
+    assertFalse(
+        BigqueryClient.mayHaveLeftAJob(
+            new BigqueryException("failed", new BigQueryException(400, "Invalid")), false));
+    // A 5xx the library ran out of attempts on: the job may be there.
+    assertTrue(
+        BigqueryClient.mayHaveLeftAJob(
+            new BigqueryException("failed", new BigQueryException(503, "boom")), false));
+    // A socket error under TLS, which upload() re-sends for rather than the library.
+    BigQueryException reset =
+        new BigQueryException(
+            new SSLException("Connection reset", new SocketException("Connection reset")));
+    assertTrue(BigqueryClient.mayHaveLeftAJob(new BigqueryUploadException("failed", reset), false));
+    // The last attempt failed for good, but an earlier one had already lost its answer.
+    assertTrue(
+        BigqueryClient.mayHaveLeftAJob(
+            new BigqueryException("failed", new BigQueryException(403, "accessDenied")), true));
   }
 }

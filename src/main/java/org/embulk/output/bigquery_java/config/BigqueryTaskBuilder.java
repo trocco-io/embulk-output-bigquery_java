@@ -2,19 +2,37 @@ package org.embulk.output.bigquery_java.config;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Arrays;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
+import org.embulk.util.timestamp.TimestampFormatter;
 
 public class BigqueryTaskBuilder {
   private static final String uniqueName = UUID.randomUUID().toString().replace("-", "_");
 
   public static PluginTask build(PluginTask task) {
+    // Sample the clock once so table and old_table share the same timestamp, as in ruby.
+    Instant now = Instant.now();
+    ZoneId zone = ZoneId.systemDefault();
+    task.setTable(expandStrftime(task.getTable(), zone, now));
+    // old_table is only consumed by replace_backup, which isn't supported yet, but expand it here
+    // too to match ruby, so it's ready once replace_backup is added.
+    if (task.getOldTable().isPresent()) {
+      task.setOldTable(Optional.of(expandStrftime(task.getOldTable().get(), zone, now)));
+    }
     setPathPrefix(task);
     setFileExt(task);
     setTempTable(task);
     setAbortOnError(task);
     return task;
+  }
+
+  public static String expandStrftime(String pattern, ZoneId zoneId, Instant instant) {
+    return TimestampFormatter.builder(pattern, true)
+        .setDefaultZoneId(zoneId)
+        .build()
+        .format(instant);
   }
 
   protected static void setPathPrefix(PluginTask task) {
@@ -44,12 +62,15 @@ public class BigqueryTaskBuilder {
   }
 
   protected static void setTempTable(PluginTask task) {
-    // TODO: support replace_backup
-    String[] modeForTempTable = {"replace", "append", "merge", "delete_in_advance"};
-    if (Arrays.asList(modeForTempTable).contains(task.getMode())) {
+    if (Mode.usesTempTable(task.getMode())) {
       String tempTable =
           task.getTempTable().orElse(String.format("LOAD_TEMP_%s_%s", uniqueName, task.getTable()));
       task.setTempTable(Optional.of(tempTable));
+    } else {
+      // append_direct and delete_in_advance load straight into the destination table. Mirror ruby,
+      // which sets temp_table to nil for every other mode, so a configured temp_table can't reroute
+      // the load through a temp table and a WRITE_TRUNCATE copy.
+      task.setTempTable(Optional.empty());
     }
   }
 

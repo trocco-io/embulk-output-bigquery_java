@@ -6,14 +6,21 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.zip.GZIPOutputStream;
 import org.embulk.output.bigquery_java.config.PluginTask;
+import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class BigqueryFileWriter {
+  // embulk default page size
+  static final int BUFFER_SIZE = 1024 * 32;
+
   private final Logger logger = LoggerFactory.getLogger(BigqueryFileWriter.class);
   private PluginTask task;
   private String compression;
   private OutputStream os;
+  // The file under os, kept so close() can release it even when closing os fails; see close().
+  private FileOutputStream file;
+  private String path;
   private long count = 0;
 
   public BigqueryFileWriter(PluginTask task) {
@@ -34,12 +41,20 @@ public class BigqueryFileWriter {
   public OutputStream open(String path) throws IOException {
     logger.info("embulk-output-bigquery: create {}", path);
 
-    this.os = new FileOutputStream(path);
-    if (this.compression.equals("GZIP")) {
-      this.os = new GZIPOutputStream(this.os);
+    this.path = path;
+    this.file = new FileOutputStream(path);
+    try {
+      OutputStream stream = this.file;
+      if (this.compression.equals("GZIP")) {
+        stream = new GZIPOutputStream(stream); // writes the gzip header
+      }
+      this.os = new BufferedOutputStream(stream, BUFFER_SIZE);
+    } catch (IOException e) {
+      // Nothing is left for close() to release: os is unset, so it would return at once.
+      this.file.close();
+      this.file = null;
+      throw e;
     }
-    // embulk default page size
-    this.os = new BufferedOutputStream(this.os, 1024 * 32);
 
     return this.os;
   }
@@ -63,8 +78,10 @@ public class BigqueryFileWriter {
     try {
       outputStream().write(bytes);
       this.count++;
-    } catch (Exception e) {
-      logger.info(e.getMessage());
+    } catch (IOException e) {
+      String msg = "embulk-output-bigquery: failed to write an intermediate file";
+      logger.error(msg, e);
+      throw new BigqueryException(msg, e);
     }
   }
 
@@ -72,12 +89,37 @@ public class BigqueryFileWriter {
     return this.count;
   }
 
+  // The intermediate file this writer opened, or null if it never wrote a record (ruby's
+  // file_writer exposes the same through io.path).
+  public String getPath() {
+    return this.path;
+  }
+
   public void close() {
+    // A writer that never wrote a record never opened its file; don't create an empty one now
+    // (it would be picked up as a load file).
+    if (this.os == null) {
+      return;
+    }
+    // close() flushes, so no separate flush().
     try {
-      this.outputStream().flush();
-      this.outputStream().close();
-    } catch (Exception e) {
-      logger.info(e.getMessage());
+      this.os.close();
+    } catch (IOException e) {
+      // Swallowed to match ruby (file_writer#close does `io.close rescue nil`), but logged, since
+      // a file truncated here is not always caught later: the row-count check is skipped when
+      // abort_on_error is false (max_bad_records > 0) or is_skip_job_result_check is true.
+      logger.warn("embulk-output-bigquery: failed to close {}", this.path, e);
+    } finally {
+      // DeflaterOutputStream#close() (compression: GZIP) runs finish() and out.close() in a row
+      // with no finally, so a failure writing the gzip trailer would leave the file open; a
+      // no-op otherwise. (The Deflater's native memory is out of reach and left to its finalizer.)
+      if (this.file != null) {
+        try {
+          this.file.close();
+        } catch (IOException e) {
+          logger.warn("embulk-output-bigquery: failed to close the file under {}", this.path, e);
+        }
+      }
     }
   }
 }

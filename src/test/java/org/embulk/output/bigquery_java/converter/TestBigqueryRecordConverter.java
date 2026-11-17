@@ -17,7 +17,6 @@ import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.util.config.ConfigMapper;
 import org.embulk.util.config.ConfigMapperFactory;
 import org.embulk.util.config.units.LocalFile;
-import org.junit.Before;
 import org.junit.Test;
 
 public class TestBigqueryRecordConverter {
@@ -27,10 +26,11 @@ public class TestBigqueryRecordConverter {
   private static final ConfigMapper CONFIG_MAPPER = CONFIG_MAPPER_FACTORY.createConfigMapper();
   private static final ObjectMapper OBJECT_MAPPER = BigqueryUtil.getObjectMapper();
 
-  private PluginTask task;
+  private PluginTask createTask() {
+    return createTask("UTC");
+  }
 
-  @Before
-  public void setUp() {
+  private PluginTask createTask(String defaultTimezone) {
     ConfigSource configSource = CONFIG_MAPPER_FACTORY.newConfigSource();
     configSource.set("mode", "replace");
     configSource.set("json_keyfile", LocalFile.ofContent(""));
@@ -38,8 +38,8 @@ public class TestBigqueryRecordConverter {
     configSource.set("table", "test");
     configSource.set("source_format", "NEWLINE_DELIMITED_JSON");
     configSource.set("default_timestamp_format", "%Y-%m-%d %H:%M:%S.%6N %:z");
-    configSource.set("default_timezone", "UTC");
-    task = CONFIG_MAPPER.map(configSource, PluginTask.class);
+    configSource.set("default_timezone", defaultTimezone);
+    return CONFIG_MAPPER.map(configSource, PluginTask.class);
   }
 
   private BigqueryFieldOption createFieldOption(String name, String type) {
@@ -67,6 +67,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertStringField() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("name", "test");
 
@@ -79,6 +80,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertBooleanField() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("flag", "true");
 
@@ -92,6 +94,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertBooleanFieldNative() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("flag", true);
 
@@ -105,6 +108,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertIntegerField() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("count", "42");
 
@@ -117,6 +121,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertIntegerFieldNative() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("count", 42);
 
@@ -129,6 +134,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertFloatField() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("value", "3.14");
 
@@ -141,6 +147,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertTimestampField() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("created_at", "2020/05/01 12:00:00");
 
@@ -153,6 +160,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertDatetimeField() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("updated_at", "2020/05/01 12:00:00");
 
@@ -165,6 +173,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertDateField() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("birth_date", "2020/05/01");
 
@@ -177,6 +186,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertRepeatedMode() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     ArrayNode array = OBJECT_MAPPER.createArrayNode();
     array.add("true");
@@ -194,6 +204,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertNestedRecord() throws Exception {
+    PluginTask task = createTask();
     ObjectNode inner = OBJECT_MAPPER.createObjectNode();
     inner.put("city", "Tokyo");
     inner.put("zip", "100");
@@ -228,6 +239,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertJsonField() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     ObjectNode jsonValue = OBJECT_MAPPER.createObjectNode();
     jsonValue.put("key", "value");
@@ -244,6 +256,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testConvertNumericField() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("price", 99.99);
 
@@ -256,6 +269,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testNullInput() {
+    PluginTask task = createTask();
     List<BigqueryFieldOption> fields = new ArrayList<>();
     fields.add(createFieldOption("name", "STRING"));
 
@@ -265,6 +279,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testNullNodeInput() {
+    PluginTask task = createTask();
     List<BigqueryFieldOption> fields = new ArrayList<>();
     fields.add(createFieldOption("name", "STRING"));
 
@@ -275,6 +290,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testMissingFieldInData() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.put("other", "value");
 
@@ -288,6 +304,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testNullFieldValue() throws Exception {
+    PluginTask task = createTask();
     ObjectNode data = OBJECT_MAPPER.createObjectNode();
     data.putNull("name");
 
@@ -300,6 +317,7 @@ public class TestBigqueryRecordConverter {
 
   @Test
   public void testArrayInput() throws Exception {
+    PluginTask task = createTask();
     ObjectNode elem1 = OBJECT_MAPPER.createObjectNode();
     elem1.put("count", "1");
     ObjectNode elem2 = OBJECT_MAPPER.createObjectNode();
@@ -316,5 +334,19 @@ public class TestBigqueryRecordConverter {
     assertTrue(result.isArray());
     assertEquals(1, result.get(0).get("count").asLong());
     assertEquals(2, result.get(1).get("count").asLong());
+  }
+
+  @Test
+  public void testConvertTimestampField_usesDefaultTimezone() throws Exception {
+    PluginTask task = createTask("Asia/Tokyo");
+
+    ObjectNode data = OBJECT_MAPPER.createObjectNode();
+    data.put("created_at", "2020/05/01 12:00:00");
+
+    List<BigqueryFieldOption> fields = new ArrayList<>();
+    fields.add(createFieldOption("created_at", "TIMESTAMP", "%Y/%m/%d %H:%M:%S"));
+
+    JsonNode result = BigqueryRecordConverter.convertRecordValue(data, fields, task);
+    assertEquals("2020-05-01 12:00:00.000000 +09:00", result.get("created_at").asText());
   }
 }

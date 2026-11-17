@@ -46,121 +46,179 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       ConfigSource config, Schema schema, int taskCount, OutputPlugin.Control control) {
     final ConfigMapper configMapper = CONFIG_MAPPER_FACTORY.createConfigMapper();
     final PluginTask task = configMapper.map(config, PluginTask.class);
+    BigqueryConfigValidator.normalize(task);
     BigqueryConfigValidator.validate(task);
     BigqueryTaskBuilder.build(task);
     BigqueryClient client = new BigqueryClient(task, schema);
     autoCreate(task, client);
-    client.storeCachedSrcFieldsIfNeed();
 
-    control.run(task.dump());
-    this.writers.values().forEach(BigqueryFileWriter::close);
-    logger.info("embulk-output-bigquery: finish to create intermediate files");
-
+    // The exception that is ending the run, if any: the cleanup below attaches its own failures
+    // to it rather than replacing it. Without this, a temp table that can't be deleted is all
+    // the user is told about a run that failed on, say, a row count that doesn't match.
+    Throwable failure = null;
     try {
-      paths = BigqueryUtil.getIntermediateFiles(task);
-    } catch (Exception e) {
-      logger.info(e.getMessage());
-      throw new RuntimeException(e);
-    }
-    if (paths.isEmpty()) {
-      logger.info("embulk-output-bigquery: Nothing for transfer");
-      client.createTableIfNotExist(task.getTable());
+      client.storeCachedSrcFieldsIfNeed();
 
-      switch (task.getMode()) {
-        case "merge":
-        case "append":
-        case "replace":
-        case "delete_in_advance":
+      control.run(task.dump());
+      this.writers.values().forEach(BigqueryFileWriter::close);
+      logger.info("embulk-output-bigquery: finish to create intermediate files");
+
+      paths = BigqueryUtil.getIntermediateFiles(this.writers.values());
+      if (paths.isEmpty()) {
+        logger.info("embulk-output-bigquery: Nothing for transfer");
+        client.createTableIfNotExist(task.getTable());
+        return CONFIG_MAPPER_FACTORY.newConfigDiff();
+      }
+
+      logger.debug(
+          "embulk-output-bigquery: LOAD IN PARALLEL {}",
+          paths.stream().map(Path::toString).collect(Collectors.joining("\n")));
+
+      // transfer data to BQ from files
+      ExecutorService executor = Executors.newFixedThreadPool(paths.size());
+      List<Future<JobStatistics>> jobStatisticFutures = new ArrayList<>();
+      List<JobStatistics.LoadStatistics> statistics = new ArrayList<>();
+
+      for (Path path : paths) {
+        Future<JobStatistics> jobStatisticsFuture =
+            executor.submit(new BigqueryJobRunner(task, schema, path));
+        jobStatisticFutures.add(jobStatisticsFuture);
+      }
+
+      for (Future<JobStatistics> jobStatisticFuture : jobStatisticFutures) {
+        try {
+          statistics.add((JobStatistics.LoadStatistics) jobStatisticFuture.get());
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+      BigqueryTransactionReport report =
+          getTransactionReport(task, client, statistics, this.writers.values());
+      if (task.getAbortOnError().get() && !task.getIsSkipJobResultCheck()) {
+        if (report.getNumInputRows().compareTo(report.getNumOutputRows()) != 0) {
+          String msg =
+              String.format(
+                  "ABORT: `num_input_rows (%d)` and `num_output_rows (%d)` does not match",
+                  report.getNumInputRows(), report.getNumOutputRows());
+          throw new RuntimeException(msg);
+        }
+      }
+
+      if (task.getMode().equals("append") && task.getBeforeLoad().isPresent()) {
+        logger.info("embulk-output-bigquery: before_load will be executed");
+        logger.info("embulk-output-bigquery: {}", task.getBeforeLoad().get());
+        client.executeQuery(task.getBeforeLoad().get());
+      }
+
+      if (task.getMode().equals("replace_backup")) {
+        if (task.getOldTable().isPresent()) {
+          client.copy(
+              task.getTable(),
+              task.getOldTable().get(),
+              task.getOldDataset().orElse(client.destinationDataset),
+              JobInfo.WriteDisposition.WRITE_TRUNCATE);
+        }
+      }
+      if (task.getTempTable().isPresent()) {
+        if (task.getMode().equals("merge")) {
+          client.merge(
+              task.getTempTable().get(),
+              task.getTable(),
+              task.getMergeKeys().orElse(Collections.emptyList()),
+              task.getMergeRule().orElse(Collections.emptyList()));
+        } else if (task.getMode().equals("append")) {
+          client.copy(
+              task.getTempTable().get(), task.getTable(), JobInfo.WriteDisposition.WRITE_APPEND);
+        } else {
+          client.copy(
+              task.getTempTable().get(), task.getTable(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
+        }
+      }
+
+      client.updateTableIfNeed();
+    } catch (RuntimeException | Error e) {
+      failure = e;
+      throw e;
+    } finally {
+      // control.run() may have thrown before the writers were closed above (a record that can't
+      // be converted, say): close them here too (a no-op the second time) and apply
+      // delete_from_local_when_job_end to their files as after a normal run.
+      // ruby (verified): its ensure only sees the paths of a run that got past the data phase,
+      // so such a half-written file is left behind, open. It is never loaded again (see above),
+      // but it stays on disk until someone removes it. This goes one step further on purpose.
+      // Nested so that each of the three steps runs even if the one before it throws.
+      try {
+        Throwable closeFailure = closeWriters();
+        if (closeFailure != null) {
+          report(closeFailure, failure);
+        }
+      } finally {
+        try {
           if (task.getTempTable().isPresent()) {
             client.deleteTable(task.getTempTable().get());
           }
-          break;
+        } catch (RuntimeException | Error e) {
+          report(e, failure);
+        } finally {
+          // Still null when control.run() threw before paths was set above: pick up the files
+          // the writers had opened by then, so they get the same delete-or-keep treatment.
+          if (paths == null) {
+            paths = BigqueryUtil.getIntermediateFiles(this.writers.values());
+          }
+          if (task.getDeleteFromLocalWhenJobEnd()) {
+            paths.forEach(p -> p.toFile().delete());
+          } else {
+            paths.forEach(
+                p -> {
+                  File intermediateFile = new File(p.toString());
+                  if (intermediateFile.exists()) {
+                    logger.info("embulk-output-bigquery: keep {}", p.toString());
+                  }
+                });
+          }
+        }
       }
-
-      return CONFIG_MAPPER_FACTORY.newConfigDiff();
-    }
-
-    logger.debug(
-        "embulk-output-bigquery: LOAD IN PARALLEL {}",
-        paths.stream().map(Path::toString).collect(Collectors.joining("\n")));
-
-    // transfer data to BQ from files
-    ExecutorService executor = Executors.newFixedThreadPool(paths.size());
-    List<Future<JobStatistics>> jobStatisticFutures = new ArrayList<>();
-    List<JobStatistics.LoadStatistics> statistics = new ArrayList<>();
-
-    for (Path path : paths) {
-      Future<JobStatistics> jobStatisticsFuture =
-          executor.submit(new BigqueryJobRunner(task, schema, path));
-      jobStatisticFutures.add(jobStatisticsFuture);
-    }
-
-    for (Future<JobStatistics> jobStatisticFuture : jobStatisticFutures) {
-      try {
-        statistics.add((JobStatistics.LoadStatistics) jobStatisticFuture.get());
-      } catch (Exception e) {
-        throw new RuntimeException(e);
-      }
-    }
-    BigqueryTransactionReport report =
-        getTransactionReport(task, client, statistics, this.writers.values());
-    if (task.getAbortOnError().get() && !task.getIsSkipJobResultCheck()) {
-      if (report.getNumInputRows().compareTo(report.getNumOutputRows()) != 0) {
-        String msg =
-            String.format(
-                "ABORT: `num_input_rows (%d)` and `num_output_rows (%d)` does not match",
-                report.getNumInputRows(), report.getNumOutputRows());
-        throw new RuntimeException(msg);
-      }
-    }
-
-    if (task.getMode().equals("append") && task.getBeforeLoad().isPresent()) {
-      logger.info("embulk-output-bigquery: before_load will be executed");
-      logger.info("embulk-output-bigquery: {}", task.getBeforeLoad().get());
-      client.executeQuery(task.getBeforeLoad().get());
-    }
-
-    if (task.getMode().equals("replace_backup")) {
-      if (task.getOldTable().isPresent()) {
-        client.copy(
-            task.getTable(),
-            task.getOldTable().get(),
-            task.getOldDataset().orElse(client.destinationDataset),
-            JobInfo.WriteDisposition.WRITE_TRUNCATE);
-      }
-    }
-    if (task.getTempTable().isPresent()) {
-      if (task.getMode().equals("merge")) {
-        client.merge(
-            task.getTempTable().get(),
-            task.getTable(),
-            task.getMergeKeys().orElse(Collections.emptyList()),
-            task.getMergeRule().orElse(Collections.emptyList()));
-      } else if (task.getMode().equals("append")) {
-        client.copy(
-            task.getTempTable().get(), task.getTable(), JobInfo.WriteDisposition.WRITE_APPEND);
-      } else {
-        client.copy(
-            task.getTempTable().get(), task.getTable(), JobInfo.WriteDisposition.WRITE_TRUNCATE);
-      }
-      client.deleteTable(task.getTempTable().get());
-    }
-
-    client.updateTableIfNeed();
-
-    if (task.getDeleteFromLocalWhenJobEnd()) {
-      paths.forEach(p -> p.toFile().delete());
-    } else {
-      paths.forEach(
-          p -> {
-            File intermediateFile = new File(p.toString());
-            if (intermediateFile.exists()) {
-              logger.info("embulk-output-bigquery: keep {}", p.toString());
-            }
-          });
     }
 
     return CONFIG_MAPPER_FACTORY.newConfigDiff();
+  }
+
+  // What a cleanup step ran into. Never in place of the failure that is already ending the run:
+  // that one is why the run failed, and for a row count that doesn't match it is also the only
+  // place it is ever said. Logged either way, since whether a suppressed exception is shown at
+  // all is up to the runner, and a temp table left behind is billed until someone drops it.
+  private void report(Throwable cleanupFailure, Throwable failure) {
+    if (failure == null) {
+      if (cleanupFailure instanceof Error) {
+        throw (Error) cleanupFailure;
+      }
+      throw (RuntimeException) cleanupFailure;
+    }
+    logger.warn(
+        "embulk-output-bigquery: cleaning up after a failed run ran into this", cleanupFailure);
+    // addSuppressed refuses an exception as its own suppressor, and the JVM hands out shared
+    // instances for some implicitly thrown ones.
+    if (cleanupFailure != failure) {
+      failure.addSuppressed(cleanupFailure);
+    }
+  }
+
+  // The cleanup's close of the writers: one that throws must not leave the writers after it
+  // open, since their files are deleted right after. Returns the first failure, for report() to
+  // place, or null. The data phase's own close, before this one, does let a failure end the run.
+  private Throwable closeWriters() {
+    Throwable first = null;
+    for (BigqueryFileWriter writer : this.writers.values()) {
+      try {
+        writer.close();
+      } catch (RuntimeException | Error e) {
+        logger.warn("embulk-output-bigquery: failed to close {}", writer.getPath(), e);
+        if (first == null) {
+          first = e;
+        }
+      }
+    }
+    return first;
   }
 
   @Override
@@ -208,7 +266,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     switch (task.getMode()) {
       case "delete_in_advance":
         client.deleteTableOrPartition(task.getTable());
-        client.createTableIfNotExist(task.getTempTable().get());
+        client.createTableIfNotExist(task.getTable());
         break;
       case "replace":
         client.createTableIfNotExist(task.getTempTable().get());
@@ -224,6 +282,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
         client.createTableIfNotExist(task.getTable());
         break;
       case "replace_backup":
+        // Unreachable until Mode marks replace_backup supported: validateMode() rejects it.
         client.createTableIfNotExist(task.getTemplateTable().get());
         client.createTableIfNotExist(task.getTable());
         // needs for when a partition

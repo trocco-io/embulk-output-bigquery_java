@@ -64,7 +64,7 @@ public class BigqueryStringConverter {
       case TIMESTAMP:
         if (columnOption.getTimestampFormat().isPresent()) {
           pattern = columnOption.getTimestampFormat().get();
-          timezone = columnOption.getTimezone();
+          timezone = columnOption.getTimezone().orElse(task.getDefaultTimezone());
           parser =
               TimestampFormatter.builder(pattern, true).setDefaultZoneFromString(timezone).build();
           ts = org.embulk.spi.time.Timestamp.ofInstant(parser.parse(src));
@@ -85,7 +85,7 @@ public class BigqueryStringConverter {
       case DATETIME:
         if (columnOption.getTimestampFormat().isPresent()) {
           pattern = columnOption.getTimestampFormat().get();
-          timezone = columnOption.getTimezone();
+          timezone = columnOption.getTimezone().orElse(task.getDefaultTimezone());
           parser =
               TimestampFormatter.builder(pattern, true).setDefaultZoneFromString(timezone).build();
           ts = org.embulk.spi.time.Timestamp.ofInstant(parser.parse(src));
@@ -106,7 +106,7 @@ public class BigqueryStringConverter {
       case DATE:
         if (columnOption.getTimestampFormat().isPresent()) {
           pattern = columnOption.getTimestampFormat().get();
-          timezone = columnOption.getTimezone();
+          timezone = columnOption.getTimezone().orElse(task.getDefaultTimezone());
           parser =
               TimestampFormatter.builder(pattern, true).setDefaultZoneFromString(timezone).build();
           try {

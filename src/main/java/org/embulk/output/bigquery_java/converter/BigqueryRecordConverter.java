@@ -134,7 +134,7 @@ public class BigqueryRecordConverter {
 
     if (field.getTimestampFormat().isPresent()) {
       pattern = field.getTimestampFormat().get();
-      timezone = field.getTimezone();
+      timezone = field.getTimezone().orElse(task.getDefaultTimezone());
     } else {
       // Users must care of BQ format by themselves with no timestamp_format
       return value;

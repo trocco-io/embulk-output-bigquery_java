@@ -4,4 +4,8 @@ public class BigqueryException extends RuntimeException {
   public BigqueryException(String message) {
     super(message);
   }
+
+  public BigqueryException(String message, Throwable cause) {
+    super(message, cause);
+  }
 }
