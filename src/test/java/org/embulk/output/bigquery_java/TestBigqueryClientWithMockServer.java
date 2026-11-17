@@ -548,6 +548,32 @@ public class TestBigqueryClientWithMockServer {
     }
   }
 
+  // A file whose size is an exact multiple of the chunk size leaves nothing for the final,
+  // job-creating request, and the library skips a zero-length one (HttpBigQueryRpc#write returns
+  // null for length 0), so BigQuery never makes the load job. Say that, rather than carry a null
+  // job to the waiter and fail with a NullPointerException there.
+  @Test
+  public void testLoadFailsWhenTheUploadCreatedNoJob() throws Exception {
+    Path loadFile = testFolder.newFile("load-exact-chunk-test.json").toPath();
+    byte[] block = new byte[(int) UPLOAD_CHUNK_SIZE];
+    Arrays.fill(block, (byte) 'x');
+    Files.write(loadFile, block);
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*load-exact-chunk-test\\.json.*no load job.*",
+            server ->
+                buildTestHostClient(server)
+                    .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND),
+            startResumableUploadResponse(),
+            uploadChunkAcceptedResponse())) {
+      assertStartResumableUpload(requests.next());
+      assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1);
+      // No finalizing PUT, and no jobs.get either: nothing was ever created to look for.
+    }
+  }
+
   // A chunk PUT answered with a 5xx is re-sent by the library on the same session, `retries`
   // more times (test_host.yml: 1). Once the library gives up, the upload fails: load() does not
   // re-send the file in a new session on top of the library's attempts, which would multiply

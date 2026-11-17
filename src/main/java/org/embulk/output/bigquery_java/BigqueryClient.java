@@ -642,7 +642,18 @@ public class BigqueryClient {
       }
       throw uploadFailure(loadFile, table, e);
     }
-    return writer.getJob();
+    Job job = writer.getJob();
+    if (job == null) {
+      // No job and no failure: the file's size is an exact multiple of the chunk size, so
+      // closing the channel had nothing left to send, and the library skips a zero-length
+      // request (HttpBigQueryRpc#write returns null for length 0) — the very request that would
+      // have created the job. Say so here rather than carry the null to the waiter.
+      throw new BigqueryException(
+          String.format(
+              "embulk-output-bigquery: the upload of %s to %s:%s.%s created no load job",
+              loadFile, destinationProject, destinationDataset, table));
+    }
+    return job;
   }
 
   // The job a same-id upload retry was refused for (uploadOnce), or null if there is none. A
