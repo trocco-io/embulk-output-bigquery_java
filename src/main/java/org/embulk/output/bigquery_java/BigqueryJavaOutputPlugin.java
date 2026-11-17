@@ -46,6 +46,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       ConfigSource config, Schema schema, int taskCount, OutputPlugin.Control control) {
     final ConfigMapper configMapper = CONFIG_MAPPER_FACTORY.createConfigMapper();
     final PluginTask task = configMapper.map(config, PluginTask.class);
+    BigqueryConfigValidator.normalize(task);
     BigqueryConfigValidator.validate(task);
     BigqueryTaskBuilder.build(task);
     BigqueryClient client = new BigqueryClient(task, schema);

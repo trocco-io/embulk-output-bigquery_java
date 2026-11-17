@@ -8,11 +8,15 @@ public class BigqueryConfigValidator {
   // Every *_sec value ends up as int milliseconds in the Google client or RetryExecutor.
   public static final long MAX_TIMEOUT_SEC = Integer.MAX_VALUE / 1000;
 
-  public static void validate(PluginTask task) {
-    // Ruby lower-cases `mode` in configure, so `mode: Replace` is accepted there. Normalize it once
-    // here so every later comparison (the validators, setTempTable, autoCreate) sees the canonical
-    // spelling instead of each lower-casing on its own.
+  // Ruby lower-cases `mode` in configure, so `mode: Replace` is accepted there. Fold it once,
+  // before validate(), so every later comparison (the validators, setTempTable, autoCreate) sees
+  // the canonical spelling instead of each lower-casing on its own. The only step that writes
+  // to the task; validate() below only reads it.
+  public static void normalize(PluginTask task) {
     task.setMode(task.getMode().toLowerCase(Locale.ROOT));
+  }
+
+  public static void validate(PluginTask task) {
     validateMode(task);
     validateModeAndAutoCreteTable(task);
     validateClustering(task);

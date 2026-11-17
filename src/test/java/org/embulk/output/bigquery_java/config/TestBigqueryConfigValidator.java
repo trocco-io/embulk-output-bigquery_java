@@ -34,17 +34,19 @@ public class TestBigqueryConfigValidator extends BigqueryConfigTestBase {
   }
 
   @Test
-  public void validate_lowerCasesMode() {
+  public void normalize_lowerCasesMode() {
     // Ruby does task['mode'].downcase in configure, so `mode: Replace` is accepted.
     PluginTask task = taskWith(c -> c.set("mode", "Replace"));
-    BigqueryConfigValidator.validate(task);
+    BigqueryConfigValidator.normalize(task);
     assertEquals("replace", task.getMode());
+    BigqueryConfigValidator.validate(task);
   }
 
   @Test(expected = ConfigException.class)
-  public void validateMode_isCaseSensitiveWithoutValidate() {
-    // The lower-casing happens once in validate(); the individual checks expect canonical input.
-    BigqueryConfigValidator.validateMode(taskWith(c -> c.set("mode", "Replace")));
+  public void validate_isCaseSensitiveWithoutNormalize() {
+    // The lower-casing happens once in normalize(); validate() only reads the task and expects
+    // canonical input.
+    BigqueryConfigValidator.validate(taskWith(c -> c.set("mode", "Replace")));
   }
 
   @Test

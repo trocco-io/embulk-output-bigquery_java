@@ -10,8 +10,9 @@ import java.util.stream.Collectors;
 // The `mode` values and what each one implies. The validators and setTempTable() read from here
 // so the per-mode lists can't drift apart when a mode is added or enabled.
 //
-// Callers keep `mode` as the lower-case config string (BigqueryConfigValidator.validate() folds it
-// once, as ruby does) and compare it with `equals("replace")` etc.; the enum only owns the lists.
+// Callers keep `mode` as the lower-case config string (BigqueryConfigValidator.normalize() folds
+// it once, as ruby does) and compare it with `equals("replace")` etc.; the enum only owns the
+// lists.
 public enum Mode {
   REPLACE(true, true, true),
   // Listed so the auto_create_table check and the temp-table routing already treat it as ruby
