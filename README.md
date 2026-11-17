@@ -148,6 +148,8 @@ NOTE: BigQuery does not support replacing (actually, copying into) a non-partiti
 1. Delete destination table (or partition), if it exists.
 2. Load to destination table (or partition).
 
+This is not transactional either: the data is loaded straight into the destination table in parallel, so if a load fails, the table is left recreated with the rows of the loads that did succeed.
+
 NOTE: A `table` with a partition decorator (such as `table_name$20160929`) is not supported in this mode yet. The destination table is recreated with the decorator still in its id after the partition is deleted, which BigQuery rejects, so the run fails with the partition already deleted. Partition decorator support is tracked separately.
 
 ##### merge
