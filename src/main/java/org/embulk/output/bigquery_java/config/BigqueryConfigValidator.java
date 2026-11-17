@@ -1,11 +1,20 @@
 package org.embulk.output.bigquery_java.config;
 
 import java.util.Arrays;
+import java.util.Locale;
 import org.embulk.config.ConfigException;
 
 public class BigqueryConfigValidator {
   // Every *_sec value ends up as int milliseconds in the Google client or RetryExecutor.
   public static final long MAX_TIMEOUT_SEC = Integer.MAX_VALUE / 1000;
+
+  // Ruby lower-cases `mode` in configure, so `mode: Replace` is accepted there. Fold it once,
+  // before validate(), so every later comparison (the validators, setTempTable, autoCreate) sees
+  // the canonical spelling instead of each lower-casing on its own. The only step that writes
+  // to the task; validate() below only reads it.
+  public static void normalize(PluginTask task) {
+    task.setMode(task.getMode().toLowerCase(Locale.ROOT));
+  }
 
   public static void validate(PluginTask task) {
     validateMode(task);
@@ -64,21 +73,17 @@ public class BigqueryConfigValidator {
   }
 
   public static void validateMode(PluginTask task) throws ConfigException {
-    // TODO: append_direct delete_in_advance replace_backup
-    String[] modes = {"replace", "append", "merge", "delete_in_advance", "append_direct"};
-    if (!Arrays.asList(modes).contains(task.getMode().toLowerCase())) {
+    // An unknown mode and a known-but-unimplemented one (replace_backup) are rejected alike.
+    if (!Mode.isSupported(task.getMode())) {
       throw new ConfigException(
-          "replace, append, merge, delete_in_advance and append_direct are supported. Stay tuned!");
+          String.join(", ", Mode.supportedConfigNames()) + " are supported. Stay tuned!");
     }
   }
 
   public static void validateModeAndAutoCreteTable(PluginTask task) throws ConfigException {
-    // TODO: modes are append replace delete_in_advance replace_backup and
-    // !task['auto_create_table']
-    String[] modes = {"replace", "append", "merge", "delete_in_advance"};
-    if (Arrays.asList(modes).contains(task.getMode().toLowerCase()) && !task.getAutoCreateTable()) {
+    if (Mode.requiresAutoCreateTable(task.getMode()) && !task.getAutoCreateTable()) {
       throw new ConfigException(
-          "replace, append, merge and delete_in_advance are supported. Stay tuned!");
+          String.format("`mode: %s` requires `auto_create_table: true`", task.getMode()));
     }
   }
 

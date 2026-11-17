@@ -2,6 +2,7 @@ package org.embulk.output.bigquery_java.config;
 
 import static org.embulk.output.bigquery_java.util.AssertUtil.assertMatches;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.time.Instant;
@@ -140,6 +141,46 @@ public class TestBigqueryTaskBuilder {
     assertEquals("NEWLINE_DELIMITED_JSON", task.getSourceFormat());
     assertEquals("GZIP", task.getCompression());
     assertEquals(".jsonl.gz", task.getFileExt().get());
+  }
+
+  // Builds the task for base.yml with `mode` (and temp_table set to `tempTable` unless null), runs
+  // it through BigqueryTaskBuilder.setTempTable() and returns it.
+  private PluginTask taskAfterSetTempTable(String mode, String tempTable) {
+    config = loadYamlResource(embulk, "base.yml").set("mode", mode);
+    if (tempTable != null) {
+      config = config.set("temp_table", tempTable);
+    }
+    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
+    BigqueryTaskBuilder.setTempTable(task);
+    return task;
+  }
+
+  @Test
+  public void setTempTable_assignsDefaultForReplace() {
+    assertMatches(
+        taskAfterSetTempTable("replace", null).getTempTable().get(), "LOAD_TEMP_.*_table");
+  }
+
+  @Test
+  public void setTempTable_assignsDefaultForReplaceBackup() {
+    assertMatches(
+        taskAfterSetTempTable("replace_backup", null).getTempTable().get(), "LOAD_TEMP_.*_table");
+  }
+
+  @Test
+  public void setTempTable_keepsConfiguredValueForReplace() {
+    assertEquals("foo", taskAfterSetTempTable("replace", "foo").getTempTable().get());
+  }
+
+  @Test
+  public void setTempTable_clearsConfiguredValueForDeleteInAdvance() {
+    // Ruby sets temp_table to nil for every mode other than replace/append/merge/replace_backup.
+    assertFalse(taskAfterSetTempTable("delete_in_advance", "foo").getTempTable().isPresent());
+  }
+
+  @Test
+  public void setTempTable_clearsConfiguredValueForAppendDirect() {
+    assertFalse(taskAfterSetTempTable("append_direct", "foo").getTempTable().isPresent());
   }
 
   @Test

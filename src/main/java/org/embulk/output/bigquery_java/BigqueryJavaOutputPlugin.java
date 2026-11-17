@@ -46,6 +46,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       ConfigSource config, Schema schema, int taskCount, OutputPlugin.Control control) {
     final ConfigMapper configMapper = CONFIG_MAPPER_FACTORY.createConfigMapper();
     final PluginTask task = configMapper.map(config, PluginTask.class);
+    BigqueryConfigValidator.normalize(task);
     BigqueryConfigValidator.validate(task);
     BigqueryTaskBuilder.build(task);
     BigqueryClient client = new BigqueryClient(task, schema);
@@ -265,7 +266,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
     switch (task.getMode()) {
       case "delete_in_advance":
         client.deleteTableOrPartition(task.getTable());
-        client.createTableIfNotExist(task.getTempTable().get());
+        client.createTableIfNotExist(task.getTable());
         break;
       case "replace":
         client.createTableIfNotExist(task.getTempTable().get());
@@ -281,6 +282,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
         client.createTableIfNotExist(task.getTable());
         break;
       case "replace_backup":
+        // Unreachable until Mode marks replace_backup supported: validateMode() rejects it.
         client.createTableIfNotExist(task.getTemplateTable().get());
         client.createTableIfNotExist(task.getTable());
         // needs for when a partition
