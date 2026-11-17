@@ -30,15 +30,21 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForCopyJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForQueryJobResponse;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.embulk.config.ConfigSource;
+import org.embulk.exec.PartialExecutionException;
 import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.LoadAttempt;
@@ -159,6 +165,282 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
 
       assertGetTable(requests.next(), "table");
     }
+  }
+
+  // Only the files this run wrote are loaded, like ruby: a file left behind by an earlier run with
+  // the same path_prefix (its name matches path_prefix*file_ext) is neither loaded nor deleted.
+  @Test
+  public void testRunIgnoresStaleIntermediateFilesWithTheSamePrefix() throws Exception {
+    File intermediateDir = testFolder.newFolder();
+    File stale = new File(intermediateDir, "bq_.1.1.jsonl.gz");
+    assertTrue(stale.createNewFile());
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            c ->
+                c.set("mode", "append_direct")
+                    .set("path_prefix", new File(intermediateDir, "bq_").getPath()),
+            MockResponses.of(datasetResponse(), tableResponse())
+                .add(loadAttemptResponses("testjob", null))
+                .add(tableResponse())
+                .toArray())) {
+      assertGetDataset(requests.next());
+      assertPostTables(requests.next());
+      assertLoadAttempt(requests, "testjob"); // one load: this run's file only
+      assertGetTable(requests.next(), "table");
+    }
+
+    // This run's own file was deleted (delete_from_local_when_job_end); the stale one is untouched.
+    assertEquals(Collections.singletonList(stale.getName()), Arrays.asList(intermediateDir.list()));
+  }
+
+  @Test
+  public void testRunFailsImmediatelyOnRecordConversionError() throws Exception {
+    File intermediateDir = runFailingOnRecordConversion(true);
+
+    // The run died inside control.run(), before the intermediate files are normally closed and
+    // deleted; they must not be left behind, or a later run with the same path_prefix would load
+    // the half-written file.
+    assertEquals(Collections.emptyList(), Arrays.asList(intermediateDir.list()));
+  }
+
+  @Test
+  public void testRunFailsImmediatelyOnRecordConversionErrorKeepingTheFile() throws Exception {
+    File intermediateDir = runFailingOnRecordConversion(false);
+
+    // With delete_from_local_when_job_end off the file is kept, as after a normal run; this also
+    // shows the test above had a file to delete.
+    assertEquals(1, intermediateDir.list().length);
+    assertMatches(intermediateDir.list()[0], "bq_\\.\\d+\\.\\d+\\.jsonl\\.gz");
+  }
+
+  // An Error while closing a writer during the cleanup must not become what the run reports
+  // either: the record that could not be converted is why the run failed, and the only place it
+  // is ever said. The temp table delete right after is already careful about this.
+  @Test
+  public void testRunReportsTheDataFailureWhenAWriterCloseThrowsAnError() throws Exception {
+    BigqueryFileWriter broken =
+        brokenWriter(() -> new StackOverflowError("boom: an error"), new AtomicInteger());
+    broken.open(testFolder.newFile("broken-error-cleanup.jsonl").getPath());
+    BigqueryUtil.getFileWriters().put(-1L, broken);
+
+    try {
+      runFailingOnRecordConversion(true);
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+    }
+  }
+
+  // Runs append_direct over two rows with c0 typed INTEGER: the first row ("1") is written to the
+  // intermediate file, the second ("hello") can't be converted and fails the run with that file
+  // still open. path_prefix points into a fresh directory, which is returned.
+  private File runFailingOnRecordConversion(boolean deleteFromLocalWhenJobEnd) throws Exception {
+    File intermediateDir = testFolder.newFolder();
+    try (RequestCursor requests =
+        BigqueryMockWebServerTestUtil.runWithMockServerExpectingFailure(
+            embulk,
+            testFolder,
+            loadTestHostConfig(
+                embulk,
+                c ->
+                    c.set("mode", "append_direct")
+                        .set("path_prefix", new File(intermediateDir, "bq_").getPath())
+                        .set("delete_from_local_when_job_end", deleteFromLocalWhenJobEnd)
+                        .set(
+                            "column_options",
+                            Collections.singletonList(
+                                embulk.newConfig().set("name", "c0").set("type", "INTEGER")))),
+            Arrays.asList("c0:string", "1", "hello"),
+            PartialExecutionException.class,
+            "(?s).*hello cannot be converted to INTEGER.*",
+            datasetResponse(),
+            tableResponse())) {
+      assertGetDataset(requests.next());
+      assertPostTables(requests.next());
+    }
+    return intermediateDir;
+  }
+
+  // A writer whose close() throws must not stop the cleanup: the temp table is still deleted and
+  // the intermediate files (its own included) still removed. The writer is registered under a
+  // thread id no page output uses, so it is closed only by transaction() itself; the first
+  // close(), right after the data phase, fails the run, and the cleanup's close() throws again
+  // before the remaining cleanup steps.
+  @Test
+  public void testRunStillCleansUpWhenClosingAWriterThrows() throws Exception {
+    File brokenFile = testFolder.newFile("broken.jsonl");
+
+    try (RequestCursor requests =
+        runWithBrokenWriter(
+            brokenFile,
+            "boom: close failed",
+            RuntimeException.class,
+            "(?s).*boom: close failed.*",
+            datasetResponse(),
+            tableResponse(),
+            deleteResponse())) {
+      assertGetDataset(requests.next());
+
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
+
+      assertDeleteTable(requests.next(), tempTableId);
+    }
+    assertTrue("intermediate file not removed", !brokenFile.exists());
+  }
+
+  // What the run reports is why it failed, not what went wrong cleaning up after it: the data
+  // phase fails on a writer that can't be closed, and the temp table delete fails on top of
+  // that. Without this the user would be told only about the delete.
+  @Test
+  public void testRunReportsTheDataFailureNotTheCleanupFailure() throws Exception {
+    File brokenFile = testFolder.newFile("broken-with-failing-delete.jsonl");
+
+    try (RequestCursor requests =
+        runWithBrokenWriter(
+            brokenFile,
+            "boom: close failed",
+            RuntimeException.class,
+            "(?s).*boom: close failed.*",
+            datasetResponse(),
+            tableResponse(),
+            errorResponse(400, "boom-delete", "invalid"))) {
+      assertGetDataset(requests.next());
+
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      assertDeleteTable(
+          requests.next(), tableIdOf(requestBodyJson(createTempTable), "tableReference"));
+    }
+  }
+
+  // One writer that throws on close() must not leave the writers after it unclosed during the
+  // cleanup, with their buffers unflushed and their files open. Both writers here throw, and
+  // both must have been closed: the data phase's own close() stops at the first (it is allowed
+  // to end the run), so only the cleanup's second pass can reach the other one.
+  @Test
+  public void testRunClosesEveryWriterWhenOneThrows() throws Exception {
+    AtomicInteger closed = new AtomicInteger();
+    BigqueryFileWriter first = countingBrokenWriter("boom: first", closed);
+    first.open(testFolder.newFile("broken-first.jsonl").getPath());
+    BigqueryFileWriter second = countingBrokenWriter("boom: second", closed);
+    second.open(testFolder.newFile("broken-second.jsonl").getPath());
+    BigqueryUtil.getFileWriters().put(-1L, first);
+    BigqueryUtil.getFileWriters().put(-2L, second);
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            c -> c.set("mode", "replace"),
+            RuntimeException.class,
+            "(?s).*boom: (first|second).*",
+            datasetResponse(),
+            tableResponse(),
+            deleteResponse())) {
+      assertGetDataset(requests.next());
+
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      assertDeleteTable(
+          requests.next(), tableIdOf(requestBodyJson(createTempTable), "tableReference"));
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+      BigqueryUtil.getFileWriters().remove(-2L);
+    }
+
+    // Three close() calls in all: the data phase reaches one of the two, the cleanup both.
+    assertEquals(3, closed.get());
+  }
+
+  // An Error from one writer must not stop the cleanup from closing the others either: their
+  // files are deleted right after, so leaving them open loses whatever is still buffered. The
+  // Error is not swallowed, though; it ends the run once every writer has been closed.
+  @Test
+  public void testRunClosesEveryWriterWhenOneThrowsAnError() throws Exception {
+    AtomicInteger closed = new AtomicInteger();
+    BigqueryFileWriter first = brokenWriter(() -> new StackOverflowError("boom: an error"), closed);
+    first.open(testFolder.newFile("broken-error-first.jsonl").getPath());
+    BigqueryFileWriter second = brokenWriter(() -> new RuntimeException("boom: second"), closed);
+    second.open(testFolder.newFile("broken-error-second.jsonl").getPath());
+    BigqueryUtil.getFileWriters().put(-1L, first);
+    BigqueryUtil.getFileWriters().put(-2L, second);
+
+    // An Error is not an Exception, so this one can't go through
+    // runWithMockServerExpectingFailure().
+    try (RequestCursor requests =
+        BigqueryMockWebServerTestUtil.runWithMockServer(
+            server -> {
+              ConfigSource outConfig = loadTestHostConfig(embulk, c -> c.set("mode", "replace"));
+              outConfig.set("test_host", BigqueryMockWebServerTestUtil.testHostOf(server));
+              File in = new File(testFolder.newFolder(), "in.csv");
+              Files.write(in.toPath(), SINGLE_INPUT_LINES);
+              Throwable thrown =
+                  assertThrows(Throwable.class, () -> embulk.runOutput(outConfig, in.toPath()));
+              assertMatches(thrown.getMessage(), "(?s).*boom: (an error|second).*");
+            },
+            datasetResponse(),
+            tableResponse(),
+            deleteResponse())) {
+      assertGetDataset(requests.next());
+
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      assertDeleteTable(
+          requests.next(), tableIdOf(requestBodyJson(createTempTable), "tableReference"));
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+      BigqueryUtil.getFileWriters().remove(-2L);
+    }
+
+    assertEquals(3, closed.get());
+  }
+
+  private BigqueryFileWriter countingBrokenWriter(String closeFailure, AtomicInteger closed) {
+    return brokenWriter(() -> new RuntimeException(closeFailure), closed);
+  }
+
+  // A writer that counts its close() calls and then throws what `closeFailure` supplies.
+  private BigqueryFileWriter brokenWriter(Supplier<Throwable> closeFailure, AtomicInteger closed) {
+    BigqueryFileWriter writer =
+        new BigqueryFileWriter() {
+          @Override
+          public void close() {
+            super.close();
+            closed.incrementAndGet();
+            Throwable failure = closeFailure.get();
+            if (failure instanceof Error) {
+              throw (Error) failure;
+            }
+            throw (RuntimeException) failure;
+          }
+        };
+    writer.setCompression("NONE");
+    return writer;
+  }
+
+  // Runs the plugin with `brokenFile` held by a writer whose close() throws `closeFailure`,
+  // expecting the run to fail. The writer is removed from the JVM-wide map afterwards, so it
+  // can't break a later test that calls transaction().
+  private RequestCursor runWithBrokenWriter(
+      File brokenFile,
+      String closeFailure,
+      Class<? extends Exception> expectedFailureType,
+      String errorMessagePattern,
+      MockResponse... responses)
+      throws Exception {
+    BigqueryFileWriter brokenWriter = brokenWriter(closeFailure);
+    brokenWriter.open(brokenFile.getPath());
+    BigqueryUtil.getFileWriters().put(-1L, brokenWriter);
+    try {
+      return runWithMockServerExpectingFailure(
+          c -> c.set("mode", "replace"), expectedFailureType, errorMessagePattern, responses);
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+    }
+  }
+
+  private BigqueryFileWriter brokenWriter(String closeFailure) {
+    return countingBrokenWriter(closeFailure, new AtomicInteger());
   }
 
   @Test
