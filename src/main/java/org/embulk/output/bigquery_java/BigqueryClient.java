@@ -589,7 +589,9 @@ public class BigqueryClient {
     }
   }
 
-  private Job uploadOnce(
+  // Package-private so the MockWebServer tests can lose an attempt the way a reset under TLS
+  // does, which a plain-HTTP server can't stage: the library retries whatever it shows it.
+  Job uploadOnce(
       Path loadFile,
       String table,
       String jobId,

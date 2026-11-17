@@ -48,8 +48,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 
+import com.google.cloud.bigquery.BigQueryException;
+import com.google.cloud.bigquery.Job;
 import com.google.cloud.bigquery.JobInfo;
 import com.google.cloud.bigquery.JobStatistics;
+import com.google.cloud.bigquery.WriteChannelConfiguration;
+import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -57,6 +61,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
+import javax.net.ssl.SSLException;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -65,6 +70,7 @@ import org.embulk.input.file.LocalFileInputPlugin;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
 import org.embulk.output.bigquery_java.exception.BigqueryInternalException;
+import org.embulk.output.bigquery_java.exception.BigqueryUploadException;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockResponses;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.MockServerAction;
 import org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.RequestCursor;
@@ -105,10 +111,14 @@ public class TestBigqueryClientWithMockServer {
       MockWebServer server,
       Function<ConfigSource, ConfigSource> customizeConfig,
       org.embulk.spi.Schema schema) {
+    return new BigqueryClient(buildTestHostTask(server, customizeConfig), schema);
+  }
+
+  private PluginTask buildTestHostTask(
+      MockWebServer server, Function<ConfigSource, ConfigSource> customizeConfig) {
     ConfigSource config =
         loadTestHostConfig(embulk, customizeConfig).set("test_host", testHostOf(server));
-    PluginTask task = CONFIG_MAPPER.map(config, PluginTask.class);
-    return new BigqueryClient(task, schema);
+    return CONFIG_MAPPER.map(config, PluginTask.class);
   }
 
   private BigqueryClient buildTestHostClient(
@@ -121,6 +131,47 @@ public class TestBigqueryClientWithMockServer {
 
   private BigqueryClient buildTestHostClient(MockWebServer server) {
     return buildTestHostClient(server, c -> c);
+  }
+
+  // A client whose first `attemptsToLose` upload attempts end the way a connection reset under
+  // TLS does: as an SSLException with the socket error as its cause, which the library won't
+  // retry and upload() re-sends the file for (shouldResendUpload()). The plain-HTTP
+  // MockWebServer can't produce that failure: a drop it stages reaches the library as a socket
+  // error it retries itself. A lost attempt makes no request; it only keeps the job id it was
+  // given, for the test to check against the re-send's.
+  private static final class ClientLosingAttempts extends BigqueryClient {
+    private int attemptsToLose;
+    final List<String> lostJobIds = new ArrayList<>();
+
+    ClientLosingAttempts(PluginTask task, org.embulk.spi.Schema schema, int attemptsToLose) {
+      super(task, schema);
+      this.attemptsToLose = attemptsToLose;
+    }
+
+    @Override
+    Job uploadOnce(
+        Path loadFile,
+        String table,
+        String jobId,
+        WriteChannelConfiguration writeChannelConfiguration) {
+      if (attemptsToLose == 0) {
+        return super.uploadOnce(loadFile, table, jobId, writeChannelConfiguration);
+      }
+      attemptsToLose--;
+      lostJobIds.add(jobId);
+      throw new BigqueryUploadException(
+          "embulk-output-bigquery: failed to upload " + loadFile + ", answer lost under TLS",
+          new BigQueryException(
+              new SSLException("Connection reset", new SocketException("Connection reset"))));
+    }
+  }
+
+  private ClientLosingAttempts buildTestHostClientLosingAttempts(
+      MockWebServer server, int attemptsToLose) {
+    return new ClientLosingAttempts(
+        buildTestHostTask(server, c -> c),
+        new org.embulk.spi.Schema(Arrays.asList(new Column(0, "c0", Types.STRING))),
+        attemptsToLose);
   }
 
   @Test
@@ -558,6 +609,70 @@ public class TestBigqueryClientWithMockServer {
       assertGetDataset(requests.next());
       assertGetJob(requests.next(), jobIdOf(open), "asia-northeast1");
       assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // An attempt that ends in a reset under TLS is re-sent by upload() in a new session under the
+  // same job id (ClientLosingAttempts stages the reset; see there). When that session's start
+  // is then refused for good (here a 403), the last failure alone says nothing about a job,
+  // but the attempt that lost its answer may have created one: the upload asks for it by its
+  // id and waits for it, rather than fail a load whose rows a rerun would load again.
+  @Test
+  public void testLoadWaitsForTheJobAnEarlierAttemptLeftBehindWhenTheResendIsRefused()
+      throws Exception {
+    Path loadFile = newLoadFile("load-lost-answer-left-job-test.json");
+    List<String> lostJobIds = new ArrayList<>();
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              ClientLosingAttempts client = buildTestHostClientLosingAttempts(server, 1);
+              JobStatistics.LoadStatistics stats =
+                  client.load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+              lostJobIds.addAll(client.lostJobIds);
+            },
+            errorResponse(403, "Access Denied", "accessDenied"), // the re-send's session start
+            datasetResponseWithLocation("asia-northeast1"), // where do the jobs run?
+            uploadLoadFileResponse("testjob"), // jobs.get: the job the lost attempt created
+            waitForLoadJobResponse("testjob", null))) {
+      RecordedRequest reopen = requests.next(); // the re-send: a new session, same job id
+      assertStartResumableUpload(reopen);
+      assertEquals(Collections.singletonList(jobIdOf(reopen)), lostJobIds);
+      assertGetDataset(requests.next());
+      assertGetJob(requests.next(), jobIdOf(reopen), "asia-northeast1");
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // With every attempt lost the same way, the re-sends run out (test_host.yml: retries 1, so
+  // one re-send) and the upload gives up on the "retry exhausted" path. Any of those attempts
+  // may have created the job, so it is looked up, under the one job id they all used, before
+  // failing; here there is none, and the load fails with the last attempt's failure.
+  @Test
+  public void testLoadLooksForTheJobWhenEveryAttemptLostItsAnswer() throws Exception {
+    Path loadFile = newLoadFile("load-every-answer-lost-test.json");
+    List<String> lostJobIds = new ArrayList<>();
+
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryUploadException.class,
+            "(?s).*failed to upload .*answer lost under TLS.*",
+            server -> {
+              ClientLosingAttempts client = buildTestHostClientLosingAttempts(server, 2);
+              try {
+                client.load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              } finally {
+                lostJobIds.addAll(client.lostJobIds);
+              }
+            },
+            datasetResponse(), // where would the job be?
+            jobNotFoundResponse())) {
+      assertEquals(2, lostJobIds.size());
+      assertEquals(lostJobIds.get(0), lostJobIds.get(1));
+      assertGetDataset(requests.next());
+      assertGetJob(requests.next(), lostJobIds.get(0), null);
+      // No third attempt and no second lookup: the cursor's close() would report either.
     }
   }
 
