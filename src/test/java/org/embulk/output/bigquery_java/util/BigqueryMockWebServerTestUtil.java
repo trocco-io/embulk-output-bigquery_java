@@ -4,12 +4,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,6 +23,7 @@ import okhttp3.mockwebserver.QueueDispatcher;
 import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
 import org.embulk.config.ConfigSource;
+import org.embulk.output.bigquery_java.BigqueryClient;
 import org.embulk.test.TestingEmbulk;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -47,9 +47,10 @@ public final class BigqueryMockWebServerTestUtil {
       "/upload/bigquery/v2/projects/project/jobs?uploadType=resumable";
   private static final String RESUMABLE_UPLOAD_ID = "test-upload";
 
-  // BaseWriteChannel.DEFAULT_CHUNK_SIZE (google-cloud-core 2.8.0): a file up to this size is
-  // uploaded as one PUT; a larger one as 15 MB chunks (answered with 308) plus a final chunk.
-  public static final long UPLOAD_CHUNK_SIZE = 15L * 1024 * 1024;
+  // The plugin's base chunk size, set on every upload (BigqueryClient#uploadChunkSizeFor()
+  // keeps it unless the file is a multiple of it): a file up to this size is uploaded as one
+  // PUT; a larger one as chunks of this size (answered with 308) plus a final chunk.
+  public static final long UPLOAD_CHUNK_SIZE = BigqueryClient.DEFAULT_UPLOAD_CHUNK_SIZE;
 
   private BigqueryMockWebServerTestUtil() {}
 
@@ -296,8 +297,9 @@ public final class BigqueryMockWebServerTestUtil {
   }
 
   // The PUT of the whole file as the single, final chunk of the resumable upload session opened
-  // by startResumableUploadResponse(), sized from the recorded body. A file over the library's
-  // chunk size is sent as several PUTs instead; assert those with assertUploadChunk().
+  // by startResumableUploadResponse(), sized from the recorded body. A file over the chunk size
+  // is sent as several PUTs instead; assert those with assertUploadChunk(). (A file of exactly
+  // the chunk size goes as one PUT too, by uploadChunkSizeFor()'s bump, not by this bound.)
   public static void assertUploadLoadFile(RecordedRequest request) {
     long size = request.getBodySize();
     assertTrue(
@@ -312,6 +314,14 @@ public final class BigqueryMockWebServerTestUtil {
     assertRequest(request, "PUT", RESUMABLE_UPLOAD_PATH + "&upload_id=" + RESUMABLE_UPLOAD_ID);
     String totalPart = total < 0 ? "*" : String.valueOf(total);
     assertEquals("bytes " + from + "-" + to + "/" + totalPart, request.getHeader("Content-Range"));
+  }
+
+  // assertUploadChunk() with the body checked to be the range's size as well, for a chunk the
+  // server took in full (not one it dropped the connection on).
+  public static void assertUploadChunkInFull(
+      RecordedRequest request, long from, long to, long total) {
+    assertUploadChunk(request, from, to, total);
+    assertEquals(to - from + 1, request.getBodySize());
   }
 
   // The 3 requests matching loadAttemptResponses(), consumed from the cursor. Returns the two a
@@ -627,18 +637,14 @@ public final class BigqueryMockWebServerTestUtil {
     return new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE);
   }
 
-  // Writes JSONL rows to `file` until it holds at least `minBytes` (plain, not gzipped), e.g. to
-  // get an upload that spans more than one chunk; returns the file's size.
-  public static long writeLoadFile(Path file, long minBytes) throws IOException {
-    byte[] line =
-        "{\"c0\":\"0123456789abcdef0123456789abcdef0123456789abcdef\"}\n"
-            .getBytes(StandardCharsets.UTF_8);
-    try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(file))) {
-      for (long written = 0; written < minBytes; written += line.length) {
-        out.write(line);
-      }
+  // Makes `file` exactly `bytes` bytes long, for an upload whose size matters to the byte (a
+  // multiple of the chunk size, say). The content is zeros, and sparse where the file system
+  // allows; it means nothing to the mock server, which does buffer each request's body, so the
+  // saving is on disk, not in memory.
+  public static void writeLoadFileOfSize(Path file, long bytes) throws IOException {
+    try (RandomAccessFile sized = new RandomAccessFile(file.toFile(), "rw")) {
+      sized.setLength(bytes);
     }
-    return Files.size(file);
   }
 
   // One attempt of BigqueryClient#load() as the server sees it, 3 responses: the POST that opens

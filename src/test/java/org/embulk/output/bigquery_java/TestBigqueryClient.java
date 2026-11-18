@@ -497,4 +497,20 @@ public class TestBigqueryClient {
         BigqueryClient.mayHaveLeftAJob(
             new BigqueryException("failed", new BigQueryException(403, "accessDenied")), true));
   }
+
+  // The chunk size is the library's default unless the file is a multiple of it, in which case
+  // it is the next size (256 KiB steps) the file isn't a multiple of; see uploadChunkSizeFor().
+  @Test
+  public void testUploadChunkSizeLeavesAFinalChunk() {
+    long chunk = BigqueryClient.DEFAULT_UPLOAD_CHUNK_SIZE;
+    long step = BigqueryClient.UPLOAD_CHUNK_SIZE_STEP;
+    assertEquals(chunk, BigqueryClient.uploadChunkSizeFor(0));
+    assertEquals(chunk, BigqueryClient.uploadChunkSizeFor(1));
+    assertEquals(chunk, BigqueryClient.uploadChunkSizeFor(chunk - 1));
+    assertEquals(chunk, BigqueryClient.uploadChunkSizeFor(chunk + 1));
+    assertEquals(chunk + step, BigqueryClient.uploadChunkSizeFor(chunk));
+    assertEquals(chunk + step, BigqueryClient.uploadChunkSizeFor(2 * chunk));
+    // 61 chunks is also 60 of the next candidate (61 * 60 = 60 * 61 steps), so it takes two.
+    assertEquals(chunk + 2 * step, BigqueryClient.uploadChunkSizeFor(61 * chunk));
+  }
 }

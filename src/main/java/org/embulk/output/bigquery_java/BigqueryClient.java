@@ -35,10 +35,10 @@ import com.google.cloud.bigquery.WriteChannelConfiguration;
 import com.google.cloud.http.HttpTransportOptions;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.OutputStream;
+import java.io.InputStream;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
-import java.nio.channels.Channels;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -589,6 +589,47 @@ public class BigqueryClient {
     }
   }
 
+  // The chunk size the upload goes up in, the channel's own default (60 x 256 KiB);
+  // uploadChunkSizeFor() nudges it for a file that is a multiple of it. Public for the
+  // mock-server tests, which size their files by it.
+  public static final int DEFAULT_UPLOAD_CHUNK_SIZE = 60 * 256 * 1024;
+
+  // The channel's unit: it rounds a chunk size up to a multiple of this, and cuts what it sends
+  // down to one. Both constants copy the library's own (BaseWriteChannel's MIN_CHUNK_SIZE and
+  // DEFAULT_CHUNK_SIZE, private there); a library bump that changes the unit shows in the
+  // mock-server tests' Content-Range checks.
+  static final int UPLOAD_CHUNK_SIZE_STEP = 256 * 1024;
+
+  // The chunk size to upload a file of `fileSize` bytes with: the library's default, unless the
+  // file is an exact multiple of it. BaseWriteChannel sends a chunk whenever its buffer reaches
+  // the chunk size, and close() sends whatever is left as the final request, the one that
+  // completes the session and creates the load job. With nothing left, the library skips that
+  // request (HttpBigQueryRpc#write returns null for length 0, on upstream main as well): the
+  // session is never completed, no job exists, getJob() is null, and the waiter failed on it
+  // with a NullPointerException. That is a gap in the library: its channel expects the job back
+  // from that zero-length write (TableDataWriteChannelTest#testCloseWithoutFlush), and
+  // google-cloud-storage's RPC does send it, as "Content-Range: bytes */<size>", which BigQuery
+  // accepts too (verified). Sending it from here, which was tried first, means building and
+  // reading that request ourselves, and grew well beyond this; a chunk size the file isn't a
+  // multiple of always leaves a final chunk instead, and keeps every request the library's own.
+  // The next candidate is 256 KiB larger, as the library rounds a chunk size up to a multiple
+  // of that.
+  //
+  // This relies on no write to the channel exceeding 256 KiB (uploadOnce() writes by that
+  // much, the channel's unit, at most): the buffer
+  // is below the chunk size before each write, so it can't end more than 256 KiB past it, and
+  // the channel, which cuts what it sends down to a multiple of 256 KiB, then sends exactly
+  // the chunk size; a larger write could leave a remainder this arithmetic doesn't expect. An
+  // empty file is left as it was (nothing to send at all, so no job); a writer only creates
+  // its file on the first row, so the plugin never loads one.
+  static int uploadChunkSizeFor(long fileSize) {
+    int chunkSize = DEFAULT_UPLOAD_CHUNK_SIZE;
+    while (fileSize > 0 && fileSize % chunkSize == 0) {
+      chunkSize += UPLOAD_CHUNK_SIZE_STEP;
+    }
+    return chunkSize;
+  }
+
   // Package-private so the MockWebServer tests can lose an attempt the way a reset under TLS
   // does, which a plain-HTTP server can't stage: the library retries whatever it shows it.
   Job uploadOnce(
@@ -599,16 +640,25 @@ public class BigqueryClient {
     TableDataWriteChannel writer;
     // The channel reports network failures as BigQueryException (a RuntimeException), not
     // IOException: BigQueryRpc#write translates the IOException and flushBuffer() rethrows it.
-    // IOException here only comes from reading the local file.
+    // IOException here comes from the local file: opening, reading or closing it.
     try {
-      writer = bigquery.writer(jobIdWithLocation(jobId), writeChannelConfiguration);
-      // Deliberately not try-with-resources: closing the channel after a failed upload finalizes
-      // the resumable session with the bytes sent so far, and BigQuery then starts a load job for
-      // that partial file. The session is only closed (and the load job started) when the whole
-      // file has been written.
-      OutputStream stream = Channels.newOutputStream(writer);
-      Files.copy(loadFile, stream);
-      stream.close();
+      // Opened and sized before the session is: a file that is missing or can't be read fails
+      // here, with no request made and no session left behind.
+      try (InputStream in = Files.newInputStream(loadFile)) {
+        int chunkSize = uploadChunkSizeFor(Files.size(loadFile));
+        writer = bigquery.writer(jobIdWithLocation(jobId), writeChannelConfiguration);
+        writer.setChunkSize(chunkSize);
+        // Written by the channel's unit at most, which uploadChunkSizeFor() counts on.
+        byte[] buffer = new byte[UPLOAD_CHUNK_SIZE_STEP];
+        for (int read; (read = in.read(buffer)) != -1; ) {
+          writer.write(ByteBuffer.wrap(buffer, 0, read));
+        }
+      }
+      // Deliberately not closed by try-with-resources: closing the channel after a failed
+      // upload finalizes the resumable session with the bytes sent so far, and BigQuery then
+      // starts a load job for that partial file. It is only closed (and the load job started)
+      // once the whole file has been written.
+      writer.close();
     } catch (IOException e) {
       // A file that can't be read won't become readable by retrying; ruby's with_network_retry
       // only retries socket errors too.

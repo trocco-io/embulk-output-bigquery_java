@@ -14,6 +14,7 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertPostTables;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertStartResumableUpload;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadChunk;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadChunkInFull;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.assertUploadLoadFile;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.createCopyJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.createQueryJobResponse;
@@ -43,7 +44,7 @@ import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForCopyJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForLoadJobResponse;
 import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.waitForQueryJobResponse;
-import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.writeLoadFile;
+import static org.embulk.output.bigquery_java.util.BigqueryMockWebServerTestUtil.writeLoadFileOfSize;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
@@ -523,11 +524,13 @@ public class TestBigqueryClientWithMockServer {
   }
 
   // A file over the library's chunk size goes up as an intermediate chunk (answered with 308)
-  // followed by the final chunk, which creates the job.
+  // followed by the final chunk, which creates the job. Being one byte over, it also pins that
+  // a file that isn't a multiple of the chunk size keeps the default (uploadChunkSizeFor()).
   @Test
   public void testLoadUploadsLargeFileInChunks() throws Exception {
     Path loadFile = testFolder.newFile("load-large-test.json").toPath();
-    long size = writeLoadFile(loadFile, UPLOAD_CHUNK_SIZE + 1);
+    long size = UPLOAD_CHUNK_SIZE + 1;
+    writeLoadFileOfSize(loadFile, size);
 
     try (RequestCursor requests =
         runWithMockServer(
@@ -542,8 +545,62 @@ public class TestBigqueryClientWithMockServer {
             uploadLoadFileResponse("testjob"),
             waitForLoadJobResponse("testjob", null))) {
       assertStartResumableUpload(requests.next());
-      assertUploadChunk(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1);
-      assertUploadChunk(requests.next(), UPLOAD_CHUNK_SIZE, size - 1, size);
+      assertUploadChunkInFull(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, -1);
+      assertUploadChunkInFull(requests.next(), UPLOAD_CHUNK_SIZE, size - 1, size);
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // A file that is an exact multiple of the chunk size would leave nothing for the final,
+  // job-creating request, which the library then skips: no job would exist (see
+  // uploadChunkSizeFor()). Such a file goes up with a chunk size it isn't a multiple of: one
+  // chunk's worth of file in a single, final PUT.
+  @Test
+  public void testLoadUploadsFileOfExactlyOneChunkInOneFinalRequest() throws Exception {
+    Path loadFile = testFolder.newFile("load-one-chunk-test.json").toPath();
+    writeLoadFileOfSize(loadFile, UPLOAD_CHUNK_SIZE);
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            uploadLoadFileResponse("testjob"),
+            waitForLoadJobResponse("testjob", null))) {
+      assertStartResumableUpload(requests.next());
+      assertUploadChunkInFull(requests.next(), 0, UPLOAD_CHUNK_SIZE - 1, UPLOAD_CHUNK_SIZE);
+      assertGetJobStatus(requests.next(), "testjob");
+    }
+  }
+
+  // Two chunks' worth of file: the larger chunk size shows in the first chunk's range, and the
+  // rest goes as the final request.
+  @Test
+  public void testLoadUploadsFileOfExactlyTwoChunksWithALargerChunk() throws Exception {
+    Path loadFile = testFolder.newFile("load-two-chunks-test.json").toPath();
+    long size = 2 * UPLOAD_CHUNK_SIZE;
+    long chunk = UPLOAD_CHUNK_SIZE + BigqueryClient.UPLOAD_CHUNK_SIZE_STEP;
+    writeLoadFileOfSize(loadFile, size);
+
+    try (RequestCursor requests =
+        runWithMockServer(
+            server -> {
+              JobStatistics.LoadStatistics stats =
+                  buildTestHostClient(server)
+                      .load(loadFile, "table", JobInfo.WriteDisposition.WRITE_APPEND);
+              assertNotNull(stats);
+            },
+            startResumableUploadResponse(),
+            uploadChunkAcceptedResponse(),
+            uploadLoadFileResponse("testjob"),
+            waitForLoadJobResponse("testjob", null))) {
+      assertStartResumableUpload(requests.next());
+      assertUploadChunkInFull(requests.next(), 0, chunk - 1, -1);
+      assertUploadChunkInFull(requests.next(), chunk, size - 1, size);
       assertGetJobStatus(requests.next(), "testjob");
     }
   }
@@ -796,7 +853,7 @@ public class TestBigqueryClientWithMockServer {
   @Test
   public void testLoadDoesNotFinalizeFailedUploadSession() throws Exception {
     Path loadFile = testFolder.newFile("load-chunked-fail-test.json").toPath();
-    writeLoadFile(loadFile, UPLOAD_CHUNK_SIZE + 1);
+    writeLoadFileOfSize(loadFile, UPLOAD_CHUNK_SIZE + 1);
 
     try (RequestCursor requests =
         runWithMockServerExpectingFailure(
