@@ -119,6 +119,23 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
               JobInfo.WriteDisposition.WRITE_TRUNCATE);
         }
       }
+      if (task.getTempTable().isPresent()
+          && task.getMode().equals("replace")
+          && task.getRetainColumnPolicyTags()) {
+        // Policy tag permission check on temp table before copying to destination table: if
+        // the caller can't actually apply these policy tags, fail here so the destination
+        // table is left unchanged rather than overwritten first (see
+        // BigqueryClient#updateTableIfNeed).
+        logger.info("embulk-output-bigquery: checking policy tag permissions on temp table");
+        client.updateTableIfNeed(task.getTempTable().get());
+        // Some roles (e.g. Policy Tag Admin) can apply policy tags but not read policy-tagged
+        // data, which would make the copy below fail. Clear the tags now that the permission
+        // check above passed; the final updateTableIfNeed() call re-applies them to the
+        // destination table.
+        logger.info("embulk-output-bigquery: clearing policy tags from temp table before copy");
+        client.clearPolicyTags(task.getTempTable().get());
+      }
+
       if (task.getTempTable().isPresent()) {
         if (task.getMode().equals("merge")) {
           client.merge(

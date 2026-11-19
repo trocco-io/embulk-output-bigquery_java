@@ -589,6 +589,12 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     // storeCachedSrcFieldsIfNeed() GETs the (pre-existing) destination table right after autoCreate
     // creates the temp table, and updateTableIfNeed() PATCHes the destination afterward (before the
     // temp table delete) to restore the cached description/policy tag onto its post-replace schema.
+    //
+    // Because retain_column_policy_tags is on, a policy tag permission check/clear also runs
+    // against the temp table before the copy: updateTableIfNeed(tempTable) trial-applies the
+    // retained policy tag there (GET+PATCH) so a permission error surfaces before the destination
+    // table is touched, then clearPolicyTags(tempTable) removes it again (GET+PATCH) so the
+    // copy's read of the temp table isn't blocked by the tag.
     try (RequestCursor requests =
         runWithMockServer(
             c ->
@@ -602,6 +608,10 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
                 .add(loadAttemptResponses("testjob", null))
                 .add(
                     tableResponseWithNumRows(1),
+                    tableResponseWithNullableC0(), // the permission check on the temp table
+                    tableResponse(),
+                    tableResponseWithOldDescriptionAndPolicyTag(), // the clear of the tag there
+                    tableResponse(),
                     createCopyJobResponse("testjob"),
                     waitForCopyJobResponse("testjob"),
                     tableResponseWithNullableC0(),
@@ -621,6 +631,21 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
       assertEquals(tempTableId, tableIdOf(jobConfig(openUpload, "load"), "destinationTable"));
 
       assertGetTable(requests.next(), tempTableId); // getTransactionReport()
+
+      assertGetTable(requests.next(), tempTableId); // updateTableIfNeed(tempTable) permission check
+
+      RecordedRequest tempTagCheck = requests.next();
+      assertPatchTable(tempTagCheck, tempTableId);
+      assertFieldDescriptionAndPolicyTag(
+          firstSchemaField(requestBodyJson(tempTagCheck)), "old-description", "old-policy-tag");
+
+      assertGetTable(requests.next(), tempTableId); // clearPolicyTags(tempTable)
+
+      RecordedRequest tempTagClear = requests.next();
+      assertPatchTable(tempTagClear, tempTableId);
+      JSONObject clearedField = firstSchemaField(requestBodyJson(tempTagClear));
+      assertEquals("old-description", clearedField.getString("description"));
+      assertEquals(0, clearedField.getJSONObject("policyTags").getJSONArray("names").length());
 
       RecordedRequest createJob = requests.next();
       assertPostJobs(createJob);
