@@ -56,6 +56,7 @@ import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryConfigResolver;
 import org.embulk.output.bigquery_java.config.BigqueryFieldOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
+import org.embulk.output.bigquery_java.config.DescribedOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
@@ -118,7 +119,7 @@ public class BigqueryClient {
   }
 
   public static boolean isNeedUpdateTable(PluginTask task) {
-    return needRetainColumnAttributes(task) || hasColumnOptionDescription(task);
+    return needRetainColumnAttributes(task) || hasDescription(task.getColumnOptions());
   }
 
   private static boolean needRetainColumnAttributes(PluginTask task) {
@@ -126,23 +127,15 @@ public class BigqueryClient {
         && (task.getRetainColumnDescriptions() || task.getRetainColumnPolicyTags());
   }
 
-  private static boolean hasColumnOptionDescription(PluginTask task) {
-    return task.getColumnOptions()
-        .map(
-            options ->
-                options.stream()
-                    .anyMatch(
-                        o -> o.getDescription().isPresent() || hasFieldDescription(o.getFields())))
-        .orElse(false);
-  }
-
-  private static boolean hasFieldDescription(Optional<List<BigqueryFieldOption>> fields) {
-    return fields
+  // Whether any of `options` (column options, or the field options nested under one), or any
+  // field nested under those at any depth, has a description.
+  private static boolean hasDescription(
+      Optional<? extends List<? extends DescribedOption>> options) {
+    return options
         .map(
             list ->
                 list.stream()
-                    .anyMatch(
-                        f -> f.getDescription().isPresent() || hasFieldDescription(f.getFields())))
+                    .anyMatch(o -> o.getDescription().isPresent() || hasDescription(o.getFields())))
         .orElse(false);
   }
 
@@ -411,7 +404,7 @@ public class BigqueryClient {
 
   // Patches a single field, recursing into RECORD sub-fields so that both the
   // retain-from-previous-table copy and column_options[].fields[].description apply at any
-  // nesting depth, matching hasColumnOptionDescription()'s recursion (used by
+  // nesting depth, matching hasDescription()'s recursion (used by
   // isNeedUpdateTable() above). description/nestedFieldOptions are nullable rather than Optional
   // since they're plain inputs here, not return values.
   private static Field patchField(

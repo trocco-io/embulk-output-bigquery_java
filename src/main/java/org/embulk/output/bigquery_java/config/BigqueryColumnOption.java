@@ -6,7 +6,7 @@ import org.embulk.util.config.Config;
 import org.embulk.util.config.ConfigDefault;
 import org.embulk.util.config.Task;
 
-public interface BigqueryColumnOption extends Task {
+public interface BigqueryColumnOption extends Task, DescribedOption {
   // name: column name
   // type: BigQuery type such as BOOLEAN, INTEGER, FLOAT, STRING, TIMESTAMP, DATETIME, DATE,
   // RECORD, and JSON. See belows for supported conversion type.
