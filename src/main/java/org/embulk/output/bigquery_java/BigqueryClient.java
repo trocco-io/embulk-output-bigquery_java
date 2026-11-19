@@ -414,11 +414,13 @@ public class BigqueryClient {
       String description,
       List<BigqueryFieldOption> nestedFieldOptions) {
     Field.Builder fieldBuilder = field.toBuilder();
+    // Only what the previous table had is carried over, as ruby does (`if src_field.description`):
+    // where it had none, whatever the loaded table carries (from a template table, say) stays.
     if (needRetainColumnAttributes(task) && srcField != null) {
-      if (task.getRetainColumnDescriptions()) {
+      if (task.getRetainColumnDescriptions() && srcField.getDescription() != null) {
         fieldBuilder.setDescription(srcField.getDescription());
       }
-      if (task.getRetainColumnPolicyTags()) {
+      if (task.getRetainColumnPolicyTags() && srcField.getPolicyTags() != null) {
         fieldBuilder.setPolicyTags(srcField.getPolicyTags());
       }
     }
@@ -429,6 +431,9 @@ public class BigqueryClient {
       fieldBuilder.setDescription(description);
     }
 
+    // A RECORD always has at least one sub-field: the library refuses to build one without
+    // (Field.Builder#setType, which fromPb() goes through as well), so an empty list needs no
+    // guard here.
     if (field.getSubFields() != null) {
       FieldList srcSubFields = srcField == null ? null : srcField.getSubFields();
       List<Field> patchedSubFields = new ArrayList<>();

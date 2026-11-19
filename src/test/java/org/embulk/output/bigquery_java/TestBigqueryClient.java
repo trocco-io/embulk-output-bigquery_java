@@ -241,6 +241,43 @@ public class TestBigqueryClient {
     assertNull(c1.getDescription());
   }
 
+  // What the previous table lacked isn't copied over the loaded table's own (from a template
+  // table, say), as ruby's `if src_field.description` / `if src_field.policy_tags`.
+  @Test
+  public void testNestedRecordRetainKeepsWhatThePreviousTableLacked() {
+    PolicyTags c000Tags =
+        PolicyTags.newBuilder().setNames(Collections.singletonList("template_tag")).build();
+    Field c000Cur =
+        Field.newBuilder("c000", StandardSQLTypeName.STRING)
+            .setDescription("template_c000")
+            .setPolicyTags(c000Tags)
+            .build();
+    Field c00Cur = Field.newBuilder("c00", StandardSQLTypeName.STRUCT, c000Cur).build();
+    Field c01Cur = Field.newBuilder("c01", StandardSQLTypeName.STRING).build();
+    Field c0Cur = Field.newBuilder("c0", StandardSQLTypeName.STRUCT, c00Cur, c01Cur).build();
+
+    // The previous table: nothing on c000, a description on c01.
+    Field c000Dst = Field.newBuilder("c000", StandardSQLTypeName.STRING).build();
+    Field c00Dst = Field.newBuilder("c00", StandardSQLTypeName.STRUCT, c000Dst).build();
+    Field c01Dst =
+        Field.newBuilder("c01", StandardSQLTypeName.STRING).setDescription("prev_c01").build();
+    Field c0Dst = Field.newBuilder("c0", StandardSQLTypeName.STRUCT, c00Dst, c01Dst).build();
+
+    PluginTask task =
+        PluginTaskUtil.buildTaskRecordNestedColumnOption(
+            embulk, "replace", Collections.emptyMap(), true, true);
+
+    Schema schema = BigqueryClient.buildPatchSchema(task, FieldList.of(c0Cur), FieldList.of(c0Dst));
+
+    Field c0 = schema.getFields().get(0);
+    Field c000 = c0.getSubFields().get(0).getSubFields().get(0);
+    Field c01 = c0.getSubFields().get(1);
+
+    assertEquals("template_c000", c000.getDescription());
+    assertEquals(c000Tags, c000.getPolicyTags());
+    assertEquals("prev_c01", c01.getDescription());
+  }
+
   @Test
   public void testNestedRecordNoUpdateNeeded() {
     Schema schema = invokeNestedRecordBuildSchema(Collections.emptyMap());
