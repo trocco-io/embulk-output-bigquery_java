@@ -392,6 +392,23 @@ public class TestBigqueryClientWithMockServer {
     }
   }
 
+  // The destination table gone by the time it is to be patched (getTable() maps the 404 to
+  // null) is reported with its name, not dereferenced.
+  @Test
+  public void testUpdateTableIfNeedFailsWhenTheDestinationTableIsGone() throws Exception {
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            BigqueryException.class,
+            "(?s).*failed to update table project:dataset\\.table: it does not exist.*",
+            server -> updateTableInMode(server, "append", true),
+            errorResponse(404, "Not found: Table project:dataset.table", "notFound"),
+            errorResponse(404, "Not found: Table project:dataset.table", "notFound"))) {
+      assertGetTable(requests.next(), "table"); // storeCachedSrcFieldsIfNeed()
+      assertGetTable(requests.next(), "table"); // updateTableIfNeed()
+      // No PATCH: the cursor's close() would report one.
+    }
+  }
+
   @Test
   public void testUpdateTableIfNeedDoesNotPatchInAppendDirectMode() throws Exception {
     assertNoPatch(server -> updateTableInMode(server, "append_direct", false));

@@ -278,6 +278,17 @@ public class TestBigqueryClient {
     assertEquals("prev_c01", c01.getDescription());
   }
 
+  // A first run of mode:replace with a retain flag on: no previous table to copy from, and no
+  // column_options description to apply, so no patch (one would change nothing).
+  @Test
+  public void testRetainWithNoPreviousTableAndNoDescriptionPatchesNothing() {
+    PluginTask task =
+        PluginTaskUtil.buildTaskWithIntegerColumnOptionForReplaceMode(embulk, null, true, true);
+    Field c0 = Field.newBuilder("c0", StandardSQLTypeName.STRING).build();
+
+    assertNull(BigqueryClient.buildPatchSchema(task, FieldList.of(c0), null));
+  }
+
   @Test
   public void testNestedRecordNoUpdateNeeded() {
     Schema schema = invokeNestedRecordBuildSchema(Collections.emptyMap());

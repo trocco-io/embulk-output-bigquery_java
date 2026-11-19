@@ -341,6 +341,14 @@ public class BigqueryClient {
 
   public void updateTableIfNeed() {
     Table table = this.getTable(task.getTable());
+    if (table == null) {
+      // getTable() maps a 404 to null. The table was there to load into, so this is reported
+      // rather than dereferenced.
+      throw new BigqueryException(
+          String.format(
+              "failed to update table %s:%s.%s: it does not exist",
+              destinationProject, destinationDataset, task.getTable()));
+    }
     com.google.cloud.bigquery.Schema schema = table.getDefinition().getSchema();
     if (schema == null) {
       return;
@@ -371,6 +379,10 @@ public class BigqueryClient {
   public static com.google.cloud.bigquery.Schema buildPatchSchema(
       PluginTask task, FieldList currentFields, FieldList dstFields) {
     if (!isNeedUpdateTable(task)) {
+      return null;
+    }
+    // Nothing to apply and nothing to copy from: no patch, rather than one that changes nothing.
+    if (dstFields == null && !hasDescription(task.getColumnOptions())) {
       return null;
     }
 
