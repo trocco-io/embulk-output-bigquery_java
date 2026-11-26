@@ -56,6 +56,7 @@ import org.embulk.output.bigquery_java.config.BigqueryColumnOption;
 import org.embulk.output.bigquery_java.config.BigqueryConfigResolver;
 import org.embulk.output.bigquery_java.config.BigqueryFieldOption;
 import org.embulk.output.bigquery_java.config.BigqueryTimePartitioning;
+import org.embulk.output.bigquery_java.config.DescribedOption;
 import org.embulk.output.bigquery_java.config.PluginTask;
 import org.embulk.output.bigquery_java.exception.BigqueryBackendException;
 import org.embulk.output.bigquery_java.exception.BigqueryException;
@@ -118,8 +119,24 @@ public class BigqueryClient {
   }
 
   public static boolean isNeedUpdateTable(PluginTask task) {
+    return needRetainColumnAttributes(task) || hasDescription(task.getColumnOptions());
+  }
+
+  private static boolean needRetainColumnAttributes(PluginTask task) {
     return task.getMode().equals("replace")
         && (task.getRetainColumnDescriptions() || task.getRetainColumnPolicyTags());
+  }
+
+  // Whether any of `options` (column options, or the field options nested under one), or any
+  // field nested under those at any depth, has a description.
+  private static boolean hasDescription(
+      Optional<? extends List<? extends DescribedOption>> options) {
+    return options
+        .map(
+            list ->
+                list.stream()
+                    .anyMatch(o -> o.getDescription().isPresent() || hasDescription(o.getFields())))
+        .orElse(false);
   }
 
   public FieldList storeCachedSrcFieldsIfNeed() {
@@ -324,6 +341,14 @@ public class BigqueryClient {
 
   public void updateTableIfNeed() {
     Table table = this.getTable(task.getTable());
+    if (table == null) {
+      // getTable() maps a 404 to null. The table was there to load into, so this is reported
+      // rather than dereferenced.
+      throw new BigqueryException(
+          String.format(
+              "failed to update table %s:%s.%s: it does not exist",
+              destinationProject, destinationDataset, task.getTable()));
+    }
     com.google.cloud.bigquery.Schema schema = table.getDefinition().getSchema();
     if (schema == null) {
       return;
@@ -353,32 +378,92 @@ public class BigqueryClient {
 
   public static com.google.cloud.bigquery.Schema buildPatchSchema(
       PluginTask task, FieldList currentFields, FieldList dstFields) {
-    if (!isNeedUpdateTable(task) || dstFields == null) {
+    if (!isNeedUpdateTable(task)) {
+      return null;
+    }
+    // Nothing to apply and nothing to copy from: no patch, rather than one that changes nothing.
+    if (dstFields == null && !hasDescription(task.getColumnOptions())) {
       return null;
     }
 
+    // dstFields (the previous table's schema) is only needed for the retain-from-previous-table
+    // copy, which only ever applies in mode:replace. It can be null here (e.g. the destination
+    // table didn't exist yet when storeCachedSrcFieldsIfNeed() ran), in which case
+    // column_options[].description can still be applied below.
     List<Field> updatedFields = new ArrayList<>();
     for (Field field : currentFields) {
-      Field.Builder fieldBuilder = field.toBuilder();
-      dstFields.stream()
-          .filter(x -> x.getName().equals(field.getName()))
-          .findFirst()
-          .ifPresent(
-              srcField -> {
-                if (task.getRetainColumnDescriptions()) {
-                  fieldBuilder.setDescription(srcField.getDescription());
-                }
-                if (task.getRetainColumnPolicyTags()) {
-                  fieldBuilder.setPolicyTags(srcField.getPolicyTags());
-                }
-              });
-      task.getColumnOptions()
-          .flatMap(columnOptions -> BigqueryUtil.findColumnOption(field.getName(), columnOptions))
-          .flatMap(BigqueryColumnOption::getDescription)
-          .ifPresent(fieldBuilder::setDescription);
-      updatedFields.add(fieldBuilder.build());
+      Field srcField =
+          dstFields == null
+              ? null
+              : dstFields.stream()
+                  .filter(x -> x.getName().equals(field.getName()))
+                  .findFirst()
+                  .orElse(null);
+      Optional<BigqueryColumnOption> columnOption =
+          task.getColumnOptions()
+              .flatMap(
+                  columnOptions -> BigqueryUtil.findColumnOption(field.getName(), columnOptions));
+      updatedFields.add(patchField(field, srcField, task, columnOption.orElse(null)));
     }
     return com.google.cloud.bigquery.Schema.of(updatedFields);
+  }
+
+  // Patches a single field, recursing into RECORD sub-fields so that both the
+  // retain-from-previous-table copy and column_options[].fields[].description apply at any
+  // nesting depth, matching hasDescription()'s recursion (used by
+  // isNeedUpdateTable() above). `option` is the field's column_options[] entry (or fields[]
+  // entry, below the top level), null when it has none.
+  private static Field patchField(
+      Field field, Field srcField, PluginTask task, DescribedOption option) {
+    Field.Builder fieldBuilder = field.toBuilder();
+    // Only what the previous table had is carried over, as ruby does (`if src_field.description`):
+    // where it had none, whatever the loaded table carries (from a template table, say) stays.
+    if (needRetainColumnAttributes(task) && srcField != null) {
+      if (task.getRetainColumnDescriptions() && srcField.getDescription() != null) {
+        fieldBuilder.setDescription(srcField.getDescription());
+      }
+      if (task.getRetainColumnPolicyTags() && srcField.getPolicyTags() != null) {
+        fieldBuilder.setPolicyTags(srcField.getPolicyTags());
+      }
+    }
+    // column_options[].description is applied regardless of mode or the retain_column_*
+    // flags, unlike the retain-from-previous-table copy above which only makes sense for
+    // mode:replace.
+    if (option != null && option.getDescription().isPresent()) {
+      fieldBuilder.setDescription(option.getDescription().get());
+    }
+
+    // A RECORD always has at least one sub-field: the library refuses to build one without
+    // (Field.Builder#setType, which fromPb() goes through as well), so an empty list needs no
+    // guard here.
+    if (field.getSubFields() != null) {
+      FieldList srcSubFields = srcField == null ? null : srcField.getSubFields();
+      List<BigqueryFieldOption> nestedFieldOptions =
+          option == null ? null : option.getFields().orElse(null);
+      List<Field> patchedSubFields = new ArrayList<>();
+      for (Field subField : field.getSubFields()) {
+        Field matchingSrcSubField =
+            srcSubFields == null
+                ? null
+                : srcSubFields.stream()
+                    .filter(x -> x.getName().equals(subField.getName()))
+                    .findFirst()
+                    .orElse(null);
+        BigqueryFieldOption subFieldOption =
+            nestedFieldOptions == null
+                ? null
+                : findFieldOption(subField.getName(), nestedFieldOptions).orElse(null);
+        patchedSubFields.add(patchField(subField, matchingSrcSubField, task, subFieldOption));
+      }
+      fieldBuilder.setType(field.getType(), FieldList.of(patchedSubFields));
+    }
+
+    return fieldBuilder.build();
+  }
+
+  private static Optional<BigqueryFieldOption> findFieldOption(
+      String fieldName, List<BigqueryFieldOption> fieldOptions) {
+    return fieldOptions.stream().filter(f -> f.getName().equals(fieldName)).findFirst();
   }
 
   public TimePartitioning buildTimePartitioning(BigqueryTimePartitioning bigqueryTimePartitioning) {

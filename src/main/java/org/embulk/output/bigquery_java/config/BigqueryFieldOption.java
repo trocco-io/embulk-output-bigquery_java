@@ -6,7 +6,7 @@ import org.embulk.util.config.Config;
 import org.embulk.util.config.ConfigDefault;
 import org.embulk.util.config.Task;
 
-public interface BigqueryFieldOption extends Task {
+public interface BigqueryFieldOption extends Task, DescribedOption {
 
   @Config("name")
   String getName();
