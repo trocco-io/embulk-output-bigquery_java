@@ -25,7 +25,9 @@ import java.io.IOException;
 // later, which ships the upstream fix, delete this class and the setServiceRpcFactory() call in
 // TestHostBigQueryOptions. Until then, check this class on any library bump: a change to the
 // constructor's request-factory setup, or to how write() uses the Location open() returns, would
-// still compile but change behavior.
+// still compile but change behavior. BigqueryClient#uploadChunkSizeFor() copies the library's
+// chunk arithmetic (BaseWriteChannel's 256 KiB unit and how close() sends what is left) for the
+// same version and outlives this class: re-check it on the same occasions.
 final class TestHostBigQueryRpc extends HttpBigQueryRpc {
   private static final String RESUMABLE_PATH = "upload/bigquery/v2/projects/";
 
