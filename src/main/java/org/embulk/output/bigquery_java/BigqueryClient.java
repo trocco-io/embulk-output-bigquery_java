@@ -438,7 +438,8 @@ public class BigqueryClient {
                     logger.info(
                         "embulk-output-bigquery: Load job starting... {} does not exist, skipped",
                         loadFile);
-                    // TODO: should throw error?
+                    // As ruby (its load returns nil here): the transaction report counts this
+                    // as 0 rows, and abort_on_error fails the run on the rows that are missing.
                     return null;
                   }
 

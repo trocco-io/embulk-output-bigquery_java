@@ -34,6 +34,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
@@ -154,6 +155,40 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
           Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(load.uploadFile, true));
 
       assertGetTable(requests.next(), "table");
+    }
+  }
+
+  // An intermediate file that is gone by the time it is loaded (another process cleaning up
+  // under path_prefix, say) made load() return null, which getTransactionReport() dereferenced:
+  // a NullPointerException where ruby, whose load returns nil for it, counts it as 0 rows and
+  // reports the rows it held as rejected. Now the same: those rows are missing from
+  // num_output_rows, and abort_on_error (on by default) fails the run on the mismatch. Only the
+  // file that is still there is uploaded; the gone one makes no request.
+  @Test
+  public void testRunReportsAnIntermediateFileThatIsGoneAsRejectedRows() throws Exception {
+    File goneFile = testFolder.newFile("gone.json");
+    BigqueryFileWriter goneWriter = new BigqueryFileWriter();
+    goneWriter.setCompression("NONE");
+    goneWriter.open(goneFile.getPath());
+    goneWriter.write("{\"c0\":\"gone\"}\n".getBytes(StandardCharsets.UTF_8));
+    goneWriter.close();
+    assertTrue(goneFile.delete());
+    BigqueryUtil.getFileWriters().put(-1L, goneWriter);
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            c -> c.set("mode", "append_direct"),
+            RuntimeException.class,
+            "(?s).*ABORT: `num_input_rows \\(2\\)` and `num_output_rows \\(1\\)` does not match.*",
+            MockResponses.of(datasetResponse(), tableResponse())
+                .add(loadAttemptResponses("testjob", null))
+                .toArray())) {
+      assertGetDataset(requests.next());
+      assertPostTables(requests.next());
+      LoadAttempt load = assertLoadAttempt(requests, "testjob");
+      assertEquals(
+          Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(load.uploadFile, true));
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
     }
   }
 

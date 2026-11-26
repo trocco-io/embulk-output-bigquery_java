@@ -317,8 +317,11 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       return new BigqueryTransactionReport(BigInteger.valueOf(inputRows));
     }
 
+    // load() returns null for an intermediate file that was gone when its turn came; ruby's
+    // transaction_report counts that as 0 rows, and so does this. The rows that file held are
+    // then missing from num_output_rows, which abort_on_error reports.
     long responseRows =
-        statistics.stream().map(JobStatistics.LoadStatistics::getOutputRows).reduce(0L, Long::sum);
+        statistics.stream().mapToLong(s -> s == null ? 0L : s.getOutputRows()).sum();
     BigInteger outputRows;
     if (task.getTempTable().isPresent()) {
       outputRows = client.getTable(task.getTempTable().get()).getNumRows();

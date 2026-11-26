@@ -5,12 +5,16 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.google.cloud.bigquery.FieldValueList;
+import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.TableResult;
 import java.io.File;
 import java.io.IOException;
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
@@ -53,6 +57,35 @@ public class TestBigqueryJavaOutputPlugin {
           .build();
 
   @Rule public TemporaryFolder testFolder = new TemporaryFolder();
+
+  // getTransactionReport() counts a load that returned null (its intermediate file was gone, see
+  // BigqueryClient#load()) as 0 rows, like ruby's transaction_report does for a nil response, so
+  // the rows that file held show up in num_rejected_rows instead of a NullPointerException.
+  @Test
+  public void testTransactionReportCountsASkippedLoadAsNoRows() throws Exception {
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            loadYamlResource(embulk, "base.yml").set("mode", "append_direct"), PluginTask.class);
+    BigqueryFileWriter writer = new BigqueryFileWriter();
+    writer.setCompression("NONE");
+    writer.open(testFolder.newFile("rows.json").getPath());
+    writer.write("{\"c0\":1}\n".getBytes(StandardCharsets.UTF_8));
+    writer.write("{\"c0\":2}\n".getBytes(StandardCharsets.UTF_8));
+    writer.close();
+
+    BigqueryTransactionReport report =
+        new BigqueryJavaOutputPlugin()
+            .getTransactionReport(
+                task,
+                null,
+                Collections.<JobStatistics.LoadStatistics>singletonList(null),
+                Collections.singletonList(writer));
+
+    assertEquals(BigInteger.valueOf(2), report.getNumInputRows());
+    assertEquals(BigInteger.ZERO, report.getNumResponseRows());
+    assertEquals(BigInteger.ZERO, report.getNumOutputRows());
+    assertEquals(BigInteger.valueOf(2), report.getNumRejectedRows());
+  }
 
   @Test
   public void testDefaultConfigValues() {
