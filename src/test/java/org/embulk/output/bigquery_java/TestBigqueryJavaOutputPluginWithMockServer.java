@@ -184,6 +184,31 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     }
   }
 
+  // A temp table whose metadata carries no row count counts as 0 output rows, as in ruby
+  // (num_rows.to_i), so the run aborts on the mismatch rather than on a NullPointerException.
+  @Test
+  public void testRunCountsATempTableWithoutARowCountAsNoOutputRows() throws Exception {
+    // GET dataset, POST temp table, load into it, GET temp table (no numRows) -> abort; the temp
+    // table is still deleted on the way out.
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            c -> c.set("mode", "append"),
+            RuntimeException.class,
+            "(?s).*ABORT: `num_input_rows \\(1\\)` and `num_output_rows \\(0\\)` does not match.*",
+            MockResponses.of(datasetResponse(), tableResponse())
+                .add(loadAttemptResponses("testjob", null))
+                .add(tableResponse(), deleteResponse())
+                .toArray())) {
+      assertGetDataset(requests.next());
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
+      assertLoadAttempt(requests, "testjob");
+      assertGetTable(requests.next(), tempTableId); // getTransactionReport()
+      assertDeleteTable(requests.next(), tempTableId);
+    }
+  }
+
   // With abort_on_error off (max_bad_records > 0 here), the run goes on without the rows of the
   // gone file, as in ruby: the file still there is uploaded, the gone one makes no request, and
   // the run completes as any append_direct run does.

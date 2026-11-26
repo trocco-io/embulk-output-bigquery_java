@@ -84,6 +84,16 @@ public class TestBigqueryJavaOutputPlugin {
     assertEquals(BigInteger.ZERO, report.getNumResponseRows());
     assertEquals(BigInteger.ZERO, report.getNumOutputRows());
     assertEquals(BigInteger.valueOf(2), report.getNumRejectedRows());
+    assertEquals(
+        "{\"num_input_rows\":2,\"num_response_rows\":0,\"num_output_rows\":0,\"num_rejected_rows\":2}",
+        report.toJson());
+  }
+
+  // With is_skip_job_result_check, only the input rows are counted and logged, as in ruby.
+  @Test
+  public void testTransactionReportLogsOnlyInputRowsWhenTheJobResultCheckIsSkipped() {
+    assertEquals(
+        "{\"num_input_rows\":3}", new BigqueryTransactionReport(BigInteger.valueOf(3)).toJson());
   }
 
   @Test

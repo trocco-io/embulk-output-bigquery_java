@@ -95,7 +95,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       BigqueryTransactionReport report =
           getTransactionReport(task, client, statistics, this.writers.values());
       // As ruby: the one place the row counts are told when the run doesn't abort on them.
-      logger.info("embulk-output-bigquery: transaction_report: {}", report);
+      logger.info("embulk-output-bigquery: transaction_report: {}", report.toJson());
       if (task.getAbortOnError().get() && !task.getIsSkipJobResultCheck()) {
         if (report.getNumInputRows().compareTo(report.getNumOutputRows()) != 0) {
           String msg =
@@ -327,7 +327,9 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
             .sum();
     BigInteger outputRows;
     if (task.getTempTable().isPresent()) {
-      outputRows = client.getTable(task.getTempTable().get()).getNumRows();
+      // Null when the table carries no row count (ruby: num_rows.to_i).
+      BigInteger numRows = client.getTable(task.getTempTable().get()).getNumRows();
+      outputRows = numRows == null ? BigInteger.ZERO : numRows;
     } else {
       outputRows = BigInteger.valueOf(responseRows);
     }

@@ -1,6 +1,7 @@
 package org.embulk.output.bigquery_java;
 
 import java.math.BigInteger;
+import java.util.StringJoiner;
 
 public class BigqueryTransactionReport {
   private BigInteger numInputRows;
@@ -51,5 +52,22 @@ public class BigqueryTransactionReport {
 
   public BigInteger getNumRejectedRows() {
     return numRejectedRows;
+  }
+
+  // The report as ruby logs it: JSON with ruby's keys, and only num_input_rows when the job
+  // result check is skipped (the other counts are null then).
+  public String toJson() {
+    StringJoiner json = new StringJoiner(",", "{", "}");
+    addCount(json, "num_input_rows", numInputRows);
+    addCount(json, "num_response_rows", numResponseRows);
+    addCount(json, "num_output_rows", numOutputRows);
+    addCount(json, "num_rejected_rows", numRejectedRows);
+    return json.toString();
+  }
+
+  private static void addCount(StringJoiner json, String key, BigInteger count) {
+    if (count != null) {
+      json.add("\"" + key + "\":" + count);
+    }
   }
 }
