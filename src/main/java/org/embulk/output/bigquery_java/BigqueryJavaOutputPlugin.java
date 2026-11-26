@@ -94,6 +94,8 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       }
       BigqueryTransactionReport report =
           getTransactionReport(task, client, statistics, this.writers.values());
+      // As ruby: the one place the row counts are told when the run doesn't abort on them.
+      logger.info("embulk-output-bigquery: transaction_report: {}", report);
       if (task.getAbortOnError().get() && !task.getIsSkipJobResultCheck()) {
         if (report.getNumInputRows().compareTo(report.getNumOutputRows()) != 0) {
           String msg =
@@ -317,9 +319,12 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       return new BigqueryTransactionReport(BigInteger.valueOf(inputRows));
     }
 
-    // A null is a load skipped for a missing file, counted as 0 rows (see BigqueryClient#load()).
+    // A null is a load skipped for a missing file, counted as 0 rows (see BigqueryClient#load()),
+    // as is a job without an output row count (ruby: output_rows.to_i).
     long responseRows =
-        statistics.stream().mapToLong(s -> s == null ? 0L : s.getOutputRows()).sum();
+        statistics.stream()
+            .mapToLong(s -> s == null || s.getOutputRows() == null ? 0L : s.getOutputRows())
+            .sum();
     BigInteger outputRows;
     if (task.getTempTable().isPresent()) {
       outputRows = client.getTable(task.getTempTable().get()).getNumRows();

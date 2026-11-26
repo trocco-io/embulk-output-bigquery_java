@@ -39,6 +39,7 @@ import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -165,6 +166,53 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
   // the gone one makes no request.
   @Test
   public void testRunReportsAnIntermediateFileThatIsGoneAsRejectedRows() throws Exception {
+    try (RequestCursor requests =
+        runWithAnIntermediateFileGone(
+            () ->
+                runWithMockServerExpectingFailure(
+                    c -> c.set("mode", "append_direct"),
+                    RuntimeException.class,
+                    "(?s).*ABORT: `num_input_rows \\(2\\)` and `num_output_rows \\(1\\)` does not match.*",
+                    MockResponses.of(datasetResponse(), tableResponse())
+                        .add(loadAttemptResponses("testjob", null))
+                        .toArray()))) {
+      assertGetDataset(requests.next());
+      assertPostTables(requests.next());
+      LoadAttempt load = assertLoadAttempt(requests, "testjob");
+      assertEquals(
+          Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(load.uploadFile, true));
+    }
+  }
+
+  // With abort_on_error off (max_bad_records > 0 here), the run goes on without the rows of the
+  // gone file, as in ruby: the file still there is uploaded, the gone one makes no request, and
+  // the run completes as any append_direct run does.
+  @Test
+  public void testRunGoesOnWithoutAnIntermediateFileThatIsGoneWhenNotAbortingOnError()
+      throws Exception {
+    try (RequestCursor requests =
+        runWithAnIntermediateFileGone(
+            () ->
+                runWithMockServer(
+                    c -> c.set("mode", "append_direct").set("max_bad_records", 1),
+                    MockResponses.of(datasetResponse(), tableResponse())
+                        .add(loadAttemptResponses("testjob", null))
+                        .add(tableResponse())
+                        .toArray()))) {
+      assertGetDataset(requests.next());
+      assertPostTables(requests.next());
+      LoadAttempt load = assertLoadAttempt(requests, "testjob");
+      assertEquals(
+          Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(load.uploadFile, true));
+      assertGetTable(requests.next(), "table"); // updateTableIfNeed()
+    }
+  }
+
+  // Runs `run` with a writer registered as if a thread of this run had written one row to a file
+  // that has since been removed. Removed from the JVM-wide map afterwards, so it can't break a
+  // later test that calls transaction().
+  private RequestCursor runWithAnIntermediateFileGone(Callable<RequestCursor> run)
+      throws Exception {
     File goneFile = testFolder.newFile("gone.json");
     BigqueryFileWriter goneWriter = new BigqueryFileWriter();
     goneWriter.setCompression("NONE");
@@ -173,19 +221,8 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     goneWriter.close();
     assertTrue(goneFile.delete());
     BigqueryUtil.getFileWriters().put(-1L, goneWriter);
-    try (RequestCursor requests =
-        runWithMockServerExpectingFailure(
-            c -> c.set("mode", "append_direct"),
-            RuntimeException.class,
-            "(?s).*ABORT: `num_input_rows \\(2\\)` and `num_output_rows \\(1\\)` does not match.*",
-            MockResponses.of(datasetResponse(), tableResponse())
-                .add(loadAttemptResponses("testjob", null))
-                .toArray())) {
-      assertGetDataset(requests.next());
-      assertPostTables(requests.next());
-      LoadAttempt load = assertLoadAttempt(requests, "testjob");
-      assertEquals(
-          Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(load.uploadFile, true));
+    try {
+      return run.call();
     } finally {
       BigqueryUtil.getFileWriters().remove(-1L);
     }
