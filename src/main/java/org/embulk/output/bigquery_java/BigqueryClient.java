@@ -403,13 +403,7 @@ public class BigqueryClient {
           task.getColumnOptions()
               .flatMap(
                   columnOptions -> BigqueryUtil.findColumnOption(field.getName(), columnOptions));
-      updatedFields.add(
-          patchField(
-              field,
-              srcField,
-              task,
-              columnOption.flatMap(BigqueryColumnOption::getDescription).orElse(null),
-              columnOption.flatMap(BigqueryColumnOption::getFields).orElse(null)));
+      updatedFields.add(patchField(field, srcField, task, columnOption.orElse(null)));
     }
     return com.google.cloud.bigquery.Schema.of(updatedFields);
   }
@@ -417,14 +411,10 @@ public class BigqueryClient {
   // Patches a single field, recursing into RECORD sub-fields so that both the
   // retain-from-previous-table copy and column_options[].fields[].description apply at any
   // nesting depth, matching hasDescription()'s recursion (used by
-  // isNeedUpdateTable() above). description/nestedFieldOptions are nullable rather than Optional
-  // since they're plain inputs here, not return values.
+  // isNeedUpdateTable() above). `option` is the field's column_options[] entry (or fields[]
+  // entry, below the top level), null when it has none.
   private static Field patchField(
-      Field field,
-      Field srcField,
-      PluginTask task,
-      String description,
-      List<BigqueryFieldOption> nestedFieldOptions) {
+      Field field, Field srcField, PluginTask task, DescribedOption option) {
     Field.Builder fieldBuilder = field.toBuilder();
     // Only what the previous table had is carried over, as ruby does (`if src_field.description`):
     // where it had none, whatever the loaded table carries (from a template table, say) stays.
@@ -439,8 +429,8 @@ public class BigqueryClient {
     // column_options[].description is applied regardless of mode or the retain_column_*
     // flags, unlike the retain-from-previous-table copy above which only makes sense for
     // mode:replace.
-    if (description != null) {
-      fieldBuilder.setDescription(description);
+    if (option != null && option.getDescription().isPresent()) {
+      fieldBuilder.setDescription(option.getDescription().get());
     }
 
     // A RECORD always has at least one sub-field: the library refuses to build one without
@@ -448,6 +438,8 @@ public class BigqueryClient {
     // guard here.
     if (field.getSubFields() != null) {
       FieldList srcSubFields = srcField == null ? null : srcField.getSubFields();
+      List<BigqueryFieldOption> nestedFieldOptions =
+          option == null ? null : option.getFields().orElse(null);
       List<Field> patchedSubFields = new ArrayList<>();
       for (Field subField : field.getSubFields()) {
         Field matchingSrcSubField =
@@ -461,13 +453,7 @@ public class BigqueryClient {
             nestedFieldOptions == null
                 ? null
                 : findFieldOption(subField.getName(), nestedFieldOptions).orElse(null);
-        patchedSubFields.add(
-            patchField(
-                subField,
-                matchingSrcSubField,
-                task,
-                subFieldOption == null ? null : subFieldOption.getDescription().orElse(null),
-                subFieldOption == null ? null : subFieldOption.getFields().orElse(null)));
+        patchedSubFields.add(patchField(subField, matchingSrcSubField, task, subFieldOption));
       }
       fieldBuilder.setType(field.getType(), FieldList.of(patchedSubFields));
     }
