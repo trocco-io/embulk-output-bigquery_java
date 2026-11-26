@@ -312,14 +312,12 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       BigqueryClient client,
       List<JobStatistics.LoadStatistics> statistics,
       Collection<BigqueryFileWriter> writers) {
-    long inputRows = writers.stream().map(BigqueryFileWriter::getCount).reduce(0L, Long::sum);
+    long inputRows = writers.stream().mapToLong(BigqueryFileWriter::getCount).sum();
     if (task.getIsSkipJobResultCheck()) {
       return new BigqueryTransactionReport(BigInteger.valueOf(inputRows));
     }
 
-    // load() returns null for an intermediate file that was gone when its turn came; ruby's
-    // transaction_report counts that as 0 rows, and so does this. The rows that file held are
-    // then missing from num_output_rows, which abort_on_error reports.
+    // A null is a load skipped for a missing file, counted as 0 rows (see BigqueryClient#load()).
     long responseRows =
         statistics.stream().mapToLong(s -> s == null ? 0L : s.getOutputRows()).sum();
     BigInteger outputRows;

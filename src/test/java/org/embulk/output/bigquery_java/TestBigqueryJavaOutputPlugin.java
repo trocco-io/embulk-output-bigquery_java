@@ -58,9 +58,8 @@ public class TestBigqueryJavaOutputPlugin {
 
   @Rule public TemporaryFolder testFolder = new TemporaryFolder();
 
-  // getTransactionReport() counts a load that returned null (its intermediate file was gone, see
-  // BigqueryClient#load()) as 0 rows, like ruby's transaction_report does for a nil response, so
-  // the rows that file held show up in num_rejected_rows instead of a NullPointerException.
+  // A load skipped for a missing intermediate file (null, see BigqueryClient#load()) counts as 0
+  // rows, so its rows show up in num_rejected_rows rather than in a NullPointerException.
   @Test
   public void testTransactionReportCountsASkippedLoadAsNoRows() throws Exception {
     PluginTask task =

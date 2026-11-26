@@ -159,11 +159,10 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
   }
 
   // An intermediate file that is gone by the time it is loaded (another process cleaning up
-  // under path_prefix, say) made load() return null, which getTransactionReport() dereferenced:
-  // a NullPointerException where ruby, whose load returns nil for it, counts it as 0 rows and
-  // reports the rows it held as rejected. Now the same: those rows are missing from
-  // num_output_rows, and abort_on_error (on by default) fails the run on the mismatch. Only the
-  // file that is still there is uploaded; the gone one makes no request.
+  // under path_prefix, say) used to end in a NullPointerException from getTransactionReport().
+  // Now, as in ruby (see BigqueryClient#load()), its rows are missing from num_output_rows and
+  // abort_on_error fails the run on the mismatch. Only the file that is still there is uploaded;
+  // the gone one makes no request.
   @Test
   public void testRunReportsAnIntermediateFileThatIsGoneAsRejectedRows() throws Exception {
     File goneFile = testFolder.newFile("gone.json");
