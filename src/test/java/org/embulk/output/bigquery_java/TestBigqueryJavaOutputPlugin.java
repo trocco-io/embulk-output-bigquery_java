@@ -65,6 +65,8 @@ public class TestBigqueryJavaOutputPlugin {
     PluginTask task =
         CONFIG_MAPPER.map(
             loadYamlResource(embulk, "base.yml").set("mode", "append_direct"), PluginTask.class);
+    // No temp table, so the report doesn't ask the (null) client for its row count.
+    assertFalse(task.getTempTable().isPresent());
     BigqueryFileWriter writer = new BigqueryFileWriter();
     writer.setCompression("NONE");
     writer.open(testFolder.newFile("rows.json").getPath());

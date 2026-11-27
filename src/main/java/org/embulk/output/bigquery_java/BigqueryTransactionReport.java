@@ -11,16 +11,7 @@ public class BigqueryTransactionReport {
 
   @Override
   public String toString() {
-    return "BigqueryTransactionReport{"
-        + "numInputRows="
-        + numInputRows
-        + ", numResponseRows="
-        + numResponseRows
-        + ", numOutputRows="
-        + numOutputRows
-        + ", numRejectedRows="
-        + numRejectedRows
-        + '}';
+    return toJson();
   }
 
   public BigqueryTransactionReport(
