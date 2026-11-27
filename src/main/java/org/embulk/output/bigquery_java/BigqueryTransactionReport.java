@@ -1,18 +1,15 @@
 package org.embulk.output.bigquery_java;
 
 import java.math.BigInteger;
-import java.util.StringJoiner;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
 
 public class BigqueryTransactionReport {
   private BigInteger numInputRows;
   private BigInteger numResponseRows;
   private BigInteger numOutputRows;
   private BigInteger numRejectedRows;
-
-  @Override
-  public String toString() {
-    return toJson();
-  }
 
   public BigqueryTransactionReport(
       BigInteger numInputRows,
@@ -47,18 +44,14 @@ public class BigqueryTransactionReport {
 
   // The report as ruby logs it: JSON with ruby's keys, and only num_input_rows when the job
   // result check is skipped (the other counts are null then).
-  public String toJson() {
-    StringJoiner json = new StringJoiner(",", "{", "}");
-    addCount(json, "num_input_rows", numInputRows);
-    addCount(json, "num_response_rows", numResponseRows);
-    addCount(json, "num_output_rows", numOutputRows);
-    addCount(json, "num_rejected_rows", numRejectedRows);
-    return json.toString();
-  }
-
-  private static void addCount(StringJoiner json, String key, BigInteger count) {
-    if (count != null) {
-      json.add("\"" + key + "\":" + count);
-    }
+  @Override
+  public String toString() {
+    Map<String, BigInteger> counts = new LinkedHashMap<>();
+    counts.put("num_input_rows", numInputRows);
+    counts.put("num_response_rows", numResponseRows);
+    counts.put("num_output_rows", numOutputRows);
+    counts.put("num_rejected_rows", numRejectedRows);
+    counts.values().removeIf(Objects::isNull);
+    return BigqueryUtil.getObjectMapper().valueToTree(counts).toString();
   }
 }

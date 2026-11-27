@@ -58,8 +58,8 @@ public class TestBigqueryJavaOutputPlugin {
 
   @Rule public TemporaryFolder testFolder = new TemporaryFolder();
 
-  // A load skipped for a missing intermediate file (null, see BigqueryClient#load()) counts as 0
-  // rows, so its rows show up in num_rejected_rows rather than in a NullPointerException.
+  // A load skipped for a missing intermediate file leaves no statistics (see transaction()), so
+  // its rows show up in num_rejected_rows.
   @Test
   public void testTransactionReportCountsASkippedLoadAsNoRows() throws Exception {
     PluginTask task =
@@ -79,7 +79,7 @@ public class TestBigqueryJavaOutputPlugin {
             .getTransactionReport(
                 task,
                 null,
-                Collections.<JobStatistics.LoadStatistics>singletonList(null),
+                Collections.<JobStatistics.LoadStatistics>emptyList(),
                 Collections.singletonList(writer));
 
     assertEquals(BigInteger.valueOf(2), report.getNumInputRows());
@@ -88,14 +88,14 @@ public class TestBigqueryJavaOutputPlugin {
     assertEquals(BigInteger.valueOf(2), report.getNumRejectedRows());
     assertEquals(
         "{\"num_input_rows\":2,\"num_response_rows\":0,\"num_output_rows\":0,\"num_rejected_rows\":2}",
-        report.toJson());
+        report.toString());
   }
 
   // With is_skip_job_result_check, only the input rows are counted and logged, as in ruby.
   @Test
   public void testTransactionReportLogsOnlyInputRowsWhenTheJobResultCheckIsSkipped() {
     assertEquals(
-        "{\"num_input_rows\":3}", new BigqueryTransactionReport(BigInteger.valueOf(3)).toJson());
+        "{\"num_input_rows\":3}", new BigqueryTransactionReport(BigInteger.valueOf(3)).toString());
   }
 
   @Test
