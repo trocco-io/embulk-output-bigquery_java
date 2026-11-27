@@ -34,10 +34,12 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -155,6 +157,120 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
 
       assertGetTable(requests.next(), "table");
     }
+  }
+
+  // An intermediate file that is gone by the time it is loaded (another process cleaning up
+  // under path_prefix, say) used to end in a NullPointerException from getTransactionReport().
+  // Now, as in ruby (see BigqueryClient#load()), its rows are missing from num_output_rows and
+  // abort_on_error fails the run on the mismatch. Only the file that is still there is uploaded;
+  // the gone one makes no request.
+  @Test
+  public void testRunReportsAnIntermediateFileThatIsGoneAsRejectedRows() throws Exception {
+    try (RequestCursor requests =
+        runWithAnIntermediateFileGone(
+            () ->
+                runWithMockServerExpectingFailure(
+                    c -> c.set("mode", "append_direct"),
+                    RuntimeException.class,
+                    "(?s).*ABORT: `num_input_rows \\(2\\)` and `num_output_rows \\(1\\)` does not match.*",
+                    MockResponses.of(datasetResponse(), tableResponse())
+                        .add(loadAttemptResponses("testjob", null))
+                        .toArray()))) {
+      assertGetDataset(requests.next());
+      assertPostTables(requests.next());
+      LoadAttempt load = assertLoadAttempt(requests, "testjob");
+      assertEquals(
+          Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(load.uploadFile, true));
+    }
+  }
+
+  // A temp table whose metadata carries no row count counts as 0 output rows, as in ruby
+  // (num_rows.to_i), so the run aborts on the mismatch rather than on a NullPointerException.
+  @Test
+  public void testRunCountsATempTableWithoutARowCountAsNoOutputRows() throws Exception {
+    // GET dataset, POST temp table, load into it, GET temp table (no numRows) -> abort; the temp
+    // table is still deleted on the way out.
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            c -> c.set("mode", "append"),
+            RuntimeException.class,
+            "(?s).*ABORT: `num_input_rows \\(1\\)` and `num_output_rows \\(0\\)` does not match.*",
+            MockResponses.of(datasetResponse(), tableResponse())
+                .add(loadAttemptResponses("testjob", null))
+                .add(tableResponse(), deleteResponse())
+                .toArray())) {
+      assertGetDataset(requests.next());
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
+      assertLoadAttempt(requests, "testjob");
+      assertGetTable(requests.next(), tempTableId); // getTransactionReport()
+      assertDeleteTable(requests.next(), tempTableId);
+    }
+  }
+
+  // A temp table gone by the time its row count is read (expired, or removed by another process)
+  // fails the run naming the table, as ruby's NotFoundError does, rather than with a
+  // NullPointerException; the temp table delete on the way out is still attempted.
+  @Test
+  public void testRunFailsNamingTheTempTableWhenItIsGone() throws Exception {
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            c -> c.set("mode", "append"),
+            RuntimeException.class,
+            "(?s).*BigqueryException: Table project:dataset\\.\\S+ is not found.*",
+            MockResponses.of(datasetResponse(), tableResponse())
+                .add(loadAttemptResponses("testjob", null))
+                .add(errorResponse(404, "Not found: Table", "notFound"), deleteResponse())
+                .toArray())) {
+      assertGetDataset(requests.next());
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
+      assertLoadAttempt(requests, "testjob");
+      assertGetTable(requests.next(), tempTableId); // getTransactionReport()
+      assertDeleteTable(requests.next(), tempTableId);
+    }
+  }
+
+  // With abort_on_error off (max_bad_records > 0 here), the run goes on without the rows of the
+  // gone file, as in ruby: the file still there is uploaded, the gone one makes no request, and
+  // the run completes as any append_direct run does.
+  @Test
+  public void testRunGoesOnWithoutAnIntermediateFileThatIsGoneWhenNotAbortingOnError()
+      throws Exception {
+    try (RequestCursor requests =
+        runWithAnIntermediateFileGone(
+            () ->
+                runWithMockServer(
+                    c -> c.set("mode", "append_direct").set("max_bad_records", 1),
+                    MockResponses.of(datasetResponse(), tableResponse())
+                        .add(loadAttemptResponses("testjob", null))
+                        .add(tableResponse())
+                        .toArray()))) {
+      assertGetDataset(requests.next());
+      assertPostTables(requests.next());
+      LoadAttempt load = assertLoadAttempt(requests, "testjob");
+      assertEquals(
+          Collections.singletonList("{\"c0\":\"hello\"}"), uploadedLines(load.uploadFile, true));
+      assertGetTable(requests.next(), "table"); // updateTableIfNeed()
+    }
+  }
+
+  // Runs `run` with a writer registered as if a thread of this run had written one row to a file
+  // that has since been removed. The JVM-wide map is cleared before every test (see
+  // clearFileWriters()), so the writer can't break a later test that calls transaction().
+  private RequestCursor runWithAnIntermediateFileGone(Callable<RequestCursor> run)
+      throws Exception {
+    File goneFile = testFolder.newFile("gone.json");
+    BigqueryFileWriter goneWriter = new BigqueryFileWriter();
+    goneWriter.setCompression("NONE");
+    goneWriter.open(goneFile.getPath());
+    goneWriter.write("{\"c0\":\"gone\"}\n".getBytes(StandardCharsets.UTF_8));
+    goneWriter.close();
+    assertTrue(goneFile.delete());
+    BigqueryUtil.getFileWriters().put(-1L, goneWriter);
+    return run.call();
   }
 
   @Test

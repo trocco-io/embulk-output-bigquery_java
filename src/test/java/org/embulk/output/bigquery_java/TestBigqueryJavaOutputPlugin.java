@@ -5,12 +5,16 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.google.cloud.bigquery.FieldValueList;
+import com.google.cloud.bigquery.JobStatistics;
 import com.google.cloud.bigquery.TableResult;
 import java.io.File;
 import java.io.IOException;
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.embulk.config.ConfigSource;
 import org.embulk.input.file.LocalFileInputPlugin;
@@ -53,6 +57,46 @@ public class TestBigqueryJavaOutputPlugin {
           .build();
 
   @Rule public TemporaryFolder testFolder = new TemporaryFolder();
+
+  // A load skipped for a missing intermediate file leaves no statistics (see transaction()), so
+  // its rows show up in num_rejected_rows.
+  @Test
+  public void testTransactionReportCountsASkippedLoadAsNoRows() throws Exception {
+    PluginTask task =
+        CONFIG_MAPPER.map(
+            loadYamlResource(embulk, "base.yml").set("mode", "append_direct"), PluginTask.class);
+    // No temp table, so the report doesn't ask the (null) client for its row count.
+    assertFalse(task.getTempTable().isPresent());
+    BigqueryFileWriter writer = new BigqueryFileWriter();
+    writer.setCompression("NONE");
+    writer.open(testFolder.newFile("rows.json").getPath());
+    writer.write("{\"c0\":1}\n".getBytes(StandardCharsets.UTF_8));
+    writer.write("{\"c0\":2}\n".getBytes(StandardCharsets.UTF_8));
+    writer.close();
+
+    BigqueryTransactionReport report =
+        new BigqueryJavaOutputPlugin()
+            .getTransactionReport(
+                task,
+                null,
+                Collections.<JobStatistics.LoadStatistics>emptyList(),
+                Collections.singletonList(writer));
+
+    assertEquals(BigInteger.valueOf(2), report.getNumInputRows());
+    assertEquals(BigInteger.ZERO, report.getNumResponseRows());
+    assertEquals(BigInteger.ZERO, report.getNumOutputRows());
+    assertEquals(BigInteger.valueOf(2), report.getNumRejectedRows());
+    assertEquals(
+        "{\"num_input_rows\":2,\"num_response_rows\":0,\"num_output_rows\":0,\"num_rejected_rows\":2}",
+        report.toString());
+  }
+
+  // With is_skip_job_result_check, only the input rows are counted and logged, as in ruby.
+  @Test
+  public void testTransactionReportLogsOnlyInputRowsWhenTheJobResultCheckIsSkipped() {
+    assertEquals(
+        "{\"num_input_rows\":3}", new BigqueryTransactionReport(BigInteger.valueOf(3)).toString());
+  }
 
   @Test
   public void testDefaultConfigValues() {

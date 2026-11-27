@@ -86,14 +86,22 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       }
 
       for (Future<JobStatistics> jobStatisticFuture : jobStatisticFutures) {
+        JobStatistics.LoadStatistics loadStatistics;
         try {
-          statistics.add((JobStatistics.LoadStatistics) jobStatisticFuture.get());
+          loadStatistics = (JobStatistics.LoadStatistics) jobStatisticFuture.get();
         } catch (Exception e) {
           throw new RuntimeException(e);
+        }
+        // Null is a load skipped for a missing file (see BigqueryClient#load()): no rows to
+        // report, as ruby counts its nil response as 0.
+        if (loadStatistics != null) {
+          statistics.add(loadStatistics);
         }
       }
       BigqueryTransactionReport report =
           getTransactionReport(task, client, statistics, this.writers.values());
+      // As ruby: the one place the row counts are told when the run doesn't abort on them.
+      logger.info("embulk-output-bigquery: transaction_report: {}", report);
       if (task.getAbortOnError().get() && !task.getIsSkipJobResultCheck()) {
         if (report.getNumInputRows().compareTo(report.getNumOutputRows()) != 0) {
           String msg =
@@ -317,11 +325,24 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       return new BigqueryTransactionReport(BigInteger.valueOf(inputRows));
     }
 
+    // A job without an output row count counts as 0 rows (ruby: output_rows.to_i).
     long responseRows =
-        statistics.stream().map(JobStatistics.LoadStatistics::getOutputRows).reduce(0L, Long::sum);
+        statistics.stream()
+            .mapToLong(s -> s.getOutputRows() == null ? 0L : s.getOutputRows())
+            .sum();
     BigInteger outputRows;
     if (task.getTempTable().isPresent()) {
-      outputRows = client.getTable(task.getTempTable().get()).getNumRows();
+      Table tempTable = client.getTable(task.getTempTable().get());
+      if (tempTable == null) {
+        // As ruby's get_table_or_partition, which raises NotFoundError on a 404.
+        throw new BigqueryException(
+            String.format(
+                "Table %s:%s.%s is not found",
+                client.destinationProject, client.destinationDataset, task.getTempTable().get()));
+      }
+      // Null when the table carries no row count (ruby: num_rows.to_i).
+      BigInteger numRows = tempTable.getNumRows();
+      outputRows = numRows == null ? BigInteger.ZERO : numRows;
     } else {
       outputRows = BigInteger.valueOf(responseRows);
     }
