@@ -209,6 +209,30 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     }
   }
 
+  // A temp table gone by the time its row count is read (expired, or removed by another process)
+  // fails the run naming the table, as ruby's NotFoundError does, rather than with a
+  // NullPointerException; the temp table delete on the way out is still attempted.
+  @Test
+  public void testRunFailsNamingTheTempTableWhenItIsGone() throws Exception {
+    try (RequestCursor requests =
+        runWithMockServerExpectingFailure(
+            c -> c.set("mode", "append"),
+            RuntimeException.class,
+            "(?s).*BigqueryException: Table project:dataset\\.\\S+ is not found.*",
+            MockResponses.of(datasetResponse(), tableResponse())
+                .add(loadAttemptResponses("testjob", null))
+                .add(errorResponse(404, "Not found: Table", "notFound"), deleteResponse())
+                .toArray())) {
+      assertGetDataset(requests.next());
+      RecordedRequest createTempTable = requests.next();
+      assertPostTables(createTempTable);
+      String tempTableId = tableIdOf(requestBodyJson(createTempTable), "tableReference");
+      assertLoadAttempt(requests, "testjob");
+      assertGetTable(requests.next(), tempTableId); // getTransactionReport()
+      assertDeleteTable(requests.next(), tempTableId);
+    }
+  }
+
   // With abort_on_error off (max_bad_records > 0 here), the run goes on without the rows of the
   // gone file, as in ruby: the file still there is uploaded, the gone one makes no request, and
   // the run completes as any append_direct run does.

@@ -327,8 +327,16 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
             .sum();
     BigInteger outputRows;
     if (task.getTempTable().isPresent()) {
+      Table tempTable = client.getTable(task.getTempTable().get());
+      if (tempTable == null) {
+        // As ruby's get_table_or_partition, which raises NotFoundError on a 404.
+        throw new BigqueryException(
+            String.format(
+                "Table %s:%s.%s is not found",
+                client.destinationProject, client.destinationDataset, task.getTempTable().get()));
+      }
       // Null when the table carries no row count (ruby: num_rows.to_i).
-      BigInteger numRows = client.getTable(task.getTempTable().get()).getNumRows();
+      BigInteger numRows = tempTable.getNumRows();
       outputRows = numRows == null ? BigInteger.ZERO : numRows;
     } else {
       outputRows = BigInteger.valueOf(responseRows);
