@@ -352,7 +352,11 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     broken.open(testFolder.newFile("broken-error-cleanup.jsonl").getPath());
     BigqueryUtil.getFileWriters().put(-1L, broken);
 
-    runFailingOnRecordConversion(true);
+    try {
+      runFailingOnRecordConversion(true);
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+    }
   }
 
   // Runs append_direct over two rows with c0 typed INTEGER: the first row ("1") is written to the
@@ -467,6 +471,9 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
       assertPostTables(createTempTable);
       assertDeleteTable(
           requests.next(), tableIdOf(requestBodyJson(createTempTable), "tableReference"));
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+      BigqueryUtil.getFileWriters().remove(-2L);
     }
 
     // Three close() calls in all: the data phase reaches one of the two, the cleanup both.
@@ -508,6 +515,9 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
       assertPostTables(createTempTable);
       assertDeleteTable(
           requests.next(), tableIdOf(requestBodyJson(createTempTable), "tableReference"));
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+      BigqueryUtil.getFileWriters().remove(-2L);
     }
 
     assertEquals(3, closed.get());
@@ -549,8 +559,12 @@ public class TestBigqueryJavaOutputPluginWithMockServer {
     BigqueryFileWriter brokenWriter = brokenWriter(closeFailure);
     brokenWriter.open(brokenFile.getPath());
     BigqueryUtil.getFileWriters().put(-1L, brokenWriter);
-    return runWithMockServerExpectingFailure(
-        c -> c.set("mode", "replace"), expectedFailureType, errorMessagePattern, responses);
+    try {
+      return runWithMockServerExpectingFailure(
+          c -> c.set("mode", "replace"), expectedFailureType, errorMessagePattern, responses);
+    } finally {
+      BigqueryUtil.getFileWriters().remove(-1L);
+    }
   }
 
   private BigqueryFileWriter brokenWriter(String closeFailure) {

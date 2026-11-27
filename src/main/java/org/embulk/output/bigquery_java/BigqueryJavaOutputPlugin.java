@@ -320,7 +320,7 @@ public class BigqueryJavaOutputPlugin implements OutputPlugin {
       BigqueryClient client,
       List<JobStatistics.LoadStatistics> statistics,
       Collection<BigqueryFileWriter> writers) {
-    long inputRows = writers.stream().mapToLong(BigqueryFileWriter::getCount).sum();
+    long inputRows = writers.stream().map(BigqueryFileWriter::getCount).reduce(0L, Long::sum);
     if (task.getIsSkipJobResultCheck()) {
       return new BigqueryTransactionReport(BigInteger.valueOf(inputRows));
     }
